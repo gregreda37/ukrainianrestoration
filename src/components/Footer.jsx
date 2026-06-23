@@ -75,6 +75,11 @@ export default function Footer() {
 
         <div className="footer__bottom">
           <span>&copy; {year} Ukrainian Restoration LLC. All rights reserved.</span>
+          <span className="footer__legal-links">
+            <Link to="/terms">Terms &amp; Conditions</Link>
+            <span aria-hidden="true">&bull;</span>
+            <Link to="/privacy">Privacy Policy</Link>
+          </span>
           <span>Licensed &amp; Insured &bull; NJ.LIC #13VH10509300</span>
         </div>
       </div>

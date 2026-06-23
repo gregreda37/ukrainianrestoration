@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Per-user data ────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read, write: if request.auth != null;
+    }
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── Organization data ────────────────────────────────────────────────────
+    match /organizations/{orgId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // OAuth tokens — backend (Admin SDK) only; block all client reads/writes
+    match /organization_data/{orgId}/integrations/{intId} {
+      allow read, write: if false;
+    }
+
+    match /organization_data/{orgId} {
+      allow read, write: if request.auth != null;
+    }
+    match /organization_data/{orgId}/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── Client phone / claim lookup ──────────────────────────────────────────
+    match /client_phones/{phone} {
+      // The doc itself is readable by anyone (login page needs to look up orgId)
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /client_phones/{phone}/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── SMS opt-in consent records ────────────────────────────────────────────
+    // Written before auth completes (when user clicks "Send Code"), so writes
+    // must be allowed unauthenticated. Reads restricted to authenticated users.
+    match /opt_in_records/{phone} {
+      allow write: if true;
+      allow read:  if request.auth != null;
+    }
+
+  }
+}

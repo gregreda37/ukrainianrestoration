@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+uploads/
+image_classifier.log
+client_secret.json
+firebase-service-account.json

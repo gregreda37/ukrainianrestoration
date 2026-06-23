@@ -43,9 +43,9 @@ export default function Navbar() {
             </li>
           ))}
           <li>
-            <a href="tel:+19732194973" className="btn btn-primary navbar__cta" onClick={close}>
-              Call Now
-            </a>
+            <Link to="/myclaim/login" className="btn btn-primary navbar__cta" onClick={close}>
+              View My Claim
+            </Link>
           </li>
         </ul>
 

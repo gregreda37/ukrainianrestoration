@@ -25,6 +25,50 @@ def _from_number():
         raise RuntimeError("TWILIO_FROM_NUMBER must be set in .env")
     return num
 
+_NOTIFICATION_MESSAGES = {
+    "portal_ready":    "Ukrainian Restoration: Your client portal is ready! Sign in to track your project: ukrainianrestoration.com/myclaim/login",
+    "new_todo":        "Ukrainian Restoration: You have new tasks waiting in your portal. Please log in to review: ukrainianrestoration.com/myclaim/login",
+    "progress_update": "Ukrainian Restoration: There's a new update on your restoration project. Log in to your portal for details: ukrainianrestoration.com/myclaim/login",
+    "review_request":  "Ukrainian Restoration: We'd love your feedback! If you're happy with our work, please leave us a Google review. Thank you for choosing us!",
+}
+
+@sms_app.route("/notify-client", methods=["POST"])
+def notify_client():
+    data     = request.json or {}
+    to_phone = (data.get("phone") or "").strip()
+    notif_type = (data.get("type") or "").strip()
+    message  = _NOTIFICATION_MESSAGES.get(notif_type) or data.get("message", "").strip()
+
+    if not to_phone:
+        return jsonify({"error": "Missing phone"}), 400
+    if not message:
+        return jsonify({"error": "Unknown notification type"}), 400
+
+    digits = "".join(c for c in to_phone if c.isdigit())
+    if len(digits) == 10:
+        digits = "1" + digits
+    if not digits.startswith("1") or len(digits) != 11:
+        return jsonify({"error": f"Cannot normalise phone number: {to_phone}"}), 400
+    e164 = "+" + digits
+
+    try:
+        client = _twilio_client()
+        msg = client.messages.create(body=message, from_=_from_number(), to=e164)
+        time.sleep(2)
+        msg = client.messages(msg.sid).fetch()
+        if msg.status in ("failed", "undelivered"):
+            code = msg.error_code
+            hint = _TF_ERRORS.get(code, f"Message undelivered (error {code}).")
+            return jsonify({"error": hint, "code": code}), 400
+        return jsonify({"sid": msg.sid, "status": msg.status})
+    except TwilioRestException as e:
+        return jsonify({"error": str(e), "code": e.code}), 400
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @sms_app.route("/sms/notify", methods=["POST"])
 def notify():
     data     = request.json or {}

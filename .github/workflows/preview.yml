@@ -43,4 +43,4 @@ jobs:
           service_account: firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com
 
       - name: Deploy preview channel
-        run: npx firebase-tools hosting:channel:deploy pr-${{ github.event.pull_request.number }} --project ukrainianrestoration-50993 --site ukrainianrestoration-50993
+        run: npx firebase-tools hosting:channel:deploy pr-${{ github.event.pull_request.number }} --project ukrainianrestoration-50993

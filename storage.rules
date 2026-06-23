@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // User documents — any authenticated user can read and write
+    // (contractors need to upload files on behalf of clients)
+    match /users/{userId}/documents/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Org assets — any authenticated user can read
+    match /organizations/{orgId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+  }
+}

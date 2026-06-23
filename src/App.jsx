@@ -1,5 +1,5 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import Home from './pages/Home'
@@ -9,6 +9,45 @@ import WaterDamage from './pages/WaterDamage'
 import Handyman from './pages/Handyman'
 import JunkRemoval from './pages/JunkRemoval'
 import Contact from './pages/Contact'
+import TermsAndConditions from './pages/TermsAndConditions'
+import PrivacyPolicy from './pages/PrivacyPolicy'
+
+import './myclaim/myclaim.css'
+
+const Login          = lazy(() => import('./myclaim/Login'))
+const ClientPortal   = lazy(() => import('./myclaim/ClientPortal'))
+const ClaimLayout    = lazy(() => import('./myclaim/ClaimLayout'))
+const ProtectedRoute      = lazy(() => import('./myclaim/ProtectedRoute'))
+const ProtectedClientRoute = lazy(() =>
+  import('./myclaim/ProtectedRoute').then(m => ({ default: m.ProtectedClientRoute }))
+)
+const Dashboard    = lazy(() => import('./myclaim/Dashboard'))
+const Clients      = lazy(() => import('./myclaim/Clients'))
+const ClientDetail = lazy(() => import('./myclaim/ClientDetail'))
+const Documents    = lazy(() => import('./myclaim/Documents'))
+const Chatbot      = lazy(() => import('./myclaim/Chatbot'))
+const Settings     = lazy(() => import('./myclaim/Settings'))
+const TeamSettings = lazy(() => import('./myclaim/TeamSettings'))
+const OptInPolicy  = lazy(() => import('./myclaim/OptInPolicy'))
+
+function PortalFallback() {
+  return (
+    <div className="mc-portal-skel">
+      <div className="mc-ps-header">
+        <div className="mc-ps-logo-skel" />
+        <div className="mc-ps-title-skel" />
+      </div>
+      <div className="mc-ps-banner" />
+      <div className="mc-ps-body">
+        <div className="mc-ps-card" style={{ gridColumn: '1', minHeight: 320 }} />
+        <div className="mc-ps-col">
+          <div className="mc-ps-card" style={{ minHeight: 140 }} />
+          <div className="mc-ps-card" style={{ minHeight: 160 }} />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -16,23 +55,97 @@ function ScrollToTop() {
   return null
 }
 
-export default function App() {
+function PageTransition({ children }) {
+  const { pathname } = useLocation()
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    setVisible(false)
+    const t = requestAnimationFrame(() => setVisible(true))
+    return () => cancelAnimationFrame(t)
+  }, [pathname])
+
+  return (
+    <div className={`page-transition${visible ? ' page-transition--in' : ''}`}>
+      {children}
+    </div>
+  )
+}
+
+function PublicSite() {
   return (
     <>
-      <ScrollToTop />
       <Navbar />
       <main>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/projects" element={<Projects />} />
-          <Route path="/water-damage" element={<WaterDamage />} />
-          <Route path="/handyman" element={<Handyman />} />
-          <Route path="/junk-removal" element={<JunkRemoval />} />
-          <Route path="/contact" element={<Contact />} />
-        </Routes>
+        <PageTransition>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/water-damage" element={<WaterDamage />} />
+            <Route path="/handyman" element={<Handyman />} />
+            <Route path="/junk-removal" element={<JunkRemoval />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/terms" element={<TermsAndConditions />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+          </Routes>
+        </PageTransition>
       </main>
       <Footer />
+    </>
+  )
+}
+
+export default function App() {
+  const { pathname } = useLocation()
+  const inPortal = pathname.startsWith('/myclaim')
+
+  return (
+    <>
+      {!inPortal && <ScrollToTop />}
+      <Routes>
+        {/* ── Login ── */}
+        <Route path="/myclaim/login" element={
+          <Suspense fallback={<PortalFallback />}><Login /></Suspense>
+        } />
+
+        {/* ── SMS opt-in policy (public) ── */}
+        <Route path="/myclaim/opt-in-policy" element={
+          <Suspense fallback={<PortalFallback />}><OptInPolicy /></Suspense>
+        } />
+
+        {/* ── Client portal (phone users) ── */}
+        <Route path="/myclaim/portal" element={
+          <Suspense fallback={<PortalFallback />}>
+            <ProtectedClientRoute>
+              <ClientPortal />
+            </ProtectedClientRoute>
+          </Suspense>
+        } />
+
+        {/* ── Contractor portal (email/Google users only) ── */}
+        <Route
+          path="/myclaim/*"
+          element={
+            <Suspense fallback={<PortalFallback />}>
+              <ProtectedRoute>
+                <ClaimLayout />
+              </ProtectedRoute>
+            </Suspense>
+          }
+        >
+          <Route index element={<Suspense fallback={<PortalFallback />}><Dashboard /></Suspense>} />
+          <Route path="clients" element={<Suspense fallback={<PortalFallback />}><Clients /></Suspense>} />
+          <Route path="clients/:id" element={<Suspense fallback={<PortalFallback />}><ClientDetail /></Suspense>} />
+          <Route path="documents" element={<Suspense fallback={<PortalFallback />}><Documents /></Suspense>} />
+          <Route path="chatbot" element={<Suspense fallback={<PortalFallback />}><Chatbot /></Suspense>} />
+          <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />
+          <Route path="team" element={<Suspense fallback={<PortalFallback />}><TeamSettings /></Suspense>} />
+        </Route>
+
+        {/* ── Public site ── */}
+        <Route path="/*" element={<PublicSite />} />
+      </Routes>
     </>
   )
 }

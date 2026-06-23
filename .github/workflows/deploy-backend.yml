@@ -1,0 +1,51 @@
+name: Deploy Backend to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push container
+        run: |
+          gcloud builds submit backend \
+            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/myclaim-backend:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy myclaim-backend \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/myclaim-backend:${{ github.sha }} \
+            --region us-east1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars "AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}" \
+            --set-env-vars "AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+            --set-env-vars "AZURE_OPENAI_API_TYPE=${{ secrets.AZURE_OPENAI_API_TYPE }}" \
+            --set-env-vars "AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}" \
+            --set-env-vars "AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
+            --set-env-vars "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" \
+            --set-env-vars "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" \
+            --set-env-vars "TWILIO_FROM_NUMBER=${{ secrets.TWILIO_FROM_NUMBER }}" \
+            --set-env-vars "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+            --set-env-vars "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+            --set-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
+            --set-env-vars "FLASK_SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}"

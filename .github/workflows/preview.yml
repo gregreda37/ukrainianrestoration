@@ -11,13 +11,14 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -38,7 +39,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com
 
       - name: Deploy preview channel
         run: npx firebase-tools hosting:channel:deploy pr-${{ github.event.pull_request.number }} --project ukrainianrestoration-50993 --site ukrainianrestoration-50993

@@ -1,16 +1,16 @@
-const functions = require("firebase-functions");
+const { onRequest } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
+
+const GOOGLE_MAPS_KEY = defineSecret("GOOGLE_MAPS_KEY");
 
 /**
  * Serves the Google Maps JS API URL with the key injected server-side.
- * The key is stored in Firebase Secret Manager and never appears in
- * built frontend files or browser page source.
- *
  * Secret is set via: firebase functions:secrets:set GOOGLE_MAPS_KEY
  * Accessible via the /api/maps-loader Firebase Hosting rewrite.
  */
-exports.mapsLoader = functions
-  .runWith({ secrets: ["GOOGLE_MAPS_KEY"] })
-  .https.onRequest((req, res) => {
+exports.mapsLoader = onRequest(
+  { secrets: [GOOGLE_MAPS_KEY] },
+  (req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
 
@@ -23,7 +23,7 @@ exports.mapsLoader = functions
       return;
     }
 
-    const key = process.env.GOOGLE_MAPS_KEY;
+    const key = GOOGLE_MAPS_KEY.value();
     if (!key) {
       console.error("GOOGLE_MAPS_KEY secret is not set");
       res.status(500).json({ error: "Maps key not configured" });
@@ -34,4 +34,5 @@ exports.mapsLoader = functions
     res.json({
       src: `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`,
     });
-  });
+  }
+);

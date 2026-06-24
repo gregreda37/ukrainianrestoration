@@ -63,6 +63,14 @@ export default function Login() {
       const e164 = toE164(phone)
       if (!e164) { setError('Enter a valid 10-digit US number.'); setSubmitting(false); return }
 
+      // Block unregistered numbers — clients must be added by their contractor first
+      const phoneSnap = await getDoc(doc(db, 'client_phones', e164))
+      if (!phoneSnap.exists()) {
+        setError("This number isn’t registered with any active claim. Contact your contractor to be added.")
+        setSubmitting(false)
+        return
+      }
+
       // Record opt-in consent before the SMS is sent — TCPA compliance
       setDoc(doc(db, 'opt_in_records', e164), {
         phone:           e164,

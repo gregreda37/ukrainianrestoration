@@ -21,6 +21,12 @@ export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const storage = getStorage(app)
 
+if (import.meta.env.DEV) {
+  // Allows App Check to work on localhost — generates a debug token
+  // printed to the console; add it in Firebase Console → App Check → debug tokens
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true
+}
+
 initializeAppCheck(app, {
   provider: new ReCaptchaEnterpriseProvider('6LdlPDItAAAAAHRDHo-TBbcF2YolKAk0QB12Qlqs'),
   isTokenAutoRefreshEnabled: true,

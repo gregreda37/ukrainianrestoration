@@ -92,7 +92,10 @@ export default function Login() {
       setStep('code')
 
     } catch (err) {
-      console.error('[phone-auth]', err.code, err.message)
+      console.error('[phone-auth] code:', err.code)
+      console.error('[phone-auth] message:', err.message)
+      console.error('[phone-auth] customData:', JSON.stringify(err.customData ?? null))
+      console.error('[phone-auth] serverResponse:', JSON.stringify(err.customData?.serverResponse ?? err.customData?._serverResponse ?? null))
       window.recaptchaVerifier?.clear()
       delete window.recaptchaVerifier
       setError(friendlyPhoneError(err.code, err.message))

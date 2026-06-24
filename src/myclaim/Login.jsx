@@ -50,11 +50,6 @@ export default function Login() {
   }, [])
 
   useEffect(() => {
-    const authInstance = getAuth()
-    window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'recaptcha-container', {
-      size: 'invisible',
-      callback: () => {},
-    })
     return () => {
       window.recaptchaVerifier?.clear()
       delete window.recaptchaVerifier
@@ -84,12 +79,12 @@ export default function Login() {
       }, { merge: true }).catch(() => {})
 
       const authInstance = getAuth()
-      if (!window.recaptchaVerifier) {
-        window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'recaptcha-container', {
-          size: 'invisible',
-          callback: () => {},
-        })
-      }
+      window.recaptchaVerifier?.clear()
+      delete window.recaptchaVerifier
+      window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'recaptcha-container', {
+        size: 'invisible',
+        callback: () => {},
+      })
 
       const result = await signInWithPhoneNumber(authInstance, e164, window.recaptchaVerifier)
       setConfirmation(result)

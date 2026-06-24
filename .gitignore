@@ -3,3 +3,11 @@ dist
 .DS_Store
 *.local
 .env
+
+# Python
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.Python

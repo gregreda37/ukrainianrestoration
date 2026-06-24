@@ -1,4 +1,4 @@
-name: Deploy to Firebase Hosting
+name: Deploy to Firebase
 
 on:
   push:
@@ -10,6 +10,7 @@ jobs:
 
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +38,31 @@ jobs:
       - name: Install Functions dependencies
         run: npm ci --prefix functions
 
-      - name: Deploy to Firebase Hosting and Functions
-        run: npx firebase-tools deploy --only hosting,functions --project ukrainianrestoration-50993
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-action-1273406172@ukrainianrestoration-50993.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          projectId: ukrainianrestoration-50993
+          channelId: live
+
+      - name: Deploy Cloud Function
+        run: |
+          gcloud functions deploy mapsLoader \
+            --runtime nodejs22 \
+            --trigger-http \
+            --allow-unauthenticated \
+            --region us-central1 \
+            --project ukrainianrestoration-50993 \
+            --source functions/ \
+            --entry-point mapsLoader \
+            --set-secrets GOOGLE_MAPS_KEY=GOOGLE_MAPS_KEY:latest

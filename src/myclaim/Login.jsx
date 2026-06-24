@@ -277,8 +277,8 @@ export default function Login() {
           {/* Phone entry */}
           {step === 'phone' && (
             <>
-              <h1 className="mc-login__title">Welcome back.</h1>
-              <p className="mc-login__sub">Sign in with the number on your claim.</p>
+              <h1 className="mc-login__title">Welcome.</h1>
+              <p className="mc-login__sub">Enter the phone number associated with your claim to view your restoration status and documents.</p>
 
               <form className="mc-login__form" onSubmit={handleSendCode} noValidate>
                 <div className="mc-field-group">

@@ -15,7 +15,11 @@ Setup:
 import os
 import io
 import json
+import base64
+import hashlib
+import secrets
 import requests as http_requests
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from flask import Blueprint, request, jsonify, redirect, session
 from firebase_admin import firestore as admin_firestore
 from dotenv import load_dotenv
@@ -140,13 +144,27 @@ def auth_start():
     if not CLIENT_ID or not CLIENT_SECRET:
         return "Could not read client_id / client_secret from the JSON file.", 500
 
+    # Generate PKCE code_verifier ourselves so we can store it in state
+    code_verifier = secrets.token_urlsafe(96)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).decode().rstrip("=")
+
+    # Encode orgId + code_verifier in state so the callback can reconstruct both
+    state_payload = base64.urlsafe_b64encode(
+        json.dumps({"o": org_id, "v": code_verifier}).encode()
+    ).decode().rstrip("=")
+
     flow = _flow()
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
-        state=org_id,
+        state=state_payload,
+        code_challenge=code_challenge,
+        code_challenge_method="S256",
     )
+    print(f"[drive/auth] org_id={org_id!r} code_challenge={code_challenge[:10]}… auth_url built")
     return redirect(auth_url)
 
 
@@ -169,13 +187,23 @@ def auth_callback():
         print("[drive/callback] Missing code or state — aborting")
         return _popup_close(success=False, message="Missing code or state")
 
+    # Decode state — base64 JSON containing orgId + code_verifier
     org_id = raw_state
+    code_verifier = None
+    try:
+        padded = raw_state + "=" * (-len(raw_state) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+        org_id = payload.get("o", raw_state)
+        code_verifier = payload.get("v")
+        print(f"[drive/callback] Decoded state: org_id={org_id!r}, code_verifier present={bool(code_verifier)}")
+    except Exception as decode_err:
+        print(f"[drive/callback] State decode failed ({decode_err}), using raw state as org_id")
 
     try:
         print(f"[drive/callback] Building flow, redirect_uri={REDIRECT_URI!r}")
         flow = _flow()
-        print("[drive/callback] Fetching token…")
-        flow.fetch_token(code=code)
+        print(f"[drive/callback] Fetching token, code_verifier present={bool(code_verifier)}…")
+        flow.fetch_token(code=code, code_verifier=code_verifier)
         creds = flow.credentials
         print(f"[drive/callback] Token OK — access_token present={bool(creds.token)}, refresh_token present={bool(creds.refresh_token)}")
 

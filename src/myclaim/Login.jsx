@@ -146,9 +146,9 @@ export default function Login() {
           role: 'contractor',
           createdAt: serverTimestamp(),
         }, { merge: true })
-        // Create the org doc if it doesn't exist yet
+        // Create the org doc if it doesn't exist yet — don't seed companyName
+        // from the Google display name; the contractor sets it in Settings.
         await setDoc(doc(db, 'organization_data', orgId), {
-          companyName: displayName || '',
           createdAt: serverTimestamp(),
         }, { merge: true })
       }

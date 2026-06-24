@@ -29,9 +29,15 @@
   flex-shrink: 0;
 }
 
-.cp-logo { display: flex; align-items: center; height: 36px; }
-.cp-logo img { height: 100%; width: auto; object-fit: contain; }
-.cp-logo-fallback { font-size: 17px; font-weight: 800; color: #0f172a; letter-spacing: -.02em; }
+.cp-logo { display: flex; align-items: center; gap: 8px; height: 36px; }
+.cp-logo-myclaim {
+  font-size: 15px; font-weight: 800; letter-spacing: -.025em;
+  background: linear-gradient(135deg, #1E7FAF 0%, #0f4f7a 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.cp-logo-sep { font-size: 16px; font-weight: 300; color: #cbd5e1; line-height: 1; }
+.cp-logo-company { font-size: 13px; font-weight: 600; color: #334155; letter-spacing: -.01em; }
 
 .cp-header-center {
   position: absolute;
@@ -371,6 +377,39 @@
   transition: background .12s, color .12s;
 }
 .cp-contractor-link:hover .cp-contractor-link-icon { background: #eff6ff; color: #2563eb; }
+
+.cp-team-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: #94a3b8; margin: 0;
+}
+.cp-team-member {
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.cp-team-avatar {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: #e0f2fe; color: #0369a1;
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.cp-team-info {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.cp-team-name {
+  font-size: 13px; font-weight: 600; color: #0f172a;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.cp-team-role {
+  font-size: 10px; font-weight: 600; letter-spacing: .04em;
+  background: #f0fdf4; color: #15803d;
+  border: 1px solid #bbf7d0; border-radius: 4px;
+  padding: 1px 5px;
+}
+.cp-team-email {
+  font-size: 11.5px; color: #64748b; text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cp-team-email:hover { color: #2563eb; }
 
 /* Skeleton loader */
 .cp-skel {

@@ -35,11 +35,14 @@ jobs:
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
 
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com
 
-      - name: Deploy to Firebase Hosting
-        run: npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993
+      - name: Deploy to Firebase Hosting and Functions
+        run: npx firebase-tools deploy --only hosting,functions --project ukrainianrestoration-50993

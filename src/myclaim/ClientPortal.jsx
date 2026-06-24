@@ -29,6 +29,7 @@ const PersonIcon     = () => <svg viewBox="0 0 24 24" fill="none" stroke="curren
 const EmailIcon      = ({size=13}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>;
 const HomeIcon       = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="11" height="11"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>;
 const PhoneIcon      = ({size=13}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.87a19.79 19.79 0 01-3-8.59A2 2 0 012.11 1H5.1a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91A16 16 0 0015.1 17.9l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 18.92z"/></svg>;
+const MapPinIcon     = ({size=13}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const InfoCell = ({ label, value, full }) => (
@@ -410,9 +411,13 @@ export default function ClientPortal() {
       {/* ── Header ── */}
       <header className="cp-header">
         <div className="cp-logo">
-          <img src="/Insureanalyst.svg" alt="Ukrainian Restoration"
-            onError={e => { e.target.style.display="none"; e.target.nextSibling.style.display="block"; }} />
-          <span className="cp-logo-fallback" style={{display:"none"}}>Ukrainian Restoration</span>
+          <span className="cp-logo-myclaim">MyClaim</span>
+          {(orgInfo?.companyName || orgInfo?.domain) && (
+            <>
+              <span className="cp-logo-sep">·</span>
+              <span className="cp-logo-company">{orgInfo.companyName || orgInfo.domain}</span>
+            </>
+          )}
         </div>
         <div className="cp-header-center">
           {customerName ? <>Welcome, <strong>{customerName}</strong></> : "Client Portal"}
@@ -432,7 +437,7 @@ export default function ClientPortal() {
         <div className="cp-welcome">
           <div className="cp-welcome-left">
             <div className="cp-welcome-row">
-              <span className="cp-welcome-eyebrow">Ukrainian Restoration — Client Information</span>
+              <span className="cp-welcome-eyebrow">{orgInfo?.companyName || "Ukrainian Restoration"} — Client Information</span>
             </div>
             <div className="cp-welcome-row">
               {claimInfo.address && <span className="cp-welcome-meta-item"><HomeIcon />{claimInfo.address}</span>}
@@ -624,25 +629,48 @@ export default function ClientPortal() {
                   </div>
                   <hr className="cp-contractor-divider" />
                   <div className="cp-contractor-links">
-                    {contractors[0]?.displayName && (
-                      <span className="cp-contractor-link">
-                        <span className="cp-contractor-link-icon"><PersonIcon /></span>
-                        {contractors[0].displayName}
-                      </span>
-                    )}
-                    {contractors[0]?.email && (
-                      <a href={`mailto:${contractors[0].email}`} className="cp-contractor-link">
-                        <span className="cp-contractor-link-icon"><EmailIcon /></span>
-                        {contractors[0].email}
-                      </a>
-                    )}
                     {orgInfo.companyPhone && (
                       <a href={`tel:${orgInfo.companyPhone}`} className="cp-contractor-link">
                         <span className="cp-contractor-link-icon"><PhoneIcon size={14} /></span>
                         {formatPhone(orgInfo.companyPhone)}
                       </a>
                     )}
+                    {orgInfo.companyAddress && (
+                      <span className="cp-contractor-link">
+                        <span className="cp-contractor-link-icon"><MapPinIcon size={13} /></span>
+                        {orgInfo.companyAddress}
+                      </span>
+                    )}
                   </div>
+                  {contractors.length > 0 && (
+                    <>
+                      <hr className="cp-contractor-divider" />
+                      <p className="cp-team-label">Team</p>
+                      <div className="cp-contractor-links">
+                        {contractors.map(c => (
+                          <div key={c.uid} className="cp-team-member">
+                            <div className="cp-team-avatar">
+                              {(c.displayName || c.email || "?")[0].toUpperCase()}
+                            </div>
+                            <div className="cp-team-info">
+                              <span className="cp-team-name">
+                                {c.displayName || c.email}
+                                {c.role === "project_manager" && (
+                                  <span className="cp-team-role">Project Manager</span>
+                                )}
+                              </span>
+                              {c.email && (
+                                <a href={`mailto:${c.email}`} className="cp-team-email">{c.email}</a>
+                              )}
+                              {c.phone && (
+                                <a href={`tel:${c.phone}`} className="cp-team-email">{formatPhone(c.phone)}</a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="cp-contractor">

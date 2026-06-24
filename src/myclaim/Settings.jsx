@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import { auth, db } from '../firebase'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 
 const API = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5000'
@@ -16,6 +16,10 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
 
   const [orgId,          setOrgId]          = useState('')
+  const [companyName,    setCompanyName]    = useState('')
+  const [companyAddress, setCompanyAddress] = useState('')
+  const [savingCompany,  setSavingCompany]  = useState(false)
+  const [companyMsg,     setCompanyMsg]     = useState('')
   const [driveConnected, setDriveConnected] = useState(false)
   const [driveFolderName, setDriveFolderName] = useState('')
   const [driveLoading,   setDriveLoading]   = useState(false)
@@ -28,6 +32,12 @@ export default function Settings() {
       const oid = snap.data()?.organizationId
       if (!oid) return
       setOrgId(oid)
+      getDoc(doc(db, 'organization_data', oid)).then(oSnap => {
+        if (oSnap.exists()) {
+          setCompanyName(oSnap.data().companyName || '')
+          setCompanyAddress(oSnap.data().companyAddress || '')
+        }
+      })
       fetch(`${API}/integrations/google-drive/status?orgId=${encodeURIComponent(oid)}`)
         .then(r => r.json())
         .then(d => { setDriveConnected(!!d.connected); setDriveFolderName(d.folderName || '') })
@@ -75,6 +85,24 @@ export default function Settings() {
     finally { setDriveLoading(false) }
   }
 
+  async function handleSaveCompany(e) {
+    e.preventDefault()
+    if (!orgId) return
+    setSavingCompany(true); setCompanyMsg('')
+    try {
+      await setDoc(doc(db, 'organization_data', orgId), {
+        companyName: companyName.trim(),
+        companyAddress: companyAddress.trim(),
+      }, { merge: true })
+      setCompanyMsg('Saved.')
+      setTimeout(() => setCompanyMsg(''), 3000)
+    } catch {
+      setCompanyMsg('Could not save. Try again.')
+    } finally {
+      setSavingCompany(false)
+    }
+  }
+
   async function handlePasswordChange(e) {
     e.preventDefault()
     setMsg('')
@@ -101,6 +129,40 @@ export default function Settings() {
     <div className="mc-page">
       <div className="mc-page__hd">
         <h1>Settings</h1>
+      </div>
+
+      <div className="mc-section">
+        <h2 className="mc-section__title">Company</h2>
+        <form className="mc-form" onSubmit={handleSaveCompany}>
+          <label className="mc-field">
+            <span>Company Name</span>
+            <input
+              type="text"
+              value={companyName}
+              onChange={e => setCompanyName(e.target.value)}
+              placeholder="e.g. Ukrainian Restoration LLC"
+              required
+            />
+          </label>
+          <label className="mc-field">
+            <span>Company Address</span>
+            <input
+              type="text"
+              value={companyAddress}
+              onChange={e => setCompanyAddress(e.target.value)}
+              placeholder="e.g. 123 Main St, Newark, NJ 07101"
+            />
+          </label>
+          <p className="mc-muted" style={{ fontSize: '0.8125rem', marginTop: -4 }}>
+            Shown on the client portal team card.
+          </p>
+          {companyMsg && (
+            <p className={companyMsg === 'Saved.' ? 'mc-success' : 'mc-error'}>{companyMsg}</p>
+          )}
+          <button className="mc-btn mc-btn--primary" type="submit" disabled={savingCompany || !orgId}>
+            {savingCompany ? 'Saving…' : 'Save'}
+          </button>
+        </form>
       </div>
 
       <div className="mc-section">

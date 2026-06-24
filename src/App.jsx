@@ -12,6 +12,24 @@ import Contact from './pages/Contact'
 import TermsAndConditions from './pages/TermsAndConditions'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 
+function NotFound() {
+  return (
+    <>
+      <div className="page-banner">
+        <div className="container">
+          <h1>Page Not Found</h1>
+          <p>The page you're looking for doesn't exist.</p>
+        </div>
+      </div>
+      <section className="section" style={{ textAlign: 'center' }}>
+        <div className="container">
+          <a href="/" className="btn btn-primary">Back to Home</a>
+        </div>
+      </section>
+    </>
+  )
+}
+
 import './myclaim/myclaim.css'
 
 const Login          = lazy(() => import('./myclaim/Login'))
@@ -88,6 +106,7 @@ function PublicSite() {
             <Route path="/contact" element={<Contact />} />
             <Route path="/terms" element={<TermsAndConditions />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </PageTransition>
       </main>

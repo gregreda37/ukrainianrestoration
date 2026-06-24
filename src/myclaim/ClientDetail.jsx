@@ -691,10 +691,11 @@ export default function ClientDetail() {
   };
 
   // ── CompanyCam ────────────────────────────────────────────────────────
-  const getThumb = (photo) =>
-    photo.uris?.find(u => u.type === "thumb")?.url
-    || photo.uris?.find(u => u.type === "medium")?.url
-    || photo.uris?.[0]?.url;
+  const getThumb = (photo) => {
+    const pick = (type) => photo.uris?.find(u => u.type === type);
+    const entry = pick("thumb") || pick("medium") || pick("small") || photo.uris?.[0];
+    return entry?.uri || entry?.url;
+  };
 
   const isCCPhotoShared = (id) => selectedPhotoIds != null ? selectedPhotoIds.has(id) : true;
   const ccSharedCount = ccPhotos.filter(p => isCCPhotoShared(p.id)).length;

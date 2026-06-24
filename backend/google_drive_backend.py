@@ -27,9 +27,6 @@ from googleapiclient.http import MediaIoBaseUpload
 
 load_dotenv()
 
-# Allow HTTP for local dev (HTTPS required in production — remove this line then)
-os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
-
 drive_app = Blueprint("drive", __name__, url_prefix="/integrations/google-drive")
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
@@ -45,6 +42,20 @@ REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
     "http://127.0.0.1:5000/integrations/google-drive/callback",
 ).strip()
+
+# If running on Cloud Run the JSON is injected via GOOGLE_CLIENT_SECRETS_JSON
+# instead of a file on disk. Write it to a temp file so the Flow can read it.
+_secrets_json_env = os.getenv("GOOGLE_CLIENT_SECRETS_JSON", "").strip()
+if _secrets_json_env and not os.path.exists(_SECRETS_FILE):
+    import tempfile
+    _tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    _tmp.write(_secrets_json_env)
+    _tmp.close()
+    _SECRETS_FILE = _tmp.name
+
+# Only allow HTTP OAuth callbacks in local dev — production uses HTTPS
+if not REDIRECT_URI.startswith("https://"):
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
 # Read CLIENT_ID / CLIENT_SECRET directly from the JSON file so there's no
 # copy-paste involved — the file is the authoritative source of truth.
@@ -117,20 +128,6 @@ def _get_or_create_folder(service, name: str, parent_id=None) -> str:
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
-
-@drive_app.route("/debug-config")
-def debug_config():
-    """Confirms what credentials the backend loaded — never exposes full secret."""
-    return jsonify({
-        "secrets_file":         _SECRETS_FILE,
-        "secrets_file_exists":  os.path.exists(_SECRETS_FILE),
-        "client_id_prefix":     (CLIENT_ID[:20] + "…") if len(CLIENT_ID) > 20 else CLIENT_ID,
-        "client_id_length":     len(CLIENT_ID),
-        "client_secret_length": len(CLIENT_SECRET),
-        "client_secret_prefix": (CLIENT_SECRET[:4] + "…") if CLIENT_SECRET else "(empty)",
-        "redirect_uri":         REDIRECT_URI,
-    })
-
 
 @drive_app.route("/auth")
 def auth_start():

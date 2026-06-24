@@ -24,7 +24,14 @@ from firebase_admin import firestore as admin_firestore
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24).hex())
-CORS(app, supports_credentials=True)
+
+_cors_env = os.getenv("CORS_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+]
+CORS(app, origins=_cors_origins, supports_credentials=True)
 
 app.register_blueprint(landing_page_app, url_prefix="/landing-page")
 app.register_blueprint(company_chatbot_app, url_prefix="/company-chatbot")

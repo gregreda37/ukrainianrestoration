@@ -44,35 +44,29 @@ _SECRETS_FILE = os.path.join(
 )
 REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
-    "http://127.0.0.1:5000/integrations/google-drive/callback",
+    "http://127.0.0.1:5001/integrations/google-drive/callback",
 ).strip()
 
-# If running on Cloud Run the JSON is injected via GOOGLE_CLIENT_SECRETS_JSON
-# instead of a file on disk. Write it to a temp file so the Flow can read it.
+# Load client config — env var (Cloud Run via Secret Manager) takes priority,
+# falling back to the local file for dev.
+_client_config: dict | None = None
 _secrets_json_env = os.getenv("GOOGLE_CLIENT_SECRETS_JSON", "").strip()
-if _secrets_json_env and not os.path.exists(_SECRETS_FILE):
-    import tempfile
-    _tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
-    _tmp.write(_secrets_json_env)
-    _tmp.close()
-    _SECRETS_FILE = _tmp.name
+if _secrets_json_env:
+    _client_config = json.loads(_secrets_json_env)
+elif os.path.exists(_SECRETS_FILE):
+    with open(_SECRETS_FILE) as _f:
+        _client_config = json.load(_f)
 
-# Only allow HTTP OAuth callbacks in local dev — production uses HTTPS
-if not REDIRECT_URI.startswith("https://"):
-    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
-
-# Read CLIENT_ID / CLIENT_SECRET directly from the JSON file so there's no
-# copy-paste involved — the file is the authoritative source of truth.
 CLIENT_ID     = ""
 CLIENT_SECRET = ""
-try:
-    with open(_SECRETS_FILE) as _f:
-        _raw = json.load(_f)
-        _web = _raw.get("web") or _raw.get("installed") or {}
-        CLIENT_ID     = _web.get("client_id", "")
-        CLIENT_SECRET = _web.get("client_secret", "")
-except FileNotFoundError:
-    pass  # will surface a clear error in the /auth route
+if _client_config:
+    _web = _client_config.get("web") or _client_config.get("installed") or {}
+    CLIENT_ID     = _web.get("client_id", "")
+    CLIENT_SECRET = _web.get("client_secret", "")
+
+# Allow HTTP callbacks in local dev — production uses HTTPS
+if not REDIRECT_URI.startswith("https://"):
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
 _INTEGRATION_COLLECTION = "integrations"
 _DRIVE_DOC              = "google_drive"
@@ -81,9 +75,14 @@ _DRIVE_DOC              = "google_drive"
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _flow(redirect_uri=None):
-    """Build a Flow from the downloaded JSON secrets file."""
-    return Flow.from_client_secrets_file(
-        _SECRETS_FILE,
+    """Build a Flow from the in-memory client config (file or env var)."""
+    if _client_config is None:
+        raise RuntimeError(
+            "No Google client secrets found. Set GOOGLE_CLIENT_SECRETS_JSON "
+            f"or place client_secret.json at {_SECRETS_FILE}"
+        )
+    return Flow.from_client_config(
+        _client_config,
         scopes=SCOPES,
         redirect_uri=redirect_uri or REDIRECT_URI,
     )
@@ -139,10 +138,10 @@ def auth_start():
     org_id = request.args.get("orgId", "")
     if not org_id:
         return "Missing orgId", 400
-    if not os.path.exists(_SECRETS_FILE):
-        return f"client_secret.json not found at {_SECRETS_FILE}", 500
+    if _client_config is None:
+        return "Google client secrets not configured (set GOOGLE_CLIENT_SECRETS_JSON or add client_secret.json)", 500
     if not CLIENT_ID or not CLIENT_SECRET:
-        return "Could not read client_id / client_secret from the JSON file.", 500
+        return "Could not read client_id / client_secret from config.", 500
 
     # Generate PKCE code_verifier ourselves so we can store it in state
     code_verifier = secrets.token_urlsafe(96)

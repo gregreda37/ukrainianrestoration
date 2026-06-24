@@ -53,4 +53,5 @@ jobs:
             --update-env-vars "AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
             --update-env-vars "OPENSIGN_APP_ID=${{ secrets.OPENSIGN_APP_ID }}" \
             --update-env-vars "OPENSIGN_REST_KEY=${{ secrets.OPENSIGN_REST_KEY }}" \
-            --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}"
+            --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
+            --set-secrets "GOOGLE_CLIENT_SECRETS_JSON=google-drive-client-secret:latest"

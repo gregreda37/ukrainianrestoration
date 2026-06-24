@@ -11,6 +11,7 @@ import { auth, db } from '../firebase'
 import { doc, getDoc, setDoc, deleteDoc, getDocs, collection, query, where, serverTimestamp } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 
+
 const CONSENT_LANGUAGE =
   'By clicking "Send Code", I agree to receive text messages from Ukrainian Restoration ' +
   'at the number provided. Message frequency varies. Msg & data rates may apply. ' +
@@ -79,8 +80,10 @@ export default function Login() {
       }, { merge: true }).catch(() => {})
 
       const authInstance = getAuth()
-      window.recaptchaVerifier?.clear()
+      try { window.recaptchaVerifier?.clear() } catch (_) {}
       delete window.recaptchaVerifier
+      const container = document.getElementById('recaptcha-container')
+      if (container) container.innerHTML = ''
       window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'recaptcha-container', {
         size: 'invisible',
         callback: () => {},
@@ -91,12 +94,10 @@ export default function Login() {
       setStep('code')
 
     } catch (err) {
-      console.error('[phone-auth] code:', err.code)
-      console.error('[phone-auth] message:', err.message)
-      console.error('[phone-auth] customData:', JSON.stringify(err.customData ?? null))
-      console.error('[phone-auth] serverResponse:', JSON.stringify(err.customData?.serverResponse ?? err.customData?._serverResponse ?? null))
-      window.recaptchaVerifier?.clear()
+      try { window.recaptchaVerifier?.clear() } catch (_) {}
       delete window.recaptchaVerifier
+      const cont = document.getElementById('recaptcha-container')
+      if (cont) cont.innerHTML = ''
       setError(friendlyPhoneError(err.code, err.message))
     } finally {
       setSubmitting(false)
@@ -291,7 +292,7 @@ export default function Login() {
                   </span>
                 </label>
                 {error && <p className="mc-login__error">{error}</p>}
-                <div id="recaptcha-container" style={{ display: 'none' }} />
+                <div id="recaptcha-container" style={{ position: 'absolute', visibility: 'hidden', height: 0, overflow: 'hidden' }} />
                 <button className="mc-btn-pill" type="submit" disabled={submitting || !agreed}>
                   {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Sending…</> : 'Send Code'}
                 </button>

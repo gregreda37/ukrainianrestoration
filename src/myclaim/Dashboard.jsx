@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
+import { loadGoogleMaps } from "./loadMaps";
 
 const API = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5000';
 import {
@@ -105,28 +106,44 @@ export default function Dashboard() {
 
   // ── Google Places — client modal ─────────────────────────────────────
   useEffect(() => {
-    if (!showModal || !clientAddressRef.current || !window.google?.maps?.places) return;
-    clientAutocompleteRef.current = new window.google.maps.places.Autocomplete(
-      clientAddressRef.current, { types: ["address"], componentRestrictions: { country: "us" } }
-    );
-    clientAutocompleteRef.current.addListener("place_changed", () => {
-      const place = clientAutocompleteRef.current.getPlace();
-      if (place?.formatted_address && clientAddressRef.current) clientAddressRef.current.value = place.formatted_address;
-    });
-    return () => { if (clientAutocompleteRef.current) window.google.maps.event.clearInstanceListeners(clientAutocompleteRef.current); };
+    if (!showModal || !clientAddressRef.current) return;
+    let cancelled = false;
+    const attach = () => {
+      if (cancelled || !clientAddressRef.current || clientAutocompleteRef.current) return;
+      clientAutocompleteRef.current = new window.google.maps.places.Autocomplete(
+        clientAddressRef.current, { types: ["address"], componentRestrictions: { country: "us" } }
+      );
+      clientAutocompleteRef.current.addListener("place_changed", () => {
+        const place = clientAutocompleteRef.current.getPlace();
+        if (place?.formatted_address && clientAddressRef.current) clientAddressRef.current.value = place.formatted_address;
+      });
+    };
+    loadGoogleMaps().then(attach).catch(() => {});
+    return () => {
+      cancelled = true;
+      if (clientAutocompleteRef.current) { window.google?.maps?.event?.clearInstanceListeners(clientAutocompleteRef.current); clientAutocompleteRef.current = null; }
+    };
   }, [showModal]);
 
   // ── Google Places — company address ─────────────────────────────────
   useEffect(() => {
-    if (!editingOrg || !companyAddressRef.current || !window.google?.maps?.places) return;
-    companyAutocompleteRef.current = new window.google.maps.places.Autocomplete(
-      companyAddressRef.current, { types: ["address"], componentRestrictions: { country: "us" } }
-    );
-    companyAutocompleteRef.current.addListener("place_changed", () => {
-      const place = companyAutocompleteRef.current.getPlace();
-      if (place?.formatted_address && companyAddressRef.current) companyAddressRef.current.value = place.formatted_address;
-    });
-    return () => { if (companyAutocompleteRef.current) window.google.maps.event.clearInstanceListeners(companyAutocompleteRef.current); };
+    if (!editingOrg || !companyAddressRef.current) return;
+    let cancelled = false;
+    const attach = () => {
+      if (cancelled || !companyAddressRef.current || companyAutocompleteRef.current) return;
+      companyAutocompleteRef.current = new window.google.maps.places.Autocomplete(
+        companyAddressRef.current, { types: ["address"], componentRestrictions: { country: "us" } }
+      );
+      companyAutocompleteRef.current.addListener("place_changed", () => {
+        const place = companyAutocompleteRef.current.getPlace();
+        if (place?.formatted_address && companyAddressRef.current) companyAddressRef.current.value = place.formatted_address;
+      });
+    };
+    loadGoogleMaps().then(attach).catch(() => {});
+    return () => {
+      cancelled = true;
+      if (companyAutocompleteRef.current) { window.google?.maps?.event?.clearInstanceListeners(companyAutocompleteRef.current); companyAutocompleteRef.current = null; }
+    };
   }, [editingOrg]);
 
   const firstName = userDetails?.displayName?.split(" ")[0] || userDetails?.email?.split("@")[0] || "there";

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
+import { loadGoogleMaps } from "./loadMaps";
 import {
   collection, getDocs, addDoc, setDoc, getDoc, deleteDoc, updateDoc,
   doc, serverTimestamp, query, where,
@@ -117,15 +118,23 @@ export default function Clients() {
 
   // ── Google Places autocomplete ────────────────────────────────────────
   useEffect(() => {
-    if (!showModal || !addressInputRef.current || !window.google?.maps?.places) return;
-    autocompleteRef.current = new window.google.maps.places.Autocomplete(
-      addressInputRef.current, { types: ["address"], componentRestrictions: { country: "us" } }
-    );
-    autocompleteRef.current.addListener("place_changed", () => {
-      const place = autocompleteRef.current.getPlace();
-      if (place?.formatted_address && addressInputRef.current) addressInputRef.current.value = place.formatted_address;
-    });
-    return () => { if (autocompleteRef.current) window.google.maps.event.clearInstanceListeners(autocompleteRef.current); };
+    if (!showModal || !addressInputRef.current) return;
+    let cancelled = false;
+    const attach = () => {
+      if (cancelled || !addressInputRef.current || autocompleteRef.current) return;
+      autocompleteRef.current = new window.google.maps.places.Autocomplete(
+        addressInputRef.current, { types: ["address"], componentRestrictions: { country: "us" } }
+      );
+      autocompleteRef.current.addListener("place_changed", () => {
+        const place = autocompleteRef.current.getPlace();
+        if (place?.formatted_address && addressInputRef.current) addressInputRef.current.value = place.formatted_address;
+      });
+    };
+    loadGoogleMaps().then(attach).catch(() => {});
+    return () => {
+      cancelled = true;
+      if (autocompleteRef.current) { window.google?.maps?.event?.clearInstanceListeners(autocompleteRef.current); autocompleteRef.current = null; }
+    };
   }, [showModal]);
 
   const openModal  = () => { setShowModal(true); setSaved(false); setSaveError(""); };

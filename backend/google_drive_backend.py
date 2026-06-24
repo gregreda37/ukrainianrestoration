@@ -601,6 +601,14 @@ def upload_to_drive():
             subfolder_name   = "External Files" if visible_to_client else "Internal Files"
             target_folder_id = _get_or_create_folder(service, subfolder_name, parent_folder_id)
 
+            # Persist the resolved folder IDs so future uploads skip this resolution
+            if client_phone and not claim_num:
+                folder_field = "driveExternalFolderId" if visible_to_client else "driveInternalFolderId"
+                db.collection("client_phones").document(client_phone).set(
+                    {folder_field: target_folder_id}, merge=True
+                )
+                print(f"[drive/upload] Updated {folder_field}={target_folder_id!r} for phone={client_phone!r}")
+
         # Download the file
         resp = http_requests.get(file_url, timeout=30)
         if not resp.ok:

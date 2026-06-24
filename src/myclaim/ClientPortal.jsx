@@ -1003,7 +1003,6 @@ export default function ClientPortal() {
                     <a className="cp-doc-act" href={d.downloadURL} download={d.name} target="_blank" rel="noreferrer">Download</a>
                   </div>
                 </div>
-                <button className="cp-doc-del" onClick={() => handleDelete(d)} title="Delete">✕</button>
               </div>
             );
           })}

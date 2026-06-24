@@ -549,18 +549,29 @@ def upload_to_drive():
         db      = admin_firestore.client()
 
         if not target_folder_id:
-            # Fall back to resolving the folder path by name
+            # 1. Check Firestore for folder IDs saved when the folder was set up
+            if client_phone:
+                stored = (db.collection("client_phones").document(client_phone).get().to_dict() or {})
+                folder_key       = "driveExternalFolderId" if visible_to_client else "driveInternalFolderId"
+                target_folder_id = stored.get(folder_key, "")
+
+        if not target_folder_id:
+            # 2. Fall back to creating/finding the folder structure by name
             root_id = _get_root_folder_id(db, service, org_id)
 
             last4        = client_phone[-4:] if len(client_phone) >= 4 else client_phone
             client_label = f"{client_name} (…{last4})" if last4 else client_name
             client_folder_id = _get_or_create_folder(service, client_label, root_id)
 
-            target_folder_id = client_folder_id
             if claim_num:
                 claim_folder_id  = _get_or_create_folder(service, f"Claim {claim_num}", client_folder_id)
-                subfolder_name   = "External Files" if visible_to_client else "Internal Files"
-                target_folder_id = _get_or_create_folder(service, subfolder_name, claim_folder_id)
+                parent_folder_id = claim_folder_id
+            else:
+                parent_folder_id = client_folder_id
+
+            # Always route to the correct visibility subfolder
+            subfolder_name   = "External Files" if visible_to_client else "Internal Files"
+            target_folder_id = _get_or_create_folder(service, subfolder_name, parent_folder_id)
 
         # Download the file
         resp = http_requests.get(file_url, timeout=30)

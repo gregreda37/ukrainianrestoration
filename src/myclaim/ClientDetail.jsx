@@ -577,6 +577,9 @@ export default function ClientDetail() {
       // Mirror to Drive using the already-saved Firebase Storage URL
       if (driveConnected) {
         try {
+          // Pass the resolved folder ID from state when available — bypasses all
+          // backend folder lookup and routes to the correct External/Internal subfolder
+          const targetFolderId = folder !== 'internal' ? (driveExternalId || '') : (driveInternalId || '');
           const dr = await fetch(`${API}/integrations/google-drive/upload`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -586,6 +589,7 @@ export default function ClientDetail() {
               clientName: client?.name || phone,
               clientPhone: phone,
               visibleToClient: folder !== 'internal',
+              targetFolderId,
             }),
           });
           if (dr.ok) {

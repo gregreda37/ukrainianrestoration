@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import {
-  collection, getDocs, addDoc, setDoc, getDoc, deleteDoc,
+  collection, getDocs, addDoc, setDoc, getDoc, deleteDoc, updateDoc,
   doc, serverTimestamp, query, where,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
@@ -184,6 +184,18 @@ export default function Clients() {
     } finally { setDeletingClient(false); }
   };
 
+  const toggleClaimStatus = async (client, e) => {
+    e.stopPropagation();
+    const next = (client.claimStatus || "open") === "open" ? "closed" : "open";
+    setClients(prev => prev.map(c => c.id === client.id ? { ...c, claimStatus: next } : c));
+    try {
+      await updateDoc(doc(db, "organization_data", organizationName, "clients", client.id), { claimStatus: next });
+    } catch (err) {
+      console.error(err);
+      setClients(prev => prev.map(c => c.id === client.id ? { ...c, claimStatus: client.claimStatus } : c));
+    }
+  };
+
   const filtered = clients.filter(c => {
     const q = search.toLowerCase();
     return (
@@ -227,53 +239,77 @@ export default function Clients() {
             <EmptyIcon />
             <p>{search ? "No clients match your search." : "No clients yet. Add one to get started."}</p>
           </div>
-        ) : (
-          <div className="cl-grid">
-            {filtered.map(client => {
-              const label = client.name || client.phone || "Unknown";
-              const [bg, fg] = avatarColor(label);
-              return (
-                <div key={client.id} className={`cl-card${client.hasAccount ? " cl-card-active" : ""}`}>
-                  <div className="cl-card-top">
-                    <div className="cl-avatar" style={{ background: bg, color: fg }}>
-                      {label.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="cl-card-info">
-                      <h3 className={`cl-card-name${client.nameFromUser ? " cl-confirmed" : ""}`}>
-                        {client.name || <span className="cl-no-name">No name</span>}
-                      </h3>
-                      <p className="cl-card-phone">{formatPhone(client.phone)}</p>
-                    </div>
-                    <div className="cl-card-badges">
-                      {client.hasAccount && <span className="cl-active-badge"><ActiveDotIcon /> Active</span>}
-                      {(client.openContractorTodos > 0) && <span className="cl-todo-badge">{client.openContractorTodos}</span>}
-                    </div>
+        ) : (() => {
+          const openClients   = filtered.filter(c => (c.claimStatus || "open") === "open");
+          const closedClients = filtered.filter(c => c.claimStatus === "closed");
+          const renderCard = (client) => {
+            const label = client.name || client.phone || "Unknown";
+            const [bg, fg] = avatarColor(label);
+            const isClosed = client.claimStatus === "closed";
+            return (
+              <div key={client.id} className={`cl-card${client.hasAccount ? " cl-card-active" : ""}${isClosed ? " cl-card--closed" : ""}`}>
+                <div className="cl-card-top">
+                  <div className="cl-avatar" style={{ background: bg, color: fg }}>
+                    {label.charAt(0).toUpperCase()}
                   </div>
-                  {client.address && (
-                    <p className={`cl-card-address${client.addressFromUser ? " cl-confirmed" : ""}`}>
-                      <PinIcon /> {client.address}
-                    </p>
-                  )}
-                  {client.claimNumbers?.length > 0 && (
-                    <p className="cl-claim-number"><ClaimIcon /> Claim{client.claimNumbers.length > 1 ? "s" : ""}: {client.claimNumbers.join(", ")}</p>
-                  )}
-                  {client.lastLogin && (
-                    <p className="cl-last-login"><ClockIcon /> Last login: {formatDate(client.lastLogin)}</p>
-                  )}
-                  <div className="cl-card-actions">
-                    <button className="cl-open-btn"
-                      onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
-                      Open Job <ArrowIcon />
+                  <div className="cl-card-info">
+                    <h3 className={`cl-card-name${client.nameFromUser ? " cl-confirmed" : ""}`}>
+                      {client.name || <span className="cl-no-name">No name</span>}
+                    </h3>
+                    <p className="cl-card-phone">{formatPhone(client.phone)}</p>
+                  </div>
+                  <div className="cl-card-badges">
+                    <button
+                      className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}
+                      onClick={e => toggleClaimStatus(client, e)}
+                      title={isClosed ? "Mark as open" : "Mark as closed"}
+                    >
+                      {isClosed ? "Closed" : "Open"}
                     </button>
-                    <button className="cl-delete-btn" onClick={() => setConfirmDelete(client)} title="Delete client">
-                      <TrashIcon />
-                    </button>
+                    {client.hasAccount && <span className="cl-active-badge"><ActiveDotIcon /> Active</span>}
+                    {(client.openContractorTodos > 0) && <span className="cl-todo-badge">{client.openContractorTodos}</span>}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                {client.address && (
+                  <p className={`cl-card-address${client.addressFromUser ? " cl-confirmed" : ""}`}>
+                    <PinIcon /> {client.address}
+                  </p>
+                )}
+                {client.claimNumbers?.length > 0 && (
+                  <p className="cl-claim-number"><ClaimIcon /> Claim{client.claimNumbers.length > 1 ? "s" : ""}: {client.claimNumbers.join(", ")}</p>
+                )}
+                {client.lastLogin && (
+                  <p className="cl-last-login"><ClockIcon /> Last login: {formatDate(client.lastLogin)}</p>
+                )}
+                <div className="cl-card-actions">
+                  <button className="cl-open-btn"
+                    onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
+                    Open Job <ArrowIcon />
+                  </button>
+                  <button className="cl-delete-btn" onClick={() => setConfirmDelete(client)} title="Delete client">
+                    <TrashIcon />
+                  </button>
+                </div>
+              </div>
+            );
+          };
+          return (
+            <>
+              {openClients.length > 0 && (
+                <div className="cl-grid">{openClients.map(renderCard)}</div>
+              )}
+              {closedClients.length > 0 && (
+                <>
+                  <div className="cl-section-label">
+                    <span>Closed Claims</span>
+                    <span className="cl-section-count">{closedClients.length}</span>
+                  </div>
+                  <div className="cl-grid">{closedClients.map(renderCard)}</div>
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* Delete Confirm Modal */}

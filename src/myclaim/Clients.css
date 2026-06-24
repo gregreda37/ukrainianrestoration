@@ -473,6 +473,65 @@
   color: #0f172a;
 }
 
+/* ── Claim status toggle ────────────────────────── */
+.cl-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.cl-status-toggle:hover { opacity: 0.8; transform: scale(0.97); }
+.cl-status-toggle--open {
+  background: #f0fdf4;
+  color: #16a34a;
+  border-color: #bbf7d0;
+}
+.cl-status-toggle--closed {
+  background: #f8fafc;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+}
+
+/* ── Closed card style ──────────────────────────── */
+.cl-card--closed {
+  opacity: 0.65;
+}
+.cl-card--closed:hover { opacity: 0.85; }
+
+/* ── Section divider ────────────────────────────── */
+.cl-section-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cl-section-label::before,
+.cl-section-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+.cl-section-count {
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
 /* ── Responsive ─────────────────────────────────── */
 @media (max-width: 600px) {
   .cl-main { padding: 28px 16px 60px; }

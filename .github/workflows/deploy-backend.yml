@@ -44,7 +44,11 @@ jobs:
             --update-env-vars "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" \
             --update-env-vars "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" \
             --update-env-vars "TWILIO_FROM_NUMBER=${{ secrets.TWILIO_FROM_NUMBER }}" \
-            --update-env-vars "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
-            --update-env-vars "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
-            --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
-            --update-env-vars "FLASK_SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}"
+            --update-env-vars "FLASK_SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" \
+            --update-env-vars "AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}" \
+            --update-env-vars "AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+            --update-env-vars "AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}" \
+            --update-env-vars "AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
+            --update-env-vars "OPENSIGN_APP_ID=${{ secrets.OPENSIGN_APP_ID }}" \
+            --update-env-vars "OPENSIGN_REST_KEY=${{ secrets.OPENSIGN_REST_KEY }}" \
+            --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}"

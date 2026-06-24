@@ -6,7 +6,6 @@ import { useAuth } from './useAuth'
 const NAV = [
   { to: '/myclaim',              label: 'Dashboard',    icon: '▦',  end: true },
   { to: '/myclaim/clients',      label: 'Clients',      icon: '👥' },
-  { to: '/myclaim/documents',    label: 'Documents',    icon: '📄' },
   { to: '/myclaim/chatbot',      label: 'AI Assistant', icon: '🤖' },
   { to: '/myclaim/team',         label: 'Team',         icon: '👤' },
   { to: '/myclaim/settings',     label: 'Settings',     icon: '⚙️' },

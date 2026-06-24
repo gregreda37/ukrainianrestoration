@@ -163,12 +163,20 @@ def get_companycam_photos():
         if not api_key:
             return jsonify({"error": "No CompanyCam API key configured for this org"}), 404
         url = f"https://api.companycam.com/v2/projects/{project_id}/photos"
-        resp = http_requests.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
-        if resp.status_code != 200:
-            return jsonify({"error": f"CompanyCam returned {resp.status_code}"}), 502
-        raw = resp.json()
-        photos = raw if isinstance(raw, list) else raw.get("data", [])
-        return jsonify({"photos": photos})
+        headers = {"Authorization": f"Bearer {api_key}"}
+        all_photos = []
+        page = 1
+        while True:
+            resp = http_requests.get(url, headers=headers, params={"per_page": 100, "page": page}, timeout=15)
+            if resp.status_code != 200:
+                return jsonify({"error": f"CompanyCam returned {resp.status_code}"}), 502
+            raw = resp.json()
+            batch = raw if isinstance(raw, list) else raw.get("data", [])
+            all_photos.extend(batch)
+            if len(batch) < 100:
+                break
+            page += 1
+        return jsonify({"photos": all_photos})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -271,4 +279,4 @@ def companycam_classify_route():
 
 if __name__ == "__main__":
     print("Starting the backend server...")
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)

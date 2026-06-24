@@ -132,6 +132,7 @@ export default function ClientPortal() {
   const [photosError,      setPhotosError]      = useState("");
   const [clientPhotoIds,   setClientPhotoIds]   = useState(null);
   const [photoLightboxIdx, setPhotoLightboxIdx] = useState(null);
+  const [showPhotoPopup,   setShowPhotoPopup]   = useState(false);
   const photoTouchX = useRef(null);
   const [portalSections, setPortalSections] = useState(PORTAL_DEFAULTS);
   const [budgetItems,    setBudgetItems]    = useState([]);
@@ -368,7 +369,7 @@ export default function ClientPortal() {
 
   const onLogout = async () => { await signOut(auth); navigate("/myclaim/login"); };
 
-  const visiblePhotos = clientPhotoIds==null ? [] : photos.filter(p => clientPhotoIds.includes(p.id));
+  const visiblePhotos = clientPhotoIds==null ? photos : photos.filter(p => clientPhotoIds.includes(p.id));
   const getPhotoUrls = (photo) => {
     const uris = photo.uris||photo.urls||[];
     const pick = (type) => uris.find(u => u.type===type);
@@ -726,16 +727,30 @@ export default function ClientPortal() {
                     ? <p className="cp-photos-empty" style={{color:"#ef4444"}}>{photosError}</p>
                     : visiblePhotos.length===0
                       ? <p className="cp-photos-empty">No photos yet.</p>
-                      : <div className="cp-photos-grid">
-                          {visiblePhotos.map((photo,idx) => {
-                            const {thumb} = getPhotoUrls(photo); if (!thumb) return null;
-                            return (
-                              <div key={photo.id} className="cp-photo-tile" onClick={() => setPhotoLightboxIdx(idx)}>
-                                <img src={thumb} alt="" loading="lazy" />
+                      : (
+                        <>
+                          <div className="cp-photos-grid">
+                            {visiblePhotos.slice(0, 8).map((photo, idx) => {
+                              const {thumb} = getPhotoUrls(photo); if (!thumb) return null;
+                              return (
+                                <div key={photo.id} className="cp-photo-tile" onClick={() => { setShowPhotoPopup(true); setPhotoLightboxIdx(idx); }}>
+                                  <img src={thumb} alt="" loading="lazy" />
+                                </div>
+                              );
+                            })}
+                            {visiblePhotos.length > 8 && (
+                              <div className="cp-photo-tile cp-photo-more" onClick={() => setShowPhotoPopup(true)}>
+                                +{visiblePhotos.length - 8} more
                               </div>
-                            );
-                          })}
-                        </div>
+                            )}
+                          </div>
+                          {visiblePhotos.length > 0 && (
+                            <button className="cp-photos-view-all" onClick={() => setShowPhotoPopup(true)}>
+                              View all {visiblePhotos.length} photos
+                            </button>
+                          )}
+                        </>
+                      )
                 }
               </div>
             )}
@@ -894,6 +909,7 @@ export default function ClientPortal() {
         </div>
       )}
 
+
       {/* ── Document Sidebar ── */}
       {sidebarOpen && <div className="cp-dim" onClick={() => setSidebarOpen(false)} />}
       <aside className={`cp-sidebar${sidebarOpen?" open":""}`}>
@@ -949,24 +965,57 @@ export default function ClientPortal() {
         </div>
       </aside>
 
-      {/* ── Photo lightbox ── */}
-      {photoLightboxIdx!==null && visiblePhotos.length>0 && (() => {
-        const idx=photoLightboxIdx, photo=visiblePhotos[idx], {original}=getPhotoUrls(photo);
+      {/* ── Photo popup grid ── */}
+      {showPhotoPopup && visiblePhotos.length > 0 && (
+        <div className="cp-backdrop" onClick={() => { setShowPhotoPopup(false); setPhotoLightboxIdx(null); }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: 12,
+            width: 700, maxWidth: '95vw', maxHeight: '88vh',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 20px 60px rgba(0,0,0,.25)', overflow: 'hidden',
+          }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 16px', borderBottom:'1px solid #e2e8f0', flexShrink:0 }}>
+              <span style={{ fontWeight:700, fontSize:15, color:'#1e293b', flex:1 }}>My Photos</span>
+              <span style={{ fontSize:12, color:'#64748b', background:'#f1f5f9', padding:'3px 10px', borderRadius:20 }}>
+                {visiblePhotos.length} photos
+              </span>
+              <button className="cp-modal-x" onClick={() => { setShowPhotoPopup(false); setPhotoLightboxIdx(null); }}>✕</button>
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:16, overflowY:'auto', alignContent:'flex-start' }}>
+              {visiblePhotos.map((photo, idx) => {
+                const {thumb} = getPhotoUrls(photo); if (!thumb) return null;
+                return (
+                  <div key={photo.id} onClick={() => setPhotoLightboxIdx(idx)}
+                    style={{ width:150, height:150, flexShrink:0, borderRadius:6, overflow:'hidden', cursor:'pointer', position:'relative' }}>
+                    <img src={thumb} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Photo lightbox (opens from within popup) ── */}
+      {photoLightboxIdx !== null && visiblePhotos.length > 0 && (() => {
+        const idx = photoLightboxIdx;
+        const photo = visiblePhotos[idx];
+        const {original} = getPhotoUrls(photo);
         const close = () => setPhotoLightboxIdx(null);
-        const prev  = () => setPhotoLightboxIdx((idx-1+visiblePhotos.length)%visiblePhotos.length);
-        const next  = () => setPhotoLightboxIdx((idx+1)%visiblePhotos.length);
+        const prev  = () => setPhotoLightboxIdx((idx - 1 + visiblePhotos.length) % visiblePhotos.length);
+        const next  = () => setPhotoLightboxIdx((idx + 1) % visiblePhotos.length);
         return (
           <div className="cp-lightbox" onClick={close}
-            onTouchStart={e => { photoTouchX.current=e.touches[0].clientX; }}
-            onTouchEnd={e => { if (photoTouchX.current===null) return; const dx=e.changedTouches[0].clientX-photoTouchX.current; photoTouchX.current=null; if (Math.abs(dx)<40) return; dx<0?next():prev(); }}
+            onTouchStart={e => { photoTouchX.current = e.touches[0].clientX; }}
+            onTouchEnd={e => { if (photoTouchX.current === null) return; const dx = e.changedTouches[0].clientX - photoTouchX.current; photoTouchX.current = null; if (Math.abs(dx) < 40) return; dx < 0 ? next() : prev(); }}
           >
             <div className="cp-lightbox-bar" onClick={e => e.stopPropagation()}>
-              <span className="cp-lightbox-counter">{idx+1} / {visiblePhotos.length}</span>
+              <span className="cp-lightbox-counter">{idx + 1} / {visiblePhotos.length}</span>
               <button className="cp-lightbox-close" onClick={close}>✕</button>
             </div>
-            {visiblePhotos.length>1 && <button className="cp-lightbox-nav cp-lightbox-prev" onClick={e=>{e.stopPropagation();prev();}}>‹</button>}
-            {visiblePhotos.length>1 && <button className="cp-lightbox-nav cp-lightbox-next" onClick={e=>{e.stopPropagation();next();}}>›</button>}
-            <img key={idx} src={original} alt="" className="cp-lightbox-img" onClick={e=>e.stopPropagation()} />
+            {visiblePhotos.length > 1 && <button className="cp-lightbox-nav cp-lightbox-prev" onClick={e => { e.stopPropagation(); prev(); }}>‹</button>}
+            {visiblePhotos.length > 1 && <button className="cp-lightbox-nav cp-lightbox-next" onClick={e => { e.stopPropagation(); next(); }}>›</button>}
+            <img key={idx} src={original} alt="" className="cp-lightbox-img" onClick={e => e.stopPropagation()} />
           </div>
         );
       })()}

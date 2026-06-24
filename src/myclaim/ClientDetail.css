@@ -2195,20 +2195,16 @@ span.cd-sel-product { color: #0f172a; }
 }
 
 .cd-cc-photo-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
 }
-.cd-cc-photo-strip::-webkit-scrollbar { height: 4px; }
-.cd-cc-photo-strip::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 2px; }
 
 .cd-cc-photo-thumb {
-  width: 88px;
-  height: 88px;
+  width: 100%;
+  aspect-ratio: 1;
   object-fit: cover;
-  border-radius: 10px;
-  flex-shrink: 0;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
   transition: opacity .15s;
   cursor: pointer;
@@ -2616,24 +2612,9 @@ span.cd-sel-product { color: #0f172a; }
 }
 .cd-cc-manage-btn:hover { background: #e2e8f0; border-color: #94a3b8; }
 
-/* ── CC preview strip ────────────────────────────── */
-.cd-cc-photo-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.cd-cc-photo-thumb {
-  width: 60px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-}
 .cd-cc-more-tile {
-  width: 60px;
-  height: 60px;
-  border-radius: 6px;
+  aspect-ratio: 1;
+  border-radius: 8px;
   border: 1px solid #cbd5e1;
   background: #f1f5f9;
   font-size: 13px;
@@ -2648,60 +2629,55 @@ span.cd-sel-product { color: #0f172a; }
 .cd-cc-more-tile:hover { background: #e2e8f0; }
 
 /* ── Photo grid modal ────────────────────────────── */
+/* ── Photo Grid Modal ──────────────────────────────────────────── */
 .cd-photo-grid-modal {
   background: #fff;
-  border-radius: 14px;
-  width: min(92vw, 820px);
+  border-radius: 12px;
+  width: 720px;
+  max-width: 95vw;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   box-shadow: 0 20px 60px rgba(0,0,0,.22);
+  overflow: hidden;
 }
+
 .cd-photo-grid-header {
-  padding: 18px 20px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
   border-bottom: 1px solid #e2e8f0;
   flex-shrink: 0;
 }
-.cd-photo-grid-title-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.cd-photo-grid-title-row h3 {
+.cd-photo-grid-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: #1e293b;
+  flex: 1;
 }
 .cd-photo-grid-count {
-  font-size: 13px;
+  font-size: 12px;
   color: #64748b;
   background: #f1f5f9;
   padding: 3px 10px;
   border-radius: 20px;
 }
-.cd-photo-grid-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .cd-photo-grid-ctrl-btn {
-  padding: 6px 14px;
+  padding: 5px 13px;
   font-size: 13px;
   border-radius: 7px;
   cursor: pointer;
   font-weight: 600;
   border: 1px solid transparent;
-  transition: background .15s, border-color .15s;
 }
 .cd-btn-secondary.cd-photo-grid-ctrl-btn {
   background: #f1f5f9;
   border-color: #cbd5e1;
   color: #374151;
 }
-.cd-btn-secondary.cd-photo-grid-ctrl-btn:hover { background: #e2e8f0; border-color: #94a3b8; }
+.cd-btn-secondary.cd-photo-grid-ctrl-btn:hover { background: #e2e8f0; }
 .cd-btn-primary.cd-photo-grid-ctrl-btn {
   background: #2563eb;
   color: #fff;
@@ -2710,101 +2686,59 @@ span.cd-sel-product { color: #0f172a; }
 
 .cd-photo-grid-body {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-  padding: 16px 20px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 16px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 .cd-photo-grid-tile {
-  position: relative;
   aspect-ratio: 1;
-  border-radius: 10px;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
   border: 3px solid #e2e8f0;
-  transition: border-color .15s, transform .1s;
+  position: relative;
   user-select: none;
 }
-.cd-photo-grid-tile:hover { transform: scale(1.02); border-color: #94a3b8; }
 .cd-photo-grid-tile.selected { border-color: #2563eb; }
 .cd-photo-grid-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: filter .15s;
 }
-/* Dim unselected photos so selected ones pop */
-.cd-photo-grid-dim {
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,.45);
-  pointer-events: none;
-}
-/* Empty ring always visible on all tiles */
-.cd-photo-grid-check-ring {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid rgba(255,255,255,.8);
-  background: rgba(0,0,0,.25);
-  pointer-events: none;
-  transition: opacity .15s;
-}
-.cd-photo-grid-tile.selected .cd-photo-grid-check-ring { opacity: 0; }
-/* Filled check shown only when selected */
 .cd-photo-grid-check {
   position: absolute;
-  top: 7px;
-  right: 7px;
+  top: 6px;
+  right: 6px;
   width: 22px;
   height: 22px;
   border-radius: 50%;
   background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
   opacity: 0;
-  transition: opacity .15s;
   pointer-events: none;
 }
 .cd-photo-grid-tile.selected .cd-photo-grid-check { opacity: 1; }
-/* Bottom label */
-.cd-photo-grid-label {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 4px 0;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  pointer-events: none;
-}
-.cd-photo-grid-tile.selected .cd-photo-grid-label {
-  background: #2563eb;
-  color: #fff;
-}
-.cd-photo-grid-tile:not(.selected) .cd-photo-grid-label {
-  background: rgba(0,0,0,.35);
-  color: rgba(255,255,255,.8);
-}
-/* Footer */
+
 .cd-photo-grid-footer {
-  padding: 14px 20px;
-  border-top: 1px solid #e2e8f0;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid #e2e8f0;
   flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .cd-photo-grid-body { grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px; }
 }
 
 /* ── Responsive ──────────────────────────────────── */
@@ -2813,5 +2747,6 @@ span.cd-sel-product { color: #0f172a; }
   .cd-header-card { flex-wrap: wrap; }
   .cd-sel-row { flex-direction: column; }
   .cd-step-label { font-size: 9px; max-width: 52px; }
-  .cd-photo-grid-body { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }
+  .cd-photo-grid-body { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .cd-cc-photo-strip { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
 }

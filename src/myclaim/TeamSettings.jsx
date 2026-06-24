@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { db } from "../firebase";
 import {
   collection, getDocs, doc, getDoc, setDoc, deleteDoc,
-  query, orderBy, where,
+  query, orderBy, where, addDoc, serverTimestamp,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import { api } from "./api";
@@ -13,20 +13,32 @@ const ROLES = [
   { value: "project_manager", label: "Project Manager" },
 ];
 
+const encodeEmail = (email) =>
+  email.toLowerCase().replace(/\./g, "__dot__").replace(/@/g, "__at__");
+
 export default function TeamSettings() {
   const { user } = useAuth();
 
   const [orgId,        setOrgId]        = useState(null);
   const [userRole,     setUserRole]     = useState(null);
   const [members,      setMembers]      = useState([]);
+  const [invites,      setInvites]      = useState([]);
   const [clients,      setClients]      = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [savingId,     setSavingId]     = useState(null);
   const [removingId,   setRemovingId]   = useState(null);
+  const [cancelingId,  setCancelingId]  = useState(null);
 
   const [assignModal,  setAssignModal]  = useState(null);
   const [assignDraft,  setAssignDraft]  = useState([]);
   const [assignSaving, setAssignSaving] = useState(false);
+
+  // Invite state
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail,     setInviteEmail]     = useState('');
+  const [inviteRole,      setInviteRole]      = useState('project_manager');
+  const [inviting,        setInviting]        = useState(false);
+  const [inviteError,     setInviteError]     = useState('');
 
   // Integrations
   const [driveStatus,   setDriveStatus]   = useState(null);
@@ -57,7 +69,7 @@ export default function TeamSettings() {
         if (cancelled) return;
         setOrgId(oid);
 
-        const [contractorSnap, membersSnap, clientsSnap, orgSnap] = await Promise.all([
+        const [contractorSnap, membersSnap, clientsSnap, orgSnap, invitesSnap] = await Promise.all([
           getDoc(doc(db, "organization_data", oid, "contractors", user.uid)),
           getDocs(query(
             collection(db, "organization_data", oid, "contractors"),
@@ -68,6 +80,10 @@ export default function TeamSettings() {
             where("orgId", "==", oid)
           )),
           getDoc(doc(db, "organization_data", oid)),
+          getDocs(query(
+            collection(db, "organization_data", oid, "invites"),
+            orderBy("invitedAt", "desc")
+          )).catch(() => ({ docs: [] })),
         ]);
         if (cancelled) return;
 
@@ -78,12 +94,70 @@ export default function TeamSettings() {
         cl.sort((a, b) => (a.name || a.phone).localeCompare(b.name || b.phone));
         setClients(cl);
         setCcApiKey(orgSnap.data()?.companyCamAPI || '');
+        setInvites(invitesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } finally {
         if (!cancelled) { setLoading(false); setCcLoading(false); }
       }
     })();
     return () => { cancelled = true; };
   }, [user]);
+
+  const orgDomain = user?.email?.split('@')[1];
+  const isExternal = (email) => email.trim().split('@')[1] !== orgDomain;
+
+  const handleInvite = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setInviteError('Enter a valid email address.');
+      return;
+    }
+    if (members.some(m => m.email === email)) {
+      setInviteError('This person is already a team member.');
+      return;
+    }
+    if (invites.some(i => i.email === email)) {
+      setInviteError('A pending invite already exists for this email.');
+      return;
+    }
+    setInviting(true);
+    setInviteError('');
+    try {
+      const external = isExternal(email);
+      const inviteRef = await addDoc(
+        collection(db, "organization_data", orgId, "invites"),
+        {
+          email,
+          role: inviteRole,
+          isExternal: external,
+          invitedAt: serverTimestamp(),
+          invitedBy: user.uid,
+        }
+      );
+      await setDoc(doc(db, "user_invites", encodeEmail(email)), {
+        orgId,
+        role: inviteRole,
+        isExternal: external,
+        invitedAt: serverTimestamp(),
+      });
+      setInvites(prev => [{ id: inviteRef.id, email, role: inviteRole, isExternal: external }, ...prev]);
+      closeInviteModal();
+    } catch {
+      setInviteError('Failed to send invite. Please try again.');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const cancelInvite = async (invite) => {
+    setCancelingId(invite.id);
+    try {
+      await deleteDoc(doc(db, "organization_data", orgId, "invites", invite.id));
+      await deleteDoc(doc(db, "user_invites", encodeEmail(invite.email))).catch(() => {});
+      setInvites(prev => prev.filter(i => i.id !== invite.id));
+    } finally {
+      setCancelingId(null);
+    }
+  };
 
   const updateRole = async (member, newRole) => {
     setSavingId(member.id);
@@ -186,6 +260,13 @@ export default function TeamSettings() {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
+  const closeInviteModal = () => {
+    setShowInviteModal(false);
+    setInviteEmail('');
+    setInviteRole('project_manager');
+    setInviteError('');
+  };
+
   if (userRole && userRole !== "admin") {
     return (
       <div className="ts-root">
@@ -198,6 +279,8 @@ export default function TeamSettings() {
     );
   }
 
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim());
+
   return (
     <div className="ts-root">
       <div className="ts-main">
@@ -206,7 +289,6 @@ export default function TeamSettings() {
             <h1 className="ts-title">Team Settings</h1>
             <p className="ts-subtitle">Manage your organization's members and permissions</p>
           </div>
-          {orgId && <span className="ts-org-badge">{orgId}</span>}
         </div>
 
         {loading ? (
@@ -214,16 +296,22 @@ export default function TeamSettings() {
         ) : (
           <div className="ts-section">
             <div className="ts-section-header">
-              <h2 className="ts-section-title">
-                <TeamIcon /> Team Members
-                <span className="ts-member-count">{members.length}</span>
-              </h2>
-              <p className="ts-section-hint">
-                Members appear here after they log in for the first time.
-              </p>
+              <div className="ts-section-header-row">
+                <div>
+                  <h2 className="ts-section-title">
+                    <TeamIcon /> Team Members
+                    <span className="ts-member-count">{members.length + invites.length}</span>
+                  </h2>
+                  <p className="ts-section-hint">Active members and pending invites.</p>
+                </div>
+                <button className="ts-invite-btn" onClick={() => setShowInviteModal(true)}>
+                  <PlusIcon /> Invite Member
+                </button>
+              </div>
             </div>
 
             <div className="ts-member-list">
+              {/* Active members */}
               {members.map(member => {
                 const isYou      = member.id === user?.uid;
                 const role       = member.role || "admin";
@@ -242,7 +330,7 @@ export default function TeamSettings() {
                         {member.displayName || <span className="ts-muted">No name</span>}
                         {isYou && <span className="ts-you-badge">You</span>}
                       </div>
-                      <div className="ts-member-email">{member.email || member.id}</div>
+                      <div className="ts-member-email">{member.email || "—"}</div>
                       <div className="ts-member-meta">
                         Last login: {formatDate(member.lastLogin)}
                         {role === "project_manager" && (
@@ -292,8 +380,39 @@ export default function TeamSettings() {
                 );
               })}
 
-              {members.length === 0 && (
-                <p className="ts-empty">No team members found. Members appear here after logging in.</p>
+              {/* Pending invites */}
+              {invites.map(invite => (
+                <div key={invite.id} className="ts-member-card ts-member-invited">
+                  <div className="ts-member-avatar ts-avatar-invited">
+                    {invite.email.charAt(0).toUpperCase()}
+                  </div>
+
+                  <div className="ts-member-info">
+                    <div className="ts-member-name">
+                      {invite.email}
+                      <span className="ts-invited-badge">Invited</span>
+                      {invite.isExternal && <span className="ts-external-badge">External</span>}
+                    </div>
+                    <div className="ts-member-meta">
+                      Pending · {ROLES.find(r => r.value === invite.role)?.label}
+                    </div>
+                  </div>
+
+                  <div className="ts-member-actions">
+                    <button
+                      className="ts-remove-btn"
+                      onClick={() => cancelInvite(invite)}
+                      disabled={cancelingId === invite.id}
+                      title="Cancel invite"
+                    >
+                      {cancelingId === invite.id ? <SpinnerInline /> : <TrashIcon />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {members.length === 0 && invites.length === 0 && (
+                <p className="ts-empty">No team members yet. Invite someone to get started.</p>
               )}
             </div>
           </div>
@@ -410,6 +529,7 @@ export default function TeamSettings() {
         </div>
       </div>
 
+      {/* ── Assign Clients Modal ── */}
       {assignModal && (
         <>
           <div className="ts-overlay" onClick={() => setAssignModal(null)} />
@@ -471,6 +591,69 @@ export default function TeamSettings() {
           </div>
         </>
       )}
+
+      {/* ── Invite Member Modal ── */}
+      {showInviteModal && (
+        <>
+          <div className="ts-overlay" onClick={closeInviteModal} />
+          <div className="ts-modal ts-invite-modal">
+            <div className="ts-modal-header">
+              <h2>Invite Team Member</h2>
+              <p className="ts-modal-sub">
+                They'll be auto-assigned to your organization when they first sign in.
+              </p>
+            </div>
+
+            <div className="ts-invite-body">
+              <label className="ts-invite-label">Email address</label>
+              <input
+                type="email"
+                className="ts-invite-input"
+                placeholder="name@example.com"
+                value={inviteEmail}
+                onChange={e => { setInviteEmail(e.target.value); setInviteError(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleInvite()}
+                autoFocus
+              />
+
+              <label className="ts-invite-label" style={{ marginTop: 18 }}>Permission level</label>
+              <div className="ts-role-pills">
+                {ROLES.map(r => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    className={`ts-role-pill${inviteRole === r.value ? ' ts-role-pill--active' : ''}`}
+                    onClick={() => setInviteRole(r.value)}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+
+              {inviteEmail && emailValid && !inviteError && (
+                <div className="ts-invite-preview">
+                  <strong>{inviteEmail.trim()}</strong> will be invited as an{' '}
+                  <strong>{isExternal(inviteEmail) ? 'external user' : 'internal team member'}</strong>{' '}
+                  with <strong>{ROLES.find(r => r.value === inviteRole)?.label}</strong> access.
+                </div>
+              )}
+
+              {inviteError && <p className="ts-invite-error">{inviteError}</p>}
+            </div>
+
+            <div className="ts-modal-actions">
+              <button className="ts-btn-secondary" onClick={closeInviteModal}>Cancel</button>
+              <button
+                className="ts-btn-primary"
+                onClick={handleInvite}
+                disabled={inviting || !inviteEmail.trim()}
+              >
+                {inviting ? 'Sending…' : 'Send Invite'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -518,5 +701,13 @@ const CheckIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5"
     strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
     <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+
+const PlusIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+    strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+    <line x1="12" y1="5" x2="12" y2="19"/>
+    <line x1="5" y1="12" x2="19" y2="12"/>
   </svg>
 );

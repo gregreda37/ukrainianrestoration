@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth'
 import { useNavigate, Navigate, Link } from 'react-router-dom'
 import { auth, db } from '../firebase'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, deleteDoc, getDocs, collection, query, where, serverTimestamp } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 
 const CONSENT_LANGUAGE =
@@ -132,12 +132,42 @@ export default function Login() {
       const result = await signInWithPopup(auth, new GoogleAuthProvider())
       const { uid, displayName, email, photoURL } = result.user
 
-      // Bootstrap the contractor's Firestore user doc on first sign-in.
-      // organizationId defaults to uid so the dashboard works immediately.
       const userRef = doc(db, 'users', uid)
       const snap = await getDoc(userRef)
-      if (!snap.exists() || !snap.data()?.organizationId) {
-        const orgId = snap.data()?.organizationId || uid
+      const existingOrgId = snap.data()?.organizationId
+
+      // Check for a pending invite — takes priority over self-org bootstrap
+      const encodedEmail = email.toLowerCase().replace(/\./g, '__dot__').replace(/@/g, '__at__')
+      const inviteSnap = await getDoc(doc(db, 'user_invites', encodedEmail))
+
+      if (inviteSnap.exists() && (!existingOrgId || existingOrgId === uid)) {
+        const { orgId: inviteOrgId, role: inviteRole } = inviteSnap.data()
+        await setDoc(userRef, {
+          displayName: displayName || '',
+          email: email || '',
+          photoURL: photoURL || '',
+          organizationId: inviteOrgId,
+          role: 'contractor',
+          createdAt: serverTimestamp(),
+        }, { merge: true })
+        await setDoc(doc(db, 'organization_data', inviteOrgId, 'contractors', uid), {
+          email: email || '',
+          displayName: displayName || '',
+          role: inviteRole || 'project_manager',
+          joinedAt: serverTimestamp(),
+          lastLogin: serverTimestamp(),
+        }, { merge: true })
+        // Clean up invite records
+        await deleteDoc(doc(db, 'user_invites', encodedEmail)).catch(() => {})
+        const orgInvites = await getDocs(
+          query(collection(db, 'organization_data', inviteOrgId, 'invites'), where('email', '==', email.toLowerCase()))
+        ).catch(() => ({ docs: [] }))
+        for (const d of orgInvites.docs) {
+          await deleteDoc(d.ref).catch(() => {})
+        }
+      } else if (!snap.exists() || !existingOrgId) {
+        // Normal first login — bootstrap their own org
+        const orgId = existingOrgId || uid
         await setDoc(userRef, {
           displayName: displayName || '',
           email: email || '',
@@ -146,8 +176,6 @@ export default function Login() {
           role: 'contractor',
           createdAt: serverTimestamp(),
         }, { merge: true })
-        // Create the org doc if it doesn't exist yet — don't seed companyName
-        // from the Google display name; the contractor sets it in Settings.
         await setDoc(doc(db, 'organization_data', orgId), {
           createdAt: serverTimestamp(),
         }, { merge: true })

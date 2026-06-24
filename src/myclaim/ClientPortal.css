@@ -594,13 +594,15 @@
 
 /* ─── Photos ────────────────────────────────────────────────────────────── */
 .cp-photos-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 18px;
+  padding: 12px 18px;
 }
 .cp-photo-tile {
-  aspect-ratio: 1;
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
@@ -612,6 +614,33 @@
   transition: opacity .15s;
 }
 .cp-photo-tile:hover img { opacity: .85; }
+.cp-photo-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+.cp-photo-more:hover { background: #e2e8f0; }
+.cp-photos-view-all {
+  display: block;
+  width: calc(100% - 36px);
+  margin: 0 18px 14px;
+  padding: 9px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2563eb;
+  cursor: pointer;
+  text-align: center;
+  transition: background .15s;
+}
+.cp-photos-view-all:hover { background: #eff6ff; }
 .cp-photos-loading { display: flex; justify-content: center; padding: 18px; }
 .cp-photos-empty { padding: 16px 18px; text-align: center; font-size: 14px; color: #94a3b8; }
 

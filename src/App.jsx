@@ -42,7 +42,6 @@ const ProtectedClientRoute = lazy(() =>
 const Dashboard    = lazy(() => import('./myclaim/Dashboard'))
 const Clients      = lazy(() => import('./myclaim/Clients'))
 const ClientDetail = lazy(() => import('./myclaim/ClientDetail'))
-const Documents    = lazy(() => import('./myclaim/Documents'))
 const Chatbot      = lazy(() => import('./myclaim/Chatbot'))
 const Settings     = lazy(() => import('./myclaim/Settings'))
 const TeamSettings = lazy(() => import('./myclaim/TeamSettings'))
@@ -156,7 +155,6 @@ export default function App() {
           <Route index element={<Suspense fallback={<PortalFallback />}><Dashboard /></Suspense>} />
           <Route path="clients" element={<Suspense fallback={<PortalFallback />}><Clients /></Suspense>} />
           <Route path="clients/:id" element={<Suspense fallback={<PortalFallback />}><ClientDetail /></Suspense>} />
-          <Route path="documents" element={<Suspense fallback={<PortalFallback />}><Documents /></Suspense>} />
           <Route path="chatbot" element={<Suspense fallback={<PortalFallback />}><Chatbot /></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />
           <Route path="team" element={<Suspense fallback={<PortalFallback />}><TeamSettings /></Suspense>} />

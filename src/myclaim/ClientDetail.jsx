@@ -1038,9 +1038,8 @@ export default function ClientDetail() {
         {/* ── Tabs ───────────────────────────────────────────────────── */}
         <div className="cd-tabs">
           {[
-            { key:"overview",   label:"Overview"        },
-            { key:"client",     label:"Client View"     },
-            { key:"contractor", label:"Contractor View" },
+            { key:"overview", label:"Overview"    },
+            { key:"client",   label:"Client View" },
           ].map(t => (
             <button key={t.key} className={`cd-tab${activeTab === t.key ? " active" : ""}`}
               onClick={() => setActiveTab(t.key)}>
@@ -1494,6 +1493,129 @@ export default function ClientDetail() {
               )}
             </div>
 
+            {/* CompanyCam */}
+            <div className="cd-section-card">
+              <div className="cd-section-header">
+                <CameraIcon />
+                <h2>CompanyCam</h2>
+                {ccProjectId ? (
+                  <button className="cd-cc-unlink" onClick={unlinkCcProject}>Unlink</button>
+                ) : (
+                  <>
+                    <button className="cd-upload-btn" onClick={openCCPicker}>Link Project</button>
+                    <button
+                      className="cd-upload-btn"
+                      onClick={handleCreateCCProject}
+                      disabled={ccCreating || !clientFields.address && !client?.address}
+                      style={{ marginLeft: 4 }}
+                      title={clientFields.address || client?.address ? "Create a new CompanyCam project for this address" : "Add a client address first"}
+                    >
+                      {ccCreating ? "Creating…" : <><PlusIcon /> New</>}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {ccError && <p className="cd-cc-error">{ccError}</p>}
+
+              {!ccProjectId ? (
+                <p className="cd-empty-msg">No project linked. Link an existing project or create a new one using this client's address.</p>
+              ) : (
+                <>
+                  <div className="cd-cc-project-info">
+                    <span className="cd-cc-project-name">{ccProjectName || ccProjectId}</span>
+                    <a
+                      href={`https://app.companycam.com/projects/${ccProjectId}`}
+                      target="_blank" rel="noreferrer"
+                      className="cd-cc-open-link"
+                    >
+                      Open in CompanyCam ↗
+                    </a>
+                  </div>
+
+                  {ccPhotoLoad ? (
+                    <div className="cd-cc-photo-loading"><div className="cd-spinner" /></div>
+                  ) : ccPhotos.length === 0 ? (
+                    <p className="cd-empty-msg">No photos in this project yet.</p>
+                  ) : (
+                    <>
+                      <div className="cd-cc-share-bar">
+                        <span className="cd-cc-share-count">
+                          <ClientVisibleIcon />
+                          {ccSharedCount === 0
+                            ? "No photos shared with client"
+                            : ccSharedCount === ccPhotos.length
+                            ? `All ${ccPhotos.length} photos shared with client`
+                            : `${ccSharedCount} of ${ccPhotos.length} photos shared with client`}
+                        </span>
+                        <button className="cd-cc-manage-btn" onClick={() => setShowPhotoGrid(true)}>
+                          <GridIcon /> Manage Photos
+                        </button>
+                      </div>
+                      {ccSharedCount > 0 && (
+                        <div className="cd-cc-photo-strip">
+                          {ccPhotos.filter(p => isCCPhotoShared(p.id)).slice(0, 12).map(photo => {
+                            const thumb = getThumb(photo);
+                            return thumb ? (
+                              <img key={photo.id} src={thumb} alt="" className="cd-cc-photo-thumb" />
+                            ) : null;
+                          })}
+                          {ccSharedCount > 12 && (
+                            <button className="cd-cc-more-tile" onClick={() => setShowPhotoGrid(true)}>
+                              +{ccSharedCount - 12}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div className="cd-cc-classify-bar">
+                    <button
+                      className="cd-cc-classify-btn"
+                      onClick={handleClassify}
+                      disabled={classifying || ccPhotos.length === 0}
+                    >
+                      {classifying
+                        ? <><span className="cd-cc-btn-spin" /> Classifying…</>
+                        : <><SparkleIcon /> Classify Photos</>
+                      }
+                    </button>
+                    {classifyError && <p className="cd-cc-error" style={{ margin: 0 }}>{classifyError}</p>}
+                  </div>
+
+                  {classifyResults && !classifying && (
+                    <div className="cd-cc-results">
+                      {Object.entries(
+                        classifyResults
+                          .filter(r => r.best_match)
+                          .reduce((acc, r) => { (acc[r.best_match] = acc[r.best_match] || []).push(r); return acc; }, {})
+                      )
+                        .sort(([, a], [, b]) => b.length - a.length)
+                        .map(([label, items]) => (
+                          <div key={label} className="cd-cc-result-group">
+                            <div className="cd-cc-result-header">
+                              <span className="cd-cc-result-count">{items.length}</span>
+                              <span className="cd-cc-result-label-text">{label}</span>
+                              <span className="cd-cc-result-avg">
+                                avg {Math.round(items.reduce((s, r) => s + (r.similarity_score || 0), 0) / items.length * 100)}%
+                              </span>
+                            </div>
+                            <div className="cd-cc-result-strip">
+                              {items.slice(0, 8).map((r, i) => (
+                                <a key={i} href={r.image_url} target="_blank" rel="noreferrer">
+                                  <img src={r.image_url} alt={label} className="cd-cc-result-thumb" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
             {/* Danger zone */}
             <div className="cd-danger-zone">
               {confirmDelete ? (
@@ -1519,130 +1641,6 @@ export default function ClientDetail() {
           </>
         )}
 
-        {/* ══════════════ CONTRACTOR VIEW TAB ══════════════ */}
-        {activeTab === "contractor" && (
-          <div className="cd-section-card">
-            <div className="cd-section-header">
-              <CameraIcon />
-              <h2>CompanyCam</h2>
-              {ccProjectId ? (
-                <button className="cd-cc-unlink" onClick={unlinkCcProject}>Unlink</button>
-              ) : (
-                <>
-                  <button className="cd-upload-btn" onClick={openCCPicker}>Link Project</button>
-                  <button
-                    className="cd-upload-btn"
-                    onClick={handleCreateCCProject}
-                    disabled={ccCreating || !clientFields.address && !client?.address}
-                    style={{ marginLeft: 4 }}
-                    title={clientFields.address || client?.address ? "Create a new CompanyCam project for this address" : "Add a client address first"}
-                  >
-                    {ccCreating ? "Creating…" : <><PlusIcon /> New</>}
-                  </button>
-                </>
-              )}
-            </div>
-
-            {ccError && <p className="cd-cc-error">{ccError}</p>}
-
-            {!ccProjectId ? (
-              <p className="cd-empty-msg">No project linked. Link an existing project or create a new one using this client's address.</p>
-            ) : (
-              <>
-                <div className="cd-cc-project-info">
-                  <span className="cd-cc-project-name">{ccProjectName || ccProjectId}</span>
-                  <a
-                    href={`https://app.companycam.com/projects/${ccProjectId}`}
-                    target="_blank" rel="noreferrer"
-                    className="cd-cc-open-link"
-                  >
-                    Open in CompanyCam ↗
-                  </a>
-                </div>
-
-                {ccPhotoLoad ? (
-                  <div className="cd-cc-photo-loading"><div className="cd-spinner" /></div>
-                ) : ccPhotos.length === 0 ? (
-                  <p className="cd-empty-msg">No photos in this project yet.</p>
-                ) : (
-                  <>
-                    <div className="cd-cc-share-bar">
-                      <span className="cd-cc-share-count">
-                        <ClientVisibleIcon />
-                        {ccSharedCount === 0
-                          ? "No photos shared with client"
-                          : ccSharedCount === ccPhotos.length
-                          ? `All ${ccPhotos.length} photos shared with client`
-                          : `${ccSharedCount} of ${ccPhotos.length} photos shared with client`}
-                      </span>
-                      <button className="cd-cc-manage-btn" onClick={() => setShowPhotoGrid(true)}>
-                        <GridIcon /> Manage Photos
-                      </button>
-                    </div>
-                    {ccSharedCount > 0 && (
-                      <div className="cd-cc-photo-strip">
-                        {ccPhotos.filter(p => isCCPhotoShared(p.id)).slice(0, 12).map(photo => {
-                          const thumb = getThumb(photo);
-                          return thumb ? (
-                            <img key={photo.id} src={thumb} alt="" className="cd-cc-photo-thumb" />
-                          ) : null;
-                        })}
-                        {ccSharedCount > 12 && (
-                          <button className="cd-cc-more-tile" onClick={() => setShowPhotoGrid(true)}>
-                            +{ccSharedCount - 12}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                <div className="cd-cc-classify-bar">
-                  <button
-                    className="cd-cc-classify-btn"
-                    onClick={handleClassify}
-                    disabled={classifying || ccPhotos.length === 0}
-                  >
-                    {classifying
-                      ? <><span className="cd-cc-btn-spin" /> Classifying…</>
-                      : <><SparkleIcon /> Classify Photos</>
-                    }
-                  </button>
-                  {classifyError && <p className="cd-cc-error" style={{ margin: 0 }}>{classifyError}</p>}
-                </div>
-
-                {classifyResults && !classifying && (
-                  <div className="cd-cc-results">
-                    {Object.entries(
-                      classifyResults
-                        .filter(r => r.best_match)
-                        .reduce((acc, r) => { (acc[r.best_match] = acc[r.best_match] || []).push(r); return acc; }, {})
-                    )
-                      .sort(([, a], [, b]) => b.length - a.length)
-                      .map(([label, items]) => (
-                        <div key={label} className="cd-cc-result-group">
-                          <div className="cd-cc-result-header">
-                            <span className="cd-cc-result-count">{items.length}</span>
-                            <span className="cd-cc-result-label-text">{label}</span>
-                            <span className="cd-cc-result-avg">
-                              avg {Math.round(items.reduce((s, r) => s + (r.similarity_score || 0), 0) / items.length * 100)}%
-                            </span>
-                          </div>
-                          <div className="cd-cc-result-strip">
-                            {items.slice(0, 8).map((r, i) => (
-                              <a key={i} href={r.image_url} target="_blank" rel="noreferrer">
-                                <img src={r.image_url} alt={label} className="cd-cc-result-thumb" />
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
 
       </div>
 
@@ -1702,54 +1700,75 @@ export default function ClientDetail() {
       {/* ── Photo Grid Modal ───────────────────────────────────────────── */}
       {showPhotoGrid && (
         <div className="cd-modal-overlay" onClick={() => setShowPhotoGrid(false)}>
-          <div className="cd-photo-grid-modal" onClick={e => e.stopPropagation()}>
-            <div className="cd-photo-grid-header">
-              <div className="cd-photo-grid-title-row">
-                <CameraIcon />
-                <h3>{ccProjectName || "CompanyCam Photos"}</h3>
-                <button className="cd-modal-close" style={{ marginLeft: "auto" }} onClick={() => setShowPhotoGrid(false)}>✕</button>
-              </div>
-              <div className="cd-photo-grid-controls">
-                <span className="cd-photo-grid-count">
-                  {ccSharedCount === 0
-                    ? "None shared with client"
-                    : ccSharedCount === ccPhotos.length
-                    ? `All ${ccPhotos.length} shared`
-                    : `${ccSharedCount} of ${ccPhotos.length} shared`}
-                </span>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                  <button className="cd-btn-secondary cd-photo-grid-ctrl-btn" onClick={clearAllPhotos}>
-                    Hide All
-                  </button>
-                  <button className="cd-btn-primary cd-photo-grid-ctrl-btn" onClick={shareAllPhotos}>
-                    Share All
-                  </button>
-                </div>
-              </div>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#fff',
+            borderRadius: 12,
+            width: 700,
+            maxWidth: '95vw',
+            maxHeight: '88vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 60px rgba(0,0,0,.25)',
+            overflow: 'hidden',
+          }}>
+            {/* Header */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 16px', borderBottom:'1px solid #e2e8f0', flexShrink:0 }}>
+              <CameraIcon />
+              <span style={{ fontWeight:700, fontSize:15, color:'#1e293b', flex:1 }}>{ccProjectName || "CompanyCam Photos"}</span>
+              <span style={{ fontSize:12, color:'#64748b', background:'#f1f5f9', padding:'3px 10px', borderRadius:20 }}>
+                {ccSharedCount === 0 ? "None shared" : ccSharedCount === ccPhotos.length ? `All ${ccPhotos.length} shared` : `${ccSharedCount} / ${ccPhotos.length} shared`}
+              </span>
+              <button className="cd-btn-secondary cd-photo-grid-ctrl-btn" onClick={clearAllPhotos}>Hide All</button>
+              <button className="cd-btn-primary cd-photo-grid-ctrl-btn" onClick={shareAllPhotos}>Share All</button>
+              <button className="cd-modal-close" onClick={() => setShowPhotoGrid(false)}>✕</button>
             </div>
-            <div className="cd-photo-grid-body">
+
+            {/* Photo grid */}
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              padding: 16,
+              overflowY: 'auto',
+              alignContent: 'flex-start',
+            }}>
               {ccPhotos.map(photo => {
                 const thumb = getThumb(photo);
                 const shared = isCCPhotoShared(photo.id);
-                return thumb ? (
+                if (!thumb) return null;
+                return (
                   <div
                     key={photo.id}
-                    className={`cd-photo-grid-tile${shared ? " selected" : ""}`}
                     onClick={() => togglePhotoSelection(photo.id)}
+                    style={{
+                      width: 150,
+                      height: 150,
+                      flexShrink: 0,
+                      borderRadius: 6,
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                      border: `3px solid ${shared ? '#2563eb' : '#e2e8f0'}`,
+                      position: 'relative',
+                    }}
                   >
-                    <img src={thumb} alt="" className="cd-photo-grid-img" />
-                    <div className="cd-photo-grid-check-ring" />
-                    <div className="cd-photo-grid-check">✓</div>
-                    {!shared && <div className="cd-photo-grid-dim" />}
-                    <div className="cd-photo-grid-label">{shared ? "Shared" : "Hidden"}</div>
+                    <img src={thumb} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                    {shared && (
+                      <div style={{
+                        position:'absolute', top:6, right:6,
+                        width:22, height:22, borderRadius:'50%',
+                        background:'#2563eb', color:'#fff',
+                        fontSize:13, fontWeight:700,
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                      }}>✓</div>
+                    )}
                   </div>
-                ) : null;
+                );
               })}
             </div>
-            <div className="cd-photo-grid-footer">
-              <button className="cd-btn-primary" style={{ padding: "8px 28px", fontSize: 14 }} onClick={() => setShowPhotoGrid(false)}>
-                Done
-              </button>
+
+            {/* Footer */}
+            <div style={{ padding:'12px 16px', borderTop:'1px solid #e2e8f0', display:'flex', justifyContent:'flex-end', flexShrink:0 }}>
+              <button className="cd-btn-primary" style={{ padding:'8px 28px', fontSize:14 }} onClick={() => setShowPhotoGrid(false)}>Done</button>
             </div>
           </div>
         </div>

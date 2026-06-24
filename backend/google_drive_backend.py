@@ -28,6 +28,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.errors import HttpError
 
 load_dotenv()
 
@@ -570,6 +571,17 @@ def upload_to_drive():
                 stored = (db.collection("client_phones").document(client_phone).get().to_dict() or {})
                 folder_key       = "driveExternalFolderId" if visible_to_client else "driveInternalFolderId"
                 target_folder_id = stored.get(folder_key, "")
+
+        # Validate the folder still exists in Drive — stale IDs cause a 404 on upload
+        if target_folder_id:
+            try:
+                service.files().get(fileId=target_folder_id, fields="id").execute()
+            except HttpError as fe:
+                if fe.status_code == 404:
+                    print(f"[drive/upload] Folder {target_folder_id!r} not found in Drive — falling back to name resolution")
+                    target_folder_id = ""
+                else:
+                    raise
 
         if not target_folder_id:
             # 2. Fall back to creating/finding the folder structure by name

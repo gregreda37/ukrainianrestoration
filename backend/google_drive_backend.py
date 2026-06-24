@@ -118,12 +118,22 @@ def _require_admin(org_id: str):
 
 def _load_credentials(org_id: str):
     """Load and auto-refresh stored OAuth credentials for an org."""
+    import datetime
     db = admin_firestore.client()
     snap = db.collection("organization_data").document(org_id) \
              .collection(_INTEGRATION_COLLECTION).document(_DRIVE_DOC).get()
     if not snap.exists:
         return None
     data = snap.to_dict()
+
+    # Restore expiry so creds.expired works correctly
+    expiry = None
+    if data.get("token_expiry"):
+        try:
+            expiry = datetime.datetime.fromisoformat(data["token_expiry"])
+        except Exception:
+            pass
+
     creds = Credentials(
         token         = data.get("access_token"),
         refresh_token = data.get("refresh_token"),
@@ -131,13 +141,18 @@ def _load_credentials(org_id: str):
         client_id     = CLIENT_ID,
         client_secret = CLIENT_SECRET,
         scopes        = SCOPES,
+        expiry        = expiry,
     )
-    if creds.expired and creds.refresh_token:
+    # Refresh if expired, or if we have no expiry info (treat as possibly stale)
+    if (creds.expired or expiry is None) and creds.refresh_token:
         creds.refresh(GoogleAuthRequest())
-        # Persist refreshed token
+        # Persist refreshed token + expiry
         db.collection("organization_data").document(org_id) \
           .collection(_INTEGRATION_COLLECTION).document(_DRIVE_DOC) \
-          .update({"access_token": creds.token})
+          .update({
+              "access_token":  creds.token,
+              "token_expiry":  creds.expiry.isoformat() if creds.expiry else None,
+          })
     return creds
 
 def _drive_service(creds):
@@ -247,11 +262,12 @@ def auth_callback():
 
         print(f"[drive/callback] Writing tokens to Firestore org={org_id!r}…")
         org_ref.collection(_INTEGRATION_COLLECTION).document(_DRIVE_DOC).set({
-            "access_token":      creds.token,
-            "refresh_token":     creds.refresh_token,
-            "token_uri":         creds.token_uri,
+            "access_token":         creds.token,
+            "refresh_token":        creds.refresh_token,
+            "token_uri":            creds.token_uri,
+            "token_expiry":         creds.expiry.isoformat() if creds.expiry else None,
             "drive_root_folder_id": root_id,
-            "connected_at":      admin_firestore.SERVER_TIMESTAMP,
+            "connected_at":         admin_firestore.SERVER_TIMESTAMP,
         })
 
         print(f"[drive/callback] Writing status flag to org doc…")
@@ -540,11 +556,11 @@ def upload_to_drive():
     if not org_id or not file_url:
         return jsonify({"error": "orgId and fileUrl are required"}), 400
 
-    creds = _load_credentials(org_id)
-    if not creds:
-        return jsonify({"error": "Google Drive not connected for this organization"}), 403
-
     try:
+        creds = _load_credentials(org_id)
+        if not creds:
+            return jsonify({"error": "Google Drive not connected for this organization"}), 403
+
         service = _drive_service(creds)
         db      = admin_firestore.client()
 
@@ -604,6 +620,8 @@ def upload_to_drive():
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 

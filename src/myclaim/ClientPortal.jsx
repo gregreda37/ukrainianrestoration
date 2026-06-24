@@ -3,7 +3,7 @@ import axios from "axios";
 import { auth, db, storage } from "../firebase";
 import { loadGoogleMaps } from "./loadMaps";
 
-const API = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
+const API = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5001";
 import {
   collection, getDocs, getDoc, addDoc, deleteDoc, doc, serverTimestamp,
   updateDoc, setDoc, query, orderBy, where,
@@ -137,6 +137,9 @@ export default function ClientPortal() {
   const [portalSections, setPortalSections] = useState(PORTAL_DEFAULTS);
   const [budgetItems,    setBudgetItems]    = useState([]);
   const [showDoneTodos,  setShowDoneTodos]  = useState(false);
+  const [driveConnected,        setDriveConnected]        = useState(false);
+  const [driveExternalFolderId, setDriveExternalFolderId] = useState('');
+  const [clientDocId,           setClientDocId]           = useState('');
   const [showAddSel,     setShowAddSel]     = useState(false);
   const [selCategory,    setSelCategory]    = useState(SELECTION_CATEGORIES[0]);
   const [selProduct,     setSelProduct]     = useState("");
@@ -183,8 +186,10 @@ export default function ClientPortal() {
         if (!oid && phone) {
           const cpSnap = await getDoc(doc(db,"client_phones",phone));
           if (cpSnap.exists()) {
-            oid = cpSnap.data().orgId || null;
+            const cpData = cpSnap.data();
+            oid = cpData.orgId || null;
             if (oid) await setDoc(doc(db,"users",user.uid), { organizationId:oid }, { merge:true });
+            if (cpData.driveExternalFolderId) setDriveExternalFolderId(cpData.driveExternalFolderId);
           }
         }
         if (!oid) return;
@@ -196,9 +201,16 @@ export default function ClientPortal() {
         ]);
         if (orgSnap.exists()) {
           setOrgInfo(orgSnap.data());
+          setDriveConnected(!!orgSnap.data().googleDriveConnected);
           try {
             const cSnap = await getDocs(query(collection(db,"organization_data",oid,"clients"), where("phone","==",phone)));
-            if (!cSnap.empty) { const n = cSnap.docs[0].data().name || cSnap.docs[0].data().displayName || ""; if (n) setCustomerName(n); }
+            if (!cSnap.empty) {
+              const cData = cSnap.docs[0].data();
+              const n = cData.name || cData.displayName || "";
+              if (n) setCustomerName(n);
+              setClientDocId(cSnap.docs[0].id);
+              if (cData.driveExternalFolderId) setDriveExternalFolderId(cData.driveExternalFolderId);
+            }
           } catch {}
         }
         const ctors = []; ctorSnap.forEach(d => ctors.push({ uid:d.id, ...d.data() })); setContractors(ctors);
@@ -331,11 +343,44 @@ export default function ClientPortal() {
     try {
       const ext = pendingFile.name.includes(".") ? pendingFile.name.slice(pendingFile.name.lastIndexOf(".")) : "";
       const label = pendingFileName.trim() || pendingFile.name.replace(/\.[^.]+$/,"");
+      const fileName = label + ext;
       const sRef = ref(storage,`users/${user.uid}/documents/${Date.now()}_${pendingFile.name}`);
       await uploadBytes(sRef, pendingFile);
       const downloadURL = await getDownloadURL(sRef);
-      await addDoc(collection(db,"users",user.uid,"documents"), { name:label+ext, storagePath:sRef.fullPath, downloadURL, size:pendingFile.size, folder:"client", uploadedAt:serverTimestamp() });
-      await logActivity("document_uploaded", `Uploaded document: "${label+ext}"`);
+      const docRef = await addDoc(collection(db,"users",user.uid,"documents"), {
+        name: fileName, storagePath: sRef.fullPath, downloadURL,
+        size: pendingFile.size, folder: "client", uploadedAt: serverTimestamp(),
+      });
+      await logActivity("document_uploaded", `Uploaded document: "${fileName}"`);
+
+      // Mirror to Google Drive (client uploads always go to External Files)
+      if (driveConnected && orgId) {
+        fetch(`${API}/integrations/google-drive/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orgId,
+            fileUrl:        downloadURL,
+            fileName,
+            clientName:     customerName || phone,
+            clientPhone:    phone,
+            clientDocId:    clientDocId || '',
+            visibleToClient: true,
+            targetFolderId: driveExternalFolderId || '',
+          }),
+        })
+          .then(r => r.json())
+          .then(d => {
+            if (d.driveFileId) {
+              updateDoc(doc(db, 'users', user.uid, 'documents', docRef.id), {
+                driveFileId:  d.driveFileId,
+                driveFileUrl: d.driveFileUrl,
+              }).catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
+
       setPendingFile(null); setPendingFileName(""); await fetchDocuments();
     } catch (err) {
       setUploadError(err.code==="storage/unauthorized" ? "Upload not allowed — please sign out and back in." : err.message||"Upload failed.");

@@ -1078,18 +1078,18 @@ export default function ClientDetail() {
           <div className="cd-header-actions">
             {hasPortal && <span className="cd-active-badge"><ActiveDotIcon /> Portal Active</span>}
             <button
-              className={`cd-docs-nav-btn${showDocsDrawer ? " active" : ""}`}
-              onClick={() => setShowDocsDrawer(v => !v)}>
-              <DocIcon /> Documents
-              {docs.length > 0 && <span className="cd-docs-nav-count">{docs.length}</span>}
-            </button>
-            <button
               className={`cd-status-toggle cd-status-toggle--${(client?.claimStatus || "open") === "open" ? "open" : "closed"}`}
               onClick={toggleClaimStatus}
               disabled={!clientDocId}
               title={(client?.claimStatus || "open") === "open" ? "Mark as closed" : "Mark as open"}
             >
-              {(client?.claimStatus || "open") === "open" ? "Open" : "Closed"}
+              {(client?.claimStatus || "open") === "open" ? "Claim Open" : "Claim Closed"}
+            </button>
+            <button
+              className={`cd-docs-nav-btn${showDocsDrawer ? " active" : ""}`}
+              onClick={() => setShowDocsDrawer(v => !v)}>
+              <DocIcon /> Documents
+              {docs.length > 0 && <span className="cd-docs-nav-count">{docs.length}</span>}
             </button>
             {phone && (
               <Link

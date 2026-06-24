@@ -260,7 +260,7 @@ export default function Clients() {
                   </div>
                   <div className="cl-card-badges">
                     <span className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}>
-                      {isClosed ? "Closed" : "Open"}
+                      {isClosed ? "Claim Closed" : "Claim Open"}
                     </span>
                     {client.hasAccount && <span className="cl-active-badge"><ActiveDotIcon /> Active</span>}
                     {(client.openContractorTodos > 0) && <span className="cl-todo-badge">{client.openContractorTodos}</span>}

@@ -472,6 +472,18 @@ export default function ClientDetail() {
     await updateDoc(doc(db, "users", clientUid, "todos", todo.id), upd).catch(console.error);
   };
 
+  const toggleClaimStatus = async () => {
+    if (!clientDocId || !orgId) return;
+    const next = (client?.claimStatus || "open") === "open" ? "closed" : "open";
+    setClient(prev => ({ ...prev, claimStatus: next }));
+    try {
+      await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { claimStatus: next });
+    } catch (err) {
+      setClient(prev => ({ ...prev, claimStatus: client?.claimStatus }));
+      console.error(err);
+    }
+  };
+
   const deleteTodo = async (id) => {
     if (!clientUid) return;
     setTodos(prev => prev.filter(t => t.id !== id));
@@ -1066,6 +1078,14 @@ export default function ClientDetail() {
               onClick={() => setShowDocsDrawer(v => !v)}>
               <DocIcon /> Documents
               {docs.length > 0 && <span className="cd-docs-nav-count">{docs.length}</span>}
+            </button>
+            <button
+              className={`cd-status-toggle cd-status-toggle--${(client?.claimStatus || "open") === "open" ? "open" : "closed"}`}
+              onClick={toggleClaimStatus}
+              disabled={!clientDocId}
+              title={(client?.claimStatus || "open") === "open" ? "Mark as closed" : "Mark as open"}
+            >
+              {(client?.claimStatus || "open") === "open" ? "Open" : "Closed"}
             </button>
             {phone && (
               <Link

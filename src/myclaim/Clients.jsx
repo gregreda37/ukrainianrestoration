@@ -259,13 +259,9 @@ export default function Clients() {
                     <p className="cl-card-phone">{formatPhone(client.phone)}</p>
                   </div>
                   <div className="cl-card-badges">
-                    <button
-                      className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}
-                      onClick={e => toggleClaimStatus(client, e)}
-                      title={isClosed ? "Mark as open" : "Mark as closed"}
-                    >
+                    <span className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}>
                       {isClosed ? "Closed" : "Open"}
-                    </button>
+                    </span>
                     {client.hasAccount && <span className="cl-active-badge"><ActiveDotIcon /> Active</span>}
                     {(client.openContractorTodos > 0) && <span className="cl-todo-badge">{client.openContractorTodos}</span>}
                   </div>

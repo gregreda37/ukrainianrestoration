@@ -386,6 +386,23 @@
 .cd-notify-wrap {
   position: relative;
 }
+.cd-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: opacity .15s, transform .1s;
+  white-space: nowrap;
+}
+.cd-status-toggle:disabled { cursor: default; opacity: 0.5; }
+.cd-status-toggle:not(:disabled):hover { opacity: 0.8; transform: scale(0.97); }
+.cd-status-toggle--open   { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
+.cd-status-toggle--closed { background: #f8fafc; color: #94a3b8; border-color: #e2e8f0; }
+
 .cd-notify-btn {
   display: inline-flex;
   align-items: center;

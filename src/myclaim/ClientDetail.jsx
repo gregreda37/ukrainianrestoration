@@ -579,7 +579,7 @@ export default function ClientDetail() {
       if (driveConnected) {
         try {
           const targetFolderId = folder !== 'internal' ? (driveExternalId || '') : (driveInternalId || '');
-          console.log('[Drive] Uploading to Drive — folder:', folder, '| targetFolderId:', targetFolderId, '| fileUrl:', downloadURL.slice(0, 80));
+          console.log('[Drive] Uploading to Drive — folder:', folder, '| visibleToClient:', folder !== 'internal', '| targetFolderId:', targetFolderId, '| fileUrl:', downloadURL.slice(0, 80));
           const dr = await fetch(`${API}/integrations/google-drive/upload`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

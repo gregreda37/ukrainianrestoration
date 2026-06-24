@@ -565,17 +565,22 @@ def upload_to_drive():
         service = _drive_service(creds)
         db      = admin_firestore.client()
 
+        print(f"[drive/upload] visible_to_client={visible_to_client!r} client_phone={client_phone!r} client_name={client_name!r}")
+        print(f"[drive/upload] targetFolderId from request={target_folder_id!r}")
+
         if not target_folder_id:
             # 1. Check Firestore for folder IDs saved when the folder was set up
             if client_phone:
                 stored = (db.collection("client_phones").document(client_phone).get().to_dict() or {})
                 folder_key       = "driveExternalFolderId" if visible_to_client else "driveInternalFolderId"
                 target_folder_id = stored.get(folder_key, "")
+                print(f"[drive/upload] Firestore lookup {folder_key}={target_folder_id!r}")
 
         # Validate the folder still exists in Drive — stale IDs cause a 404 on upload
         if target_folder_id:
             try:
                 service.files().get(fileId=target_folder_id, fields="id").execute()
+                print(f"[drive/upload] Folder validated OK: {target_folder_id!r}")
             except HttpError as fe:
                 if fe.status_code == 404:
                     print(f"[drive/upload] Folder {target_folder_id!r} not found in Drive — falling back to name resolution")
@@ -586,20 +591,23 @@ def upload_to_drive():
         if not target_folder_id:
             # 2. Fall back to creating/finding the folder structure by name
             root_id = _get_root_folder_id(db, service, org_id)
+            print(f"[drive/upload] root_id={root_id!r}")
 
             last4        = client_phone[-4:] if len(client_phone) >= 4 else client_phone
             client_label = f"{client_name} (…{last4})" if last4 else client_name
             client_folder_id = _get_or_create_folder(service, client_label, root_id)
+            print(f"[drive/upload] client_folder_id={client_folder_id!r} label={client_label!r}")
 
             if claim_num:
                 claim_folder_id  = _get_or_create_folder(service, f"Claim {claim_num}", client_folder_id)
                 parent_folder_id = claim_folder_id
+                print(f"[drive/upload] claim_folder_id={claim_folder_id!r}")
             else:
                 parent_folder_id = client_folder_id
 
-            # Always route to the correct visibility subfolder
             subfolder_name   = "External Files" if visible_to_client else "Internal Files"
             target_folder_id = _get_or_create_folder(service, subfolder_name, parent_folder_id)
+            print(f"[drive/upload] subfolder={subfolder_name!r} → target_folder_id={target_folder_id!r}")
 
             # Persist the resolved folder IDs so future uploads skip this resolution
             if client_phone and not claim_num:
@@ -607,7 +615,9 @@ def upload_to_drive():
                 db.collection("client_phones").document(client_phone).set(
                     {folder_field: target_folder_id}, merge=True
                 )
-                print(f"[drive/upload] Updated {folder_field}={target_folder_id!r} for phone={client_phone!r}")
+                print(f"[drive/upload] Persisted {folder_field}={target_folder_id!r} for phone={client_phone!r}")
+
+        print(f"[drive/upload] Final upload target_folder_id={target_folder_id!r}")
 
         # Download the file
         resp = http_requests.get(file_url, timeout=30)

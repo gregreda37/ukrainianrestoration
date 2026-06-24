@@ -53,14 +53,6 @@ export default function TeamSettings() {
 
   useEffect(() => {
     if (!user) return;
-    api.drive.status(user.uid)
-      .then(res => setDriveStatus(res))
-      .catch(() => setDriveStatus({ connected: false }))
-      .finally(() => setDriveLoading(false));
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
     let cancelled = false;
     (async () => {
       try {
@@ -69,7 +61,7 @@ export default function TeamSettings() {
         if (cancelled) return;
         setOrgId(oid);
 
-        const [contractorSnap, membersSnap, clientsSnap, orgSnap, invitesSnap] = await Promise.all([
+        const [contractorSnap, membersSnap, clientsSnap, orgSnap, invitesSnap, driveStatusRes] = await Promise.all([
           getDoc(doc(db, "organization_data", oid, "contractors", user.uid)),
           getDocs(query(
             collection(db, "organization_data", oid, "contractors"),
@@ -84,6 +76,7 @@ export default function TeamSettings() {
             collection(db, "organization_data", oid, "invites"),
             orderBy("invitedAt", "desc")
           )).catch(() => ({ docs: [] })),
+          api.drive.status(oid).catch(() => ({ connected: false })),
         ]);
         if (cancelled) return;
 
@@ -95,8 +88,9 @@ export default function TeamSettings() {
         setClients(cl);
         setCcApiKey(orgSnap.data()?.companyCamAPI || '');
         setInvites(invitesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setDriveStatus(driveStatusRes);
       } finally {
-        if (!cancelled) { setLoading(false); setCcLoading(false); }
+        if (!cancelled) { setLoading(false); setCcLoading(false); setDriveLoading(false); }
       }
     })();
     return () => { cancelled = true; };
@@ -214,15 +208,13 @@ export default function TeamSettings() {
   };
 
   async function handleDriveConnect() {
+    if (!orgId) return;
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001';
-    // Open the backend /auth URL directly — popup navigates same-origin so
-    // Flask session (and PKCE code_verifier) survive through to the callback.
     window.open(
       `${backendUrl}/integrations/google-drive/auth?orgId=${orgId}`,
       'google-drive-auth',
       'width=520,height=640,left=200,top=100'
     );
-    // Poll /status until Firestore reflects connected, then update UI
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
@@ -239,7 +231,7 @@ export default function TeamSettings() {
 
   async function handleDriveDisconnect() {
     setDisconnecting(true);
-    await api.drive.disconnect({ orgId: user.uid }).catch(() => {});
+    await api.drive.disconnect({ orgId }).catch(() => {});
     setDriveStatus({ connected: false });
     setDisconnecting(false);
   }
@@ -469,7 +461,7 @@ export default function TeamSettings() {
                   </button>
                 </>
               ) : (
-                <button className="mc-btn mc-btn--primary" onClick={handleDriveConnect}>Connect Drive</button>
+                <button className="mc-btn mc-btn--primary" onClick={handleDriveConnect} disabled={!orgId}>Connect Drive</button>
               )}
             </div>
           </div>

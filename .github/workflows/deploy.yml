@@ -38,7 +38,10 @@ jobs:
       - name: Install Functions dependencies
         run: npm ci --prefix functions
 
-      - name: Authenticate to Google Cloud (for gcloud function deploy)
+      # WIF auth — sets GOOGLE_APPLICATION_CREDENTIALS for all subsequent steps.
+      # firebase-tools v15 uses google-auth-library which reads ADC natively,
+      # so no FIREBASE_TOKEN or service account key is needed.
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
@@ -48,9 +51,18 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Deploy Firebase Hosting
-        run: npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          set +e
+          OUTPUT=$(npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993 2>&1)
+          STATUS=$?
+          echo "$OUTPUT"
+          # A 400 "already active version" means the content is unchanged and
+          # the current live version is already correct — treat as success.
+          if [ $STATUS -ne 0 ] && echo "$OUTPUT" | grep -q "is the current active version"; then
+            echo "Hosting already up to date — skipping release."
+            exit 0
+          fi
+          exit $STATUS
 
       - name: Deploy mapsLoader function
         run: |

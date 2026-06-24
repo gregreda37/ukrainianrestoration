@@ -5,6 +5,8 @@ const CLOUD_RUN_URL = "https://myclaim-backend-fr6sb3q2na-ue.a.run.app";
 const _auth = new GoogleAuth();
 
 const CORS_ORIGINS = new Set([
+  "https://ukrainianrestoration.com",
+  "https://www.ukrainianrestoration.com",
   "https://ukrainianrestoration-50993.web.app",
   "https://ukrainianrestoration-50993.firebaseapp.com",
   "http://localhost:5173",

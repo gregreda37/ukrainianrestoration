@@ -28,6 +28,6 @@ if (import.meta.env.DEV) {
 }
 
 initializeAppCheck(app, {
-  provider: new ReCaptchaEnterpriseProvider('6LdlPDItAAAAAHRDHo-TBbcF2YolKAk0QB12Qlqs'),
+  provider: new ReCaptchaEnterpriseProvider('6LcSWzItAAAAAGylPncZ0k0mryi1RNbEm5rzFJWF'),
   isTokenAutoRefreshEnabled: true,
 })

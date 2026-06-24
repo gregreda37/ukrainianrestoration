@@ -10,7 +10,7 @@ import { useAuth } from "./useAuth";
 import { loadGoogleMaps } from "./loadMaps";
 import "./ClientDetail.css";
 
-const API = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
+const API = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5001";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const MITIGATION_STEPS = [
@@ -184,6 +184,8 @@ export default function ClientDetail() {
   const [driveSetupLoading,   setDriveSetupLoading]   = useState(false);
   const [driveUploading,      setDriveUploading]      = useState(false);
   const [driveError,          setDriveError]          = useState('');
+  const [driveSyncing,        setDriveSyncing]        = useState(false);
+  const [driveSyncMessage,    setDriveSyncMessage]    = useState('');
 
   // Selections
   const [selections,   setSelections]   = useState([]);
@@ -502,25 +504,57 @@ export default function ClientDetail() {
     }
   };
 
-  const uploadToDrive = async (file, visible) => {
-    if (!orgId || !file) return;
-    setDriveUploading(true); setDriveError('');
+  const syncFromDrive = async () => {
+    if (!orgId || !phone || !driveConnected || !driveFolderUrl || !clientUid) return;
+    setDriveSyncing(true); setDriveSyncMessage('');
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('orgId', orgId);
-      form.append('phone', phone);
-      form.append('clientName', client?.name || phone);
-      form.append('visibleToClient', visible ? 'true' : 'false');
-      const r = await fetch(`${API}/integrations/google-drive/upload-direct`, { method: 'POST', body: form });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Upload failed');
-      return d;
+      const r = await fetch(`${API}/integrations/google-drive/list-client-files`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId, phone }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Sync failed');
+
+      const { externalFiles = [], internalFiles = [] } = data;
+      const existingDriveIds = new Set(docs.map(d => d.driveFileId).filter(Boolean));
+      const existingNames    = new Set(docs.map(d => d.name));
+
+      const toImport = [
+        ...externalFiles
+          .filter(f => !existingDriveIds.has(f.driveFileId) && !existingNames.has(f.name))
+          .map(f => ({ ...f, folder: 'client' })),
+        ...internalFiles
+          .filter(f => !existingDriveIds.has(f.driveFileId) && !existingNames.has(f.name))
+          .map(f => ({ ...f, folder: 'internal' })),
+      ];
+
+      if (toImport.length === 0) {
+        setDriveSyncMessage('Already in sync — no new files found.');
+        return;
+      }
+
+      const newDocs = [];
+      for (const f of toImport) {
+        const payload = {
+          name: f.name,
+          downloadURL: f.driveFileUrl,
+          driveFileId: f.driveFileId,
+          size: f.size || 0,
+          folder: f.folder,
+          uploadedAt: serverTimestamp(),
+          uploadedBy: 'drive-sync',
+          source: 'google_drive',
+        };
+        const docRef = await addDoc(collection(db, 'users', clientUid, 'documents'), payload);
+        newDocs.push({ id: docRef.id, ...payload });
+      }
+
+      setDocs(prev => [...newDocs, ...prev]);
+      setDriveSyncMessage(`Synced ${toImport.length} file${toImport.length !== 1 ? 's' : ''} from Drive.`);
     } catch (err) {
-      setDriveError(err.message || 'Drive upload failed.');
-      return null;
+      setDriveSyncMessage(err.message || 'Sync failed.');
     } finally {
-      setDriveUploading(false);
+      setDriveSyncing(false);
     }
   };
 
@@ -539,9 +573,38 @@ export default function ClientDetail() {
       };
       const docRef = await addDoc(collection(db, "users", clientUid, "documents"), payload);
       setDocs(prev => [{ id: docRef.id, ...payload }, ...prev]);
-      // Mirror to Drive if connected — fire and forget
+
+      // Mirror to Drive using the already-saved Firebase Storage URL
       if (driveConnected) {
-        uploadToDrive(file, folder !== "internal").catch(() => {});
+        try {
+          const dr = await fetch(`${API}/integrations/google-drive/upload`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orgId,
+              fileUrl: downloadURL,
+              fileName: file.name,
+              clientName: client?.name || phone,
+              clientPhone: phone,
+              visibleToClient: folder !== 'internal',
+            }),
+          });
+          if (dr.ok) {
+            const driveData = await dr.json();
+            if (driveData.driveFileId) {
+              await updateDoc(doc(db, 'users', clientUid, 'documents', docRef.id), {
+                driveFileId: driveData.driveFileId,
+                driveFileUrl: driveData.driveFileUrl,
+              });
+              setDocs(prev => prev.map(d =>
+                d.id === docRef.id
+                  ? { ...d, driveFileId: driveData.driveFileId, driveFileUrl: driveData.driveFileUrl }
+                  : d
+              ));
+            }
+          }
+        } catch (err) {
+          console.warn('[Drive] Mirror failed:', err.message);
+        }
       }
     } catch (err) { console.error("uploadDoc error:", err); alert("Upload failed: " + err.message); }
     finally { setUploading(false); setContractorUploading(false); }
@@ -1813,24 +1876,39 @@ export default function ClientDetail() {
                     : 'Google Drive not connected. Ask your admin to connect it.'}
                 </p>
               ) : driveFolderUrl ? (
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                  <a href={driveFolderUrl} target="_blank" rel="noreferrer"
-                    style={{ fontSize:12, color:'#2563eb', textDecoration:'none', display:'flex', alignItems:'center', gap:4 }}>
-                    Open client folder ↗
-                  </a>
-                  {driveExternalId && (
-                    <a href={`https://drive.google.com/drive/folders/${driveExternalId}`} target="_blank" rel="noreferrer"
-                      style={{ fontSize:12, color:'#16a34a', textDecoration:'none' }}>
-                      External Files ↗
+                <>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                    <a href={driveFolderUrl} target="_blank" rel="noreferrer"
+                      style={{ fontSize:12, color:'#2563eb', textDecoration:'none', display:'flex', alignItems:'center', gap:4 }}>
+                      Open client folder ↗
                     </a>
+                    {driveExternalId && (
+                      <a href={`https://drive.google.com/drive/folders/${driveExternalId}`} target="_blank" rel="noreferrer"
+                        style={{ fontSize:12, color:'#16a34a', textDecoration:'none' }}>
+                        External ↗
+                      </a>
+                    )}
+                    {driveInternalId && (
+                      <a href={`https://drive.google.com/drive/folders/${driveInternalId}`} target="_blank" rel="noreferrer"
+                        style={{ fontSize:12, color:'#9333ea', textDecoration:'none' }}>
+                        Internal ↗
+                      </a>
+                    )}
+                    <button
+                      className="cd-upload-btn"
+                      onClick={syncFromDrive}
+                      disabled={driveSyncing}
+                      style={{ marginLeft:'auto' }}
+                    >
+                      {driveSyncing ? 'Syncing…' : '↻ Sync from Drive'}
+                    </button>
+                  </div>
+                  {driveSyncMessage && (
+                    <p style={{ fontSize:11, marginTop:4, color: driveSyncMessage.startsWith('Synced') ? '#16a34a' : '#64748b' }}>
+                      {driveSyncMessage}
+                    </p>
                   )}
-                  {driveInternalId && (
-                    <a href={`https://drive.google.com/drive/folders/${driveInternalId}`} target="_blank" rel="noreferrer"
-                      style={{ fontSize:12, color:'#9333ea', textDecoration:'none' }}>
-                      Internal Files ↗
-                    </a>
-                  )}
-                </div>
+                </>
               ) : (
                 <p className="cd-docs-drawer-empty" style={{ fontSize:12 }}>
                   {isAdmin ? 'No Drive folder yet — click "Set up folder" above.' : 'Drive folder not set up for this client yet.'}

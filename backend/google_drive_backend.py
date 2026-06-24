@@ -767,3 +767,61 @@ def remove_file():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@drive_app.route("/list-client-files", methods=["POST"])
+def list_client_files():
+    """
+    List all files in a client's External Files and Internal Files Drive folders.
+    Used by the frontend sync button to detect files in Drive not yet in app storage.
+
+    Body: { orgId, phone }
+    Returns: { externalFiles: [...], internalFiles: [...] }
+    Each file: { driveFileId, driveFileUrl, name, size, mimeType, createdTime }
+    """
+    body   = request.json or {}
+    org_id = body.get("orgId", "")
+    phone  = body.get("phone", "").strip()
+
+    if not org_id or not phone:
+        return jsonify({"error": "orgId and phone are required"}), 400
+
+    creds = _load_credentials(org_id)
+    if not creds:
+        return jsonify({"error": "Google Drive not connected"}), 403
+
+    try:
+        db      = admin_firestore.client()
+        service = _drive_service(creds)
+
+        # Folder IDs are stored on client_phones and/or the org client doc
+        client_data  = (db.collection("client_phones").document(phone).get().to_dict() or {})
+        external_id  = client_data.get("driveExternalFolderId")
+        internal_id  = client_data.get("driveInternalFolderId")
+
+        def list_folder(folder_id):
+            if not folder_id:
+                return []
+            results = service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="files(id,name,size,webViewLink,mimeType,createdTime)",
+                spaces="drive",
+            ).execute()
+            return [
+                {
+                    "driveFileId":  f["id"],
+                    "driveFileUrl": f.get("webViewLink", ""),
+                    "name":         f.get("name", ""),
+                    "size":         int(f["size"]) if f.get("size") else 0,
+                    "mimeType":     f.get("mimeType", ""),
+                    "createdTime":  f.get("createdTime", ""),
+                }
+                for f in results.get("files", [])
+            ]
+
+        return jsonify({
+            "externalFiles": list_folder(external_id),
+            "internalFiles": list_folder(internal_id),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

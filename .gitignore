@@ -4,6 +4,9 @@ dist
 *.local
 .env
 
+# Secrets
+backend/client_secret.json
+
 # Python
 .venv
 venv

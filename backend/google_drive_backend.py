@@ -159,9 +159,14 @@ def _load_credentials(org_id: str):
 def _drive_service(creds):
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
+def _escape_drive_query(value: str) -> str:
+    """Escape a string for use inside single-quoted Drive query values."""
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
 def _get_or_create_folder(service, name: str, parent_id=None) -> str:
     """Return the Drive folder ID, creating it if it doesn't exist."""
-    q = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    safe_name = _escape_drive_query(name)
+    q = f"name='{safe_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
     if parent_id:
         q += f" and '{parent_id}' in parents"
     results = service.files().list(q=q, fields="files(id,name)", spaces="drive").execute()
@@ -360,6 +365,16 @@ def _get_root_folder_id(db, service, org_id: str) -> str:
                 .collection(_INTEGRATION_COLLECTION).document(_DRIVE_DOC)
     data    = (int_ref.get().to_dict() or {})
     root_id = data.get("drive_root_folder_id")
+    if root_id:
+        # Validate it still exists — recreate if deleted
+        try:
+            service.files().get(fileId=root_id, fields="id").execute()
+        except HttpError as e:
+            if e.status_code == 404:
+                print(f"[drive] Root folder {root_id!r} deleted — recreating")
+                root_id = None
+            else:
+                raise
     if not root_id:
         root_id = _get_or_create_folder(service, ROOT_FOLDER_NAME)
         int_ref.update({"drive_root_folder_id": root_id})
@@ -550,6 +565,7 @@ def upload_to_drive():
     file_name        = body.get("fileName", "document")
     client_name      = (body.get("clientName") or body.get("clientPhone") or "Unknown Client").strip()
     client_phone     = (body.get("clientPhone") or "").strip()
+    client_doc_id    = (body.get("clientDocId") or "").strip()
     claim_num        = (body.get("claimNumber") or "").strip()
     target_folder_id = (body.get("targetFolderId") or "").strip()
     visible_to_client = body.get("visibleToClient", True)
@@ -615,7 +631,12 @@ def upload_to_drive():
                 db.collection("client_phones").document(client_phone).set(
                     {folder_field: target_folder_id}, merge=True
                 )
-                print(f"[drive/upload] Persisted {folder_field}={target_folder_id!r} for phone={client_phone!r}")
+                # Also update the org client doc so the frontend reads the correct ID on reload
+                if client_doc_id:
+                    db.collection("organization_data").document(org_id) \
+                      .collection("clients").document(client_doc_id) \
+                      .set({folder_field: target_folder_id}, merge=True)
+                print(f"[drive/upload] Persisted {folder_field}={target_folder_id!r} for phone={client_phone!r} doc={client_doc_id!r}")
 
         print(f"[drive/upload] Final upload target_folder_id={target_folder_id!r}")
 

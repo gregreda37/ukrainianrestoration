@@ -588,6 +588,7 @@ export default function ClientDetail() {
               fileName: file.name,
               clientName: client?.name || phone,
               clientPhone: phone,
+              clientDocId: clientDocId || '',
               visibleToClient: folder !== 'internal',
               targetFolderId,
             }),

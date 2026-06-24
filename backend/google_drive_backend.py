@@ -155,7 +155,7 @@ def auth_start():
     if code_verifier:
         import base64 as _b64
         state_payload = _b64.urlsafe_b64encode(
-            json_lib.dumps({"o": org_id, "v": code_verifier}).encode()
+            json.dumps({"o": org_id, "v": code_verifier}).encode()
         ).decode().rstrip("=")
         from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
         parts = urlparse(auth_url)
@@ -185,7 +185,7 @@ def auth_callback():
     try:
         import base64 as _b64
         padded = raw_state + "=" * (-len(raw_state) % 4)
-        payload = json_lib.loads(_b64.urlsafe_b64decode(padded))
+        payload = json.loads(_b64.urlsafe_b64decode(padded))
         org_id        = payload.get("o", raw_state)
         code_verifier = payload.get("v") or None
     except Exception:

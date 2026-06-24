@@ -575,11 +575,11 @@ export default function ClientDetail() {
       setDocs(prev => [{ id: docRef.id, ...payload }, ...prev]);
 
       // Mirror to Drive using the already-saved Firebase Storage URL
+      console.log('[Drive] driveConnected:', driveConnected, '| externalId:', driveExternalId, '| internalId:', driveInternalId, '| orgId:', orgId);
       if (driveConnected) {
         try {
-          // Pass the resolved folder ID from state when available — bypasses all
-          // backend folder lookup and routes to the correct External/Internal subfolder
           const targetFolderId = folder !== 'internal' ? (driveExternalId || '') : (driveInternalId || '');
+          console.log('[Drive] Uploading to Drive — folder:', folder, '| targetFolderId:', targetFolderId, '| fileUrl:', downloadURL.slice(0, 80));
           const dr = await fetch(`${API}/integrations/google-drive/upload`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -592,23 +592,29 @@ export default function ClientDetail() {
               targetFolderId,
             }),
           });
-          if (dr.ok) {
-            const driveData = await dr.json();
-            if (driveData.driveFileId) {
-              await updateDoc(doc(db, 'users', clientUid, 'documents', docRef.id), {
-                driveFileId: driveData.driveFileId,
-                driveFileUrl: driveData.driveFileUrl,
-              });
-              setDocs(prev => prev.map(d =>
-                d.id === docRef.id
-                  ? { ...d, driveFileId: driveData.driveFileId, driveFileUrl: driveData.driveFileUrl }
-                  : d
-              ));
-            }
+          const driveData = await dr.json();
+          console.log('[Drive] Response status:', dr.status, '| body:', driveData);
+          if (dr.ok && driveData.driveFileId) {
+            await updateDoc(doc(db, 'users', clientUid, 'documents', docRef.id), {
+              driveFileId: driveData.driveFileId,
+              driveFileUrl: driveData.driveFileUrl,
+            });
+            setDocs(prev => prev.map(d =>
+              d.id === docRef.id
+                ? { ...d, driveFileId: driveData.driveFileId, driveFileUrl: driveData.driveFileUrl }
+                : d
+            ));
+            console.log('[Drive] ✓ Mirrored successfully:', driveData.driveFileId);
+          } else if (!dr.ok) {
+            console.error('[Drive] Upload failed:', dr.status, driveData.error || driveData);
+            setDriveError(`Drive mirror failed: ${driveData.error || dr.status}`);
           }
         } catch (err) {
-          console.warn('[Drive] Mirror failed:', err.message);
+          console.error('[Drive] Mirror exception:', err);
+          setDriveError(`Drive mirror error: ${err.message}`);
         }
+      } else {
+        console.log('[Drive] Skipped — driveConnected is false');
       }
     } catch (err) { console.error("uploadDoc error:", err); alert("Upload failed: " + err.message); }
     finally { setUploading(false); setContractorUploading(false); }

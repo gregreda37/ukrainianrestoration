@@ -271,7 +271,10 @@ export default function Clients() {
                     <span className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}>
                       {isClosed ? "Claim Closed" : "Claim Open"}
                     </span>
-                    {client.hasAccount && <span className="cl-active-badge"><ActiveDotIcon /> Active</span>}
+                    {client.hasAccount
+                      ? <span className="cl-active-badge"><ActiveDotIcon /> Active</span>
+                      : <span className="cl-pending-badge">Awaiting first login</span>
+                    }
                     {(client.openContractorTodos > 0) && <span className="cl-todo-badge">{client.openContractorTodos}</span>}
                   </div>
                 </div>

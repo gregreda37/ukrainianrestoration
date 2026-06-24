@@ -46,3 +46,5 @@ jobs:
 
       - name: Deploy to Firebase Hosting and Functions
         run: npx firebase-tools deploy --only hosting,functions --project ukrainianrestoration-50993
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}

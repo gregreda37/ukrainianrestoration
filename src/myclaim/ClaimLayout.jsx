@@ -3,17 +3,18 @@ import { signOut } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useAuth } from './useAuth'
 
-const NAV = [
+const BASE_NAV = [
   { to: '/myclaim',              label: 'Dashboard',    icon: '▦',  end: true },
   { to: '/myclaim/clients',      label: 'Clients',      icon: '👥' },
   { to: '/myclaim/chatbot',      label: 'AI Assistant', icon: '🤖' },
-  { to: '/myclaim/team',         label: 'Team',         icon: '👤' },
   { to: '/myclaim/settings',     label: 'Settings',     icon: '⚙️' },
 ]
+const ADMIN_NAV = { to: '/myclaim/team', label: 'Team', icon: '👤' }
 
 export default function ClaimLayout() {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const navigate = useNavigate()
+  const nav = isAdmin ? [...BASE_NAV.slice(0, 3), ADMIN_NAV, BASE_NAV[3]] : BASE_NAV
 
   async function handleSignOut() {
     await signOut(auth)
@@ -29,7 +30,7 @@ export default function ClaimLayout() {
         </div>
 
         <nav className="mc-nav">
-          {NAV.map(({ to, label, icon, end }) => (
+          {nav.map(({ to, label, icon, end }) => (
             <NavLink
               key={to}
               to={to}

@@ -131,7 +131,7 @@ export default function ClientDetail() {
   const { id }   = useParams();
   const phone    = decodeURIComponent(id || "");
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   // Org / client identity
   const [orgId,       setOrgId]       = useState(null);
@@ -1498,9 +1498,9 @@ export default function ClientDetail() {
               <div className="cd-section-header">
                 <CameraIcon />
                 <h2>CompanyCam</h2>
-                {ccProjectId ? (
+                {isAdmin && ccProjectId ? (
                   <button className="cd-cc-unlink" onClick={unlinkCcProject}>Unlink</button>
-                ) : (
+                ) : isAdmin && !ccProjectId ? (
                   <>
                     <button className="cd-upload-btn" onClick={openCCPicker}>Link Project</button>
                     <button
@@ -1513,7 +1513,7 @@ export default function ClientDetail() {
                       {ccCreating ? "Creating…" : <><PlusIcon /> New</>}
                     </button>
                   </>
-                )}
+                ) : null}
               </div>
 
               {ccError && <p className="cd-cc-error">{ccError}</p>}
@@ -1800,7 +1800,7 @@ export default function ClientDetail() {
                   </svg>
                   Google Drive
                 </span>
-                {driveConnected && !driveFolderUrl && (
+                {driveConnected && !driveFolderUrl && isAdmin && (
                   <button className="cd-upload-btn" onClick={setupDriveFolder} disabled={driveSetupLoading}>
                     {driveSetupLoading ? 'Creating…' : 'Set up folder'}
                   </button>
@@ -1808,7 +1808,9 @@ export default function ClientDetail() {
               </div>
               {!driveConnected ? (
                 <p className="cd-docs-drawer-empty" style={{ fontSize:12 }}>
-                  Google Drive not connected — go to <strong>Settings</strong> to connect.
+                  {isAdmin
+                    ? <>Google Drive not connected — go to <strong>Team → Integrations</strong> to connect.</>
+                    : 'Google Drive not connected. Ask your admin to connect it.'}
                 </p>
               ) : driveFolderUrl ? (
                 <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
@@ -1830,7 +1832,9 @@ export default function ClientDetail() {
                   )}
                 </div>
               ) : (
-                <p className="cd-docs-drawer-empty" style={{ fontSize:12 }}>No Drive folder yet — click "Set up folder" above.</p>
+                <p className="cd-docs-drawer-empty" style={{ fontSize:12 }}>
+                  {isAdmin ? 'No Drive folder yet — click "Set up folder" above.' : 'Drive folder not set up for this client yet.'}
+                </p>
               )}
               {driveError && <p style={{ color:'#dc2626', fontSize:12, marginTop:4 }}>{driveError}</p>}
             </div>

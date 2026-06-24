@@ -17,7 +17,7 @@ const encodeEmail = (email) =>
   email.toLowerCase().replace(/\./g, "__dot__").replace(/@/g, "__at__");
 
 export default function TeamSettings() {
-  const { user } = useAuth();
+  const { user, orgId: authOrgId, isAdmin } = useAuth();
 
   const [orgId,        setOrgId]        = useState(null);
   const [userRole,     setUserRole]     = useState(null);
@@ -284,7 +284,9 @@ export default function TeamSettings() {
     setInviteError('');
   };
 
-  if (userRole && userRole !== "admin") {
+  // Gate on both the fast auth-level role and the loaded role (belt-and-suspenders)
+  const isBlocked = (userRole && userRole !== "admin") || (!isAdmin && userRole !== null);
+  if (isBlocked) {
     return (
       <div className="ts-root">
         <div className="ts-main">

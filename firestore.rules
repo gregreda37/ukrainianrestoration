@@ -2,6 +2,21 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Returns true if the caller is an admin of orgId.
+    // Org owners (uid == orgId) always qualify.
+    // Contractors with role == 'admin' also qualify.
+    function isOrgAdmin(orgId) {
+      return request.auth.uid == orgId ||
+        (exists(/databases/$(database)/documents/organization_data/$(orgId)/contractors/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/organization_data/$(orgId)/contractors/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    // True when the write touches integration-only fields that only admins may set.
+    function touchesIntegrationFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['companyCamAPI', 'googleDriveConnected', 'googleDriveFolderName']);
+    }
+
     // ── Per-user data ────────────────────────────────────────────────────────
     match /users/{userId} {
       allow read, write: if request.auth != null;
@@ -20,9 +35,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Org root doc: anyone in the org may read; writes that touch integration
+    // fields require admin. Other writes (e.g. createdAt) are open.
     match /organization_data/{orgId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null &&
+        (!touchesIntegrationFields() || isOrgAdmin(orgId));
     }
+
     match /organization_data/{orgId}/{document=**} {
       allow read, write: if request.auth != null;
     }
@@ -34,6 +54,11 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
     match /client_phones/{phone}/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── Invite cross-reference ───────────────────────────────────────────────
+    match /user_invites/{encodedEmail} {
       allow read, write: if request.auth != null;
     }
 

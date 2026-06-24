@@ -21,7 +21,7 @@ import secrets
 import requests as http_requests
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from flask import Blueprint, request, jsonify, redirect, session
-from firebase_admin import firestore as admin_firestore
+from firebase_admin import firestore as admin_firestore, auth as admin_auth
 from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -86,6 +86,35 @@ def _flow(redirect_uri=None):
         scopes=SCOPES,
         redirect_uri=redirect_uri or REDIRECT_URI,
     )
+
+
+def _require_admin(org_id: str):
+    """Verify the Bearer token and confirm the caller is an org admin.
+    Returns (uid, None) on success or (None, (response, status_code)) on failure.
+    """
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return None, (jsonify({"error": "Missing Authorization header"}), 401)
+    token = header.split(" ", 1)[1]
+    try:
+        decoded = admin_auth.verify_id_token(token)
+    except Exception:
+        return None, (jsonify({"error": "Invalid or expired token"}), 401)
+
+    uid = decoded["uid"]
+    db  = admin_firestore.client()
+
+    # Org owners bootstrapped with uid == orgId → always admin
+    if uid == org_id:
+        return uid, None
+
+    # Promoted admins have a contractor doc with role == 'admin'
+    cref = db.collection("organization_data").document(org_id).collection("contractors").document(uid)
+    csnap = cref.get()
+    if csnap.exists and csnap.to_dict().get("role") == "admin":
+        return uid, None
+
+    return None, (jsonify({"error": "Admin access required"}), 403)
 
 def _load_credentials(org_id: str):
     """Load and auto-refresh stored OAuth credentials for an org."""
@@ -280,11 +309,14 @@ def status():
 
 @drive_app.route("/disconnect", methods=["POST"])
 def disconnect():
-    """Revoke tokens and clear Drive connection for this org."""
+    """Revoke tokens and clear Drive connection for this org. Admin only."""
     data   = request.json or {}
     org_id = data.get("orgId", "")
     if not org_id:
         return jsonify({"error": "Missing orgId"}), 400
+    _, err = _require_admin(org_id)
+    if err:
+        return err
     try:
         db     = admin_firestore.client()
         org_ref = db.collection("organization_data").document(org_id)

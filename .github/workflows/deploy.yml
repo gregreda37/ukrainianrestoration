@@ -52,7 +52,7 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
-      - name: Deploy Cloud Function
+      - name: Deploy mapsLoader function
         run: |
           gcloud functions deploy mapsLoader \
             --runtime nodejs22 \
@@ -63,3 +63,16 @@ jobs:
             --source functions/ \
             --entry-point mapsLoader \
             --set-secrets GOOGLE_MAPS_KEY=GOOGLE_MAPS_KEY:latest
+
+      - name: Deploy backendProxy function
+        run: |
+          gcloud functions deploy backendProxy \
+            --runtime nodejs22 \
+            --trigger-http \
+            --allow-unauthenticated \
+            --region us-central1 \
+            --project ukrainianrestoration-50993 \
+            --source functions/ \
+            --entry-point backendProxy \
+            --memory 256MB \
+            --timeout 120s

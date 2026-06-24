@@ -147,29 +147,52 @@ def auth_start():
         prompt="consent",
         state=org_id,
     )
-    # Store PKCE verifier in server-side session — works because the popup
-    # navigates directly to this endpoint (same origin as the callback).
-    session["drive_code_verifier"] = getattr(flow, "code_verifier", None)
+
+    # Encode the PKCE code_verifier inside the state param so it survives the
+    # Google redirect without relying on Flask session (localhost vs 127.0.0.1
+    # are different cookie origins, so the session would be empty at callback).
+    code_verifier = getattr(flow, "code_verifier", None)
+    if code_verifier:
+        import base64 as _b64
+        state_payload = _b64.urlsafe_b64encode(
+            json_lib.dumps({"o": org_id, "v": code_verifier}).encode()
+        ).decode().rstrip("=")
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        parts = urlparse(auth_url)
+        params = {k: v[0] for k, v in parse_qs(parts.query).items()}
+        params["state"] = state_payload
+        auth_url = urlunparse(parts._replace(query=urlencode(params)))
+
     return redirect(auth_url)
 
 
 @drive_app.route("/callback")
 def auth_callback():
     """Exchange authorization code for tokens, store in Firestore, close popup."""
-    error  = request.args.get("error")
+    error = request.args.get("error")
     if error:
         return _popup_close(success=False, message=f"Google auth error: {error}")
 
-    code   = request.args.get("code", "")
-    org_id = request.args.get("state", "")
+    code      = request.args.get("code", "")
+    raw_state = request.args.get("state", "")
 
-    if not code or not org_id:
+    if not code or not raw_state:
         return _popup_close(success=False, message="Missing code or state")
+
+    # Decode state — may be base64 JSON (orgId + code_verifier) or plain orgId
+    org_id        = raw_state
+    code_verifier = None
+    try:
+        import base64 as _b64
+        padded = raw_state + "=" * (-len(raw_state) % 4)
+        payload = json_lib.loads(_b64.urlsafe_b64decode(padded))
+        org_id        = payload.get("o", raw_state)
+        code_verifier = payload.get("v") or None
+    except Exception:
+        pass  # plain orgId state — no PKCE
 
     try:
         flow = _flow()
-        # Restore the PKCE code_verifier that was saved during /auth
-        code_verifier = session.pop("drive_code_verifier", None)
         if code_verifier:
             flow.code_verifier = code_verifier
         flow.fetch_token(code=code)

@@ -38,8 +38,7 @@ jobs:
       - name: Install Functions dependencies
         run: npm ci --prefix functions
 
-      - name: Authenticate to Google Cloud
-        id: auth
+      - name: Authenticate to Google Cloud (for gcloud function deploy)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
@@ -48,12 +47,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          projectId: ukrainianrestoration-50993
-          channelId: live
+      - name: Deploy Firebase Hosting
+        run: npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
       - name: Deploy Cloud Function
         run: |

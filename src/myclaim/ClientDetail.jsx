@@ -1059,7 +1059,11 @@ export default function ClientDetail() {
                       <EmailIcon /> <a href={`mailto:${adjuster.email}`} className="cd-header-adj-link">{adjuster.email}</a>
                     </p>
                   )}
-                  {adjuster.notes && <p className="cd-header-adj-notes">{adjuster.notes}</p>}
+                  {adjuster.notes && (
+                    <p className="cd-header-adj-notes">
+                      <span className="cd-header-adj-notes-label">Adjuster Notes: </span>{adjuster.notes}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <button className="cd-header-adj-add-btn"
@@ -1092,7 +1096,6 @@ export default function ClientDetail() {
                 to={`/myclaim/opt-in-policy?phone=${encodeURIComponent(phone)}`}
                 target="_blank"
                 className="cd-notify-btn"
-                style={{ textDecoration:'none', fontSize:'.8125rem' }}
                 title="View SMS opt-in proof for this client">
                 Opt-in Proof
               </Link>

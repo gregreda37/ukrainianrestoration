@@ -211,7 +211,8 @@
 .cd-header-adj-line svg { flex-shrink: 0; opacity: 0.55; }
 .cd-header-adj-link { color: #2563eb; text-decoration: none; font-size: 12px; }
 .cd-header-adj-link:hover { text-decoration: underline; }
-.cd-header-adj-notes { font-size: 12px; color: #64748b; line-height: 1.4; }
+.cd-header-adj-notes { font-size: 12px; color: #64748b; line-height: 1.4; margin: 0; }
+.cd-header-adj-notes-label { font-weight: 600; color: #475569; }
 .cd-header-adj-form { margin-top: 2px; }
 .cd-header-adj-fields {
   display: grid;
@@ -236,15 +237,17 @@
 .cd-header-actions {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 8px;
   flex-shrink: 0;
+  min-width: 138px;
 }
 
 /* ── Documents nav button (pinned in header) ─── */
 .cd-docs-nav-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 7px 14px;
   background: white;
@@ -389,6 +392,7 @@
 .cd-status-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   padding: 7px 14px;
   border-radius: 8px;
   font-size: 13px;
@@ -406,6 +410,7 @@
 .cd-notify-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 7px 14px;
   background: white;
@@ -415,6 +420,7 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
   transition: border-color .15s, background .15s, color .15s;
   white-space: nowrap;
 }
@@ -500,8 +506,10 @@
 .cd-active-badge {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   flex-shrink: 0;
+  align-self: flex-end;
   font-size: 11px;
   font-weight: 700;
   color: #16a34a;
@@ -509,7 +517,6 @@
   border: 1px solid #bbf7d0;
   padding: 4px 10px;
   border-radius: 20px;
-  margin-top: 2px;
 }
 
 /* ── Section cards ───────────────────────────────── */

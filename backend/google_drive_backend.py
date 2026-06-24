@@ -153,32 +153,43 @@ def auth_start():
 @drive_app.route("/callback")
 def auth_callback():
     """Exchange authorization code for tokens, store in Firestore, close popup."""
+    print("[drive/callback] HIT — args:", dict(request.args))
+
     error = request.args.get("error")
     if error:
+        print(f"[drive/callback] Google returned error: {error}")
         return _popup_close(success=False, message=f"Google auth error: {error}")
 
     code      = request.args.get("code", "")
     raw_state = request.args.get("state", "")
 
+    print(f"[drive/callback] code present={bool(code)}, org_id={raw_state!r}")
+
     if not code or not raw_state:
+        print("[drive/callback] Missing code or state — aborting")
         return _popup_close(success=False, message="Missing code or state")
 
     org_id = raw_state
 
     try:
+        print(f"[drive/callback] Building flow, redirect_uri={REDIRECT_URI!r}")
         flow = _flow()
+        print("[drive/callback] Fetching token…")
         flow.fetch_token(code=code)
         creds = flow.credentials
+        print(f"[drive/callback] Token OK — access_token present={bool(creds.token)}, refresh_token present={bool(creds.refresh_token)}")
 
         # Create the root folder for this org
+        print("[drive/callback] Creating Drive root folder…")
         service   = _drive_service(creds)
         root_name = ROOT_FOLDER_NAME
         root_id   = _get_or_create_folder(service, root_name)
+        print(f"[drive/callback] Root folder id={root_id!r}")
 
         db = admin_firestore.client()
         org_ref = db.collection("organization_data").document(org_id)
 
-        # Store tokens in a restricted sub-collection (never exposed to client SDK)
+        print(f"[drive/callback] Writing tokens to Firestore org={org_id!r}…")
         org_ref.collection(_INTEGRATION_COLLECTION).document(_DRIVE_DOC).set({
             "access_token":      creds.token,
             "refresh_token":     creds.refresh_token,
@@ -187,31 +198,38 @@ def auth_callback():
             "connected_at":      admin_firestore.SERVER_TIMESTAMP,
         })
 
-        # Store non-sensitive status on the org doc itself (readable by the frontend)
+        print(f"[drive/callback] Writing status flag to org doc…")
         org_ref.set({
             "googleDriveConnected": True,
             "googleDriveFolderName": root_name,
         }, merge=True)
 
+        print("[drive/callback] SUCCESS — Drive connected")
         return _popup_close(success=True, message="Google Drive connected!", folder_name=root_name)
 
     except Exception as e:
+        import traceback
+        print(f"[drive/callback] EXCEPTION: {e}")
+        traceback.print_exc()
         return _popup_close(success=False, message=str(e))
 
 
 def _popup_close(success: bool, message: str, folder_name: str = "") -> str:
     """Returns an HTML page that sends a postMessage to the opener then closes."""
+    print(f"[drive/_popup_close] success={success} message={message!r}")
     payload = json.dumps({"success": success, "message": message, "folderName": folder_name})
+    color = "#16a34a" if success else "#dc2626"
     return f"""<!doctype html>
 <html><head><title>Google Drive</title></head>
-<body>
+<body style="font-family:sans-serif;padding:24px">
+<p style="color:{color};font-size:16px;font-weight:600">{message}</p>
+<p style="color:#64748b;font-size:13px">This window will close automatically…</p>
 <script>
   try {{
     window.opener && window.opener.postMessage({payload}, '*');
   }} catch(e) {{}}
-  window.close();
+  setTimeout(function() {{ window.close(); }}, 2000);
 </script>
-<p>{message}</p>
 </body></html>"""
 
 

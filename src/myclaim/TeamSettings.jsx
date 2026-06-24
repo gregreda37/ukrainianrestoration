@@ -208,24 +208,30 @@ export default function TeamSettings() {
   };
 
   async function handleDriveConnect() {
-    if (!orgId) return;
+    if (!orgId) { console.warn('[Drive] orgId not loaded yet'); return; }
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001';
-    window.open(
-      `${backendUrl}/integrations/google-drive/auth?orgId=${orgId}`,
-      'google-drive-auth',
-      'width=520,height=640,left=200,top=100'
-    );
+    const authUrl = `${backendUrl}/integrations/google-drive/auth?orgId=${orgId}`;
+    console.log('[Drive] Opening popup:', authUrl);
+    window.open(authUrl, 'google-drive-auth', 'width=520,height=640,left=200,top=100');
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 80) { clearInterval(interval); return; }
+      if (attempts > 80) {
+        console.warn('[Drive] Polling timed out after 2 min');
+        clearInterval(interval);
+        return;
+      }
       try {
         const status = await api.drive.status(orgId);
+        console.log(`[Drive] Poll #${attempts} orgId=${orgId}:`, status);
         if (status?.connected) {
+          console.log('[Drive] Connected! Updating UI.');
           clearInterval(interval);
           setDriveStatus(status);
         }
-      } catch {}
+      } catch (err) {
+        console.error('[Drive] Poll error:', err);
+      }
     }, 1500);
   }
 

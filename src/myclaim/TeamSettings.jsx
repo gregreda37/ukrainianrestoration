@@ -216,15 +216,20 @@ export default function TeamSettings() {
   async function handleDriveConnect() {
     const res = await api.drive.connect(user.uid).catch(() => null);
     if (!res?.authUrl) return;
-    const popup = window.open(res.authUrl, 'google-drive-auth', 'width=520,height=640,left=200,top=100');
-    const onMessage = (e) => {
-      if (e.data?.success) {
-        setDriveStatus({ connected: true, folderName: e.data.folderName });
-      }
-      window.removeEventListener('message', onMessage);
-      if (popup && !popup.closed) popup.close();
-    };
-    window.addEventListener('message', onMessage);
+    window.open(res.authUrl, 'google-drive-auth', 'width=520,height=640,left=200,top=100');
+    // Poll backend status — avoids COOP cross-origin window communication issues
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      if (attempts > 80) { clearInterval(interval); return; } // 2-min timeout
+      try {
+        const status = await api.drive.status(user.uid);
+        if (status?.connected) {
+          clearInterval(interval);
+          setDriveStatus(status);
+        }
+      } catch {}
+    }, 1500);
   }
 
   async function handleDriveDisconnect() {

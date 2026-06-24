@@ -50,6 +50,11 @@ export default function Login() {
   }, [])
 
   useEffect(() => {
+    const authInstance = getAuth()
+    window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'recaptcha-container', {
+      size: 'invisible',
+      callback: () => {},
+    })
     return () => {
       window.recaptchaVerifier?.clear()
       delete window.recaptchaVerifier
@@ -78,14 +83,13 @@ export default function Login() {
         consentCount:    1,
       }, { merge: true }).catch(() => {})
 
-      window.recaptchaVerifier?.clear()
       const authInstance = getAuth()
-      window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'sign-in-button', {
-        size: 'invisible',
-        callback: () => {
-          // reCAPTCHA solved — SMS will be sent
-        },
-      })
+      if (!window.recaptchaVerifier) {
+        window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'recaptcha-container', {
+          size: 'invisible',
+          callback: () => {},
+        })
+      }
 
       const result = await signInWithPhoneNumber(authInstance, e164, window.recaptchaVerifier)
       setConfirmation(result)
@@ -292,7 +296,8 @@ export default function Login() {
                   </span>
                 </label>
                 {error && <p className="mc-login__error">{error}</p>}
-                <button id="sign-in-button" className="mc-btn-pill" type="submit" disabled={submitting || !agreed}>
+                <div id="recaptcha-container" style={{ display: 'none' }} />
+                <button className="mc-btn-pill" type="submit" disabled={submitting || !agreed}>
                   {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Sending…</> : 'Send Code'}
                 </button>
               </form>

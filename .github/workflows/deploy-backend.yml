@@ -20,7 +20,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -28,24 +29,22 @@ jobs:
       - name: Build and push container
         run: |
           gcloud builds submit backend \
-            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/myclaim-backend:${{ github.sha }}
+            --project ukrainianrestoration-50993 \
+            --tag gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }}
 
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy myclaim-backend \
-            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/myclaim-backend:${{ github.sha }} \
+            --image gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }} \
             --region us-east1 \
+            --project ukrainianrestoration-50993 \
             --platform managed \
             --allow-unauthenticated \
-            --set-env-vars "AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}" \
-            --set-env-vars "AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
-            --set-env-vars "AZURE_OPENAI_API_TYPE=${{ secrets.AZURE_OPENAI_API_TYPE }}" \
-            --set-env-vars "AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}" \
-            --set-env-vars "AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
-            --set-env-vars "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" \
-            --set-env-vars "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" \
-            --set-env-vars "TWILIO_FROM_NUMBER=${{ secrets.TWILIO_FROM_NUMBER }}" \
-            --set-env-vars "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
-            --set-env-vars "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
-            --set-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
-            --set-env-vars "FLASK_SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}"
+            --update-env-vars "^|^CORS_ORIGINS=https://ukrainianrestoration-50993.web.app,https://ukrainianrestoration-50993.firebaseapp.com,http://localhost:5173,http://localhost:5174,http://localhost:5175" \
+            --update-env-vars "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" \
+            --update-env-vars "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" \
+            --update-env-vars "TWILIO_FROM_NUMBER=${{ secrets.TWILIO_FROM_NUMBER }}" \
+            --update-env-vars "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+            --update-env-vars "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+            --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
+            --update-env-vars "FLASK_SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}"

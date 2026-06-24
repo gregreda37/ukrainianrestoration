@@ -214,16 +214,21 @@ export default function TeamSettings() {
   };
 
   async function handleDriveConnect() {
-    const res = await api.drive.connect(user.uid).catch(() => null);
-    if (!res?.authUrl) return;
-    window.open(res.authUrl, 'google-drive-auth', 'width=520,height=640,left=200,top=100');
-    // Poll backend status — avoids COOP cross-origin window communication issues
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001';
+    // Open the backend /auth URL directly — popup navigates same-origin so
+    // Flask session (and PKCE code_verifier) survive through to the callback.
+    window.open(
+      `${backendUrl}/integrations/google-drive/auth?orgId=${orgId}`,
+      'google-drive-auth',
+      'width=520,height=640,left=200,top=100'
+    );
+    // Poll /status until Firestore reflects connected, then update UI
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 80) { clearInterval(interval); return; } // 2-min timeout
+      if (attempts > 80) { clearInterval(interval); return; }
       try {
-        const status = await api.drive.status(user.uid);
+        const status = await api.drive.status(orgId);
         if (status?.connected) {
           clearInterval(interval);
           setDriveStatus(status);

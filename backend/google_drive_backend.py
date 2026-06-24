@@ -131,14 +131,14 @@ def _get_or_create_folder(service, name: str, parent_id=None) -> str:
 
 @drive_app.route("/auth")
 def auth_start():
-    """Return the Google OAuth URL as JSON so the frontend can open it in a popup."""
+    """Redirect the popup browser directly to Google's OAuth consent screen."""
     org_id = request.args.get("orgId", "")
     if not org_id:
-        return jsonify({"error": "Missing orgId"}), 400
+        return "Missing orgId", 400
     if not os.path.exists(_SECRETS_FILE):
-        return jsonify({"error": f"client_secret.json not found at {_SECRETS_FILE}"}), 500
+        return f"client_secret.json not found at {_SECRETS_FILE}", 500
     if not CLIENT_ID or not CLIENT_SECRET:
-        return jsonify({"error": "Could not read client_id / client_secret from the JSON file."}), 500
+        return "Could not read client_id / client_secret from the JSON file.", 500
 
     flow = _flow()
     auth_url, _ = flow.authorization_url(
@@ -147,8 +147,10 @@ def auth_start():
         prompt="consent",
         state=org_id,
     )
+    # Store PKCE verifier in server-side session — works because the popup
+    # navigates directly to this endpoint (same origin as the callback).
     session["drive_code_verifier"] = getattr(flow, "code_verifier", None)
-    return jsonify({"authUrl": auth_url})
+    return redirect(auth_url)
 
 
 @drive_app.route("/callback")

@@ -37,9 +37,8 @@ export const api = {
   },
 
   drive: {
-    status:     (orgId)  => request(`/integrations/google-drive/status?orgId=${orgId}`, { method: 'GET' }),
-    connect:    (orgId)  => request(`/integrations/google-drive/auth?orgId=${orgId}`, { method: 'GET' }),
-    disconnect: (body)   => request('/integrations/google-drive/disconnect', { method: 'POST', body: JSON.stringify(body) }),
+    status:     (orgId) => request(`/integrations/google-drive/status?orgId=${orgId}`, { method: 'GET' }),
+    disconnect: (body)  => request('/integrations/google-drive/disconnect', { method: 'POST', body: JSON.stringify(body) }),
   },
 
   sms: {

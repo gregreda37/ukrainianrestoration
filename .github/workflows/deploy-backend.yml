@@ -26,11 +26,13 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker gcr.io --quiet
+
       - name: Build and push container
         run: |
-          gcloud builds submit backend \
-            --project ukrainianrestoration-50993 \
-            --tag gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }}
+          docker build -t gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }} backend/
+          docker push gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }}
 
       - name: Deploy to Cloud Run
         run: |

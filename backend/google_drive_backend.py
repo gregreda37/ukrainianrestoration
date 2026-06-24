@@ -131,25 +131,24 @@ def _get_or_create_folder(service, name: str, parent_id=None) -> str:
 
 @drive_app.route("/auth")
 def auth_start():
-    """Redirect user to Google's OAuth consent screen."""
+    """Return the Google OAuth URL as JSON so the frontend can open it in a popup."""
     org_id = request.args.get("orgId", "")
     if not org_id:
-        return "Missing orgId", 400
+        return jsonify({"error": "Missing orgId"}), 400
     if not os.path.exists(_SECRETS_FILE):
-        return f"client_secret.json not found at {_SECRETS_FILE}. Download it from Google Cloud Console.", 500
+        return jsonify({"error": f"client_secret.json not found at {_SECRETS_FILE}"}), 500
     if not CLIENT_ID or not CLIENT_SECRET:
-        return "Could not read client_id / client_secret from the JSON file.", 500
+        return jsonify({"error": "Could not read client_id / client_secret from the JSON file."}), 500
 
     flow = _flow()
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
-        state=org_id,           # passed back to callback so we know which org
+        state=org_id,
     )
-    # Persist the PKCE code_verifier so the callback can complete the exchange
     session["drive_code_verifier"] = getattr(flow, "code_verifier", None)
-    return redirect(auth_url)
+    return jsonify({"authUrl": auth_url})
 
 
 @drive_app.route("/callback")

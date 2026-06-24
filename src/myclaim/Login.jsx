@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  signInWithPhoneNumber,
-  RecaptchaVerifier,
-  getAuth,
+  PhoneAuthProvider,
+  signInWithCredential,
   signInWithPopup,
   GoogleAuthProvider,
+  getAuth,
 } from 'firebase/auth'
 import { useNavigate, Navigate, Link } from 'react-router-dom'
 import { auth, db } from '../firebase'
@@ -38,7 +38,7 @@ export default function Login() {
   const [step, setStep] = useState('phone')
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
-  const [confirmation, setConfirmation] = useState(null)
+  const [sessionInfo, setSessionInfo] = useState(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [entered, setEntered] = useState(false)
@@ -50,12 +50,7 @@ export default function Login() {
     return () => cancelAnimationFrame(t)
   }, [])
 
-  useEffect(() => {
-    return () => {
-      window.recaptchaVerifier?.clear()
-      delete window.recaptchaVerifier
-    }
-  }, [])
+  useEffect(() => { return () => {} }, [])
 
   if (loading) return <div className="mc-splash"><div className="mc-spinner" /></div>
   if (user && step !== 'loading') return <Navigate to={user.phoneNumber ? '/myclaim/portal' : '/myclaim'} replace />
@@ -79,25 +74,40 @@ export default function Login() {
         consentCount:    1,
       }, { merge: true }).catch(() => {})
 
-      const authInstance = getAuth()
-      try { window.recaptchaVerifier?.clear() } catch (_) {}
-      delete window.recaptchaVerifier
-      const container = document.getElementById('recaptcha-container')
-      if (container) container.innerHTML = ''
-      window.recaptchaVerifier = new RecaptchaVerifier(authInstance, 'recaptcha-container', {
-        size: 'invisible',
-        callback: () => {},
+      // Use the preloaded reCAPTCHA Enterprise instance (index.html script tag).
+      // We call execute() directly to avoid the SDK loading a second instance,
+      // which crashes with "null.style" on localhost.
+      const enterpriseToken = await new Promise((resolve, reject) => {
+        window.grecaptcha.enterprise.ready(() => {
+          window.grecaptcha.enterprise
+            .execute('6Ld6bTItAAAAAEx2mwglMq9OehRUyD7cVGq3otuS', { action: 'sendVerificationCode' })
+            .then(resolve)
+            .catch(reject)
+        })
       })
 
-      const result = await signInWithPhoneNumber(authInstance, e164, window.recaptchaVerifier)
-      setConfirmation(result)
+      const resp = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode?key=${import.meta.env.VITE_FIREBASE_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phoneNumber: e164,
+            captchaResponse: enterpriseToken,
+            clientType: 'CLIENT_TYPE_WEB',
+            recaptchaVersion: 'RECAPTCHA_ENTERPRISE',
+          }),
+        }
+      )
+      const data = await resp.json()
+      if (!resp.ok) {
+        const msg = data.error?.message || 'SEND_FAILED'
+        throw Object.assign(new Error(msg), { code: 'auth/' + msg.toLowerCase().replace(/_/g, '-') })
+      }
+      setSessionInfo(data.sessionInfo)
       setStep('code')
 
     } catch (err) {
-      try { window.recaptchaVerifier?.clear() } catch (_) {}
-      delete window.recaptchaVerifier
-      const cont = document.getElementById('recaptcha-container')
-      if (cont) cont.innerHTML = ''
       setError(friendlyPhoneError(err.code, err.message))
     } finally {
       setSubmitting(false)
@@ -109,7 +119,8 @@ export default function Login() {
     setError('')
     setSubmitting(true)
     try {
-      await confirmation.confirm(code)
+      const credential = PhoneAuthProvider.credential(sessionInfo, code)
+      await signInWithCredential(getAuth(), credential)
       setMsgIndex(0)
       setStep('loading')
       let i = 0
@@ -383,7 +394,8 @@ function toE164(raw) {
 function friendlyPhoneError(code, message) {
   switch (code) {
     case 'auth/invalid-phone-number':    return 'Invalid phone number. Enter a 10-digit US number.'
-    case 'auth/too-many-requests':       return 'Too many attempts. Wait a few minutes and try again.'
+    case 'auth/too-many-requests':
+    case 'auth/too_many_attempts_try_later': return 'Too many attempts. Wait a few minutes and try again.'
     case 'auth/captcha-check-failed':
     case 'auth/recaptcha-not-enabled':   return 'Verification failed. Refresh and try again.'
     case 'auth/operation-not-allowed':   return 'Phone sign-in is not enabled. Contact support.'

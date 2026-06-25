@@ -13,6 +13,7 @@ import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./useAuth";
 import "./ClientPortal.css";
+import SigningModal from "./SigningModal";
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 const CheckIcon      = ({size=14}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><polyline points="20 6 9 17 4 12"/></svg>;
@@ -160,7 +161,6 @@ export default function ClientPortal() {
   const [savingEditSel,  setSavingEditSel]  = useState(false);
   const [editSelError,   setEditSelError]   = useState("");
   const [signingTodo,    setSigningTodo]    = useState(null);
-  const [markingSign,    setMarkingSign]    = useState(false);
 
   const fileInputRef    = useRef(null);
   const addressInputRef = useRef(null);
@@ -378,30 +378,17 @@ export default function ClientPortal() {
   };
   useEffect(() => { if (user) fetchDocuments(); }, [user]); // eslint-disable-line
 
-  // Listen for OpenSign postMessage events (fired when signing is complete)
-  useEffect(() => {
-    const handler = (e) => {
-      if (!signingTodo) return;
-      const data = e.data || {};
-      const type = (data.type || data.event || "").toLowerCase();
-      const done = type.includes("signed") || type.includes("completed") || type.includes("success");
-      if (done) markSigned(signingTodo);
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [signingTodo]); // eslint-disable-line
-
-  const markSigned = async (todo) => {
-    if (!todo || markingSign) return;
-    setMarkingSign(true);
+  const markSigned = async (todo, signedDocumentUrl) => {
+    if (!todo) return;
     try {
-      await updateDoc(doc(db, "users", user.uid, "todos", todo.id), {
-        completed: true, completedAt: serverTimestamp(),
-      });
-      setTodos(p => p.map(t => t.id === todo.id ? { ...t, completed: true } : t));
+      const updates = { completed: true, completedAt: serverTimestamp() };
+      if (signedDocumentUrl) updates.signedDocumentUrl = signedDocumentUrl;
+      await updateDoc(doc(db, "users", user.uid, "todos", todo.id), updates);
+      setTodos(p => p.map(t =>
+        t.id === todo.id ? { ...t, completed: true, ...(signedDocumentUrl ? { signedDocumentUrl } : {}) } : t
+      ));
       setSigningTodo(null);
     } catch (err) { console.error("markSigned error:", err); }
-    finally { setMarkingSign(false); }
   };
 
   const openSidebar = () => { fetchDocuments(); setSidebarOpen(true); };
@@ -1215,32 +1202,12 @@ export default function ClientPortal() {
 
       {/* ── Signing modal ──────────────────────────────────────────────────── */}
       {signingTodo && (
-        <div className="cp-sign-overlay">
-          <div className="cp-sign-modal">
-            <div className="cp-sign-header">
-              <div className="cp-sign-header-left">
-                <PenIcon />
-                <span className="cp-sign-title">{signingTodo.label || "Sign Document"}</span>
-              </div>
-              <div className="cp-sign-header-actions">
-                <button
-                  className="cp-sign-done-btn"
-                  onClick={() => markSigned(signingTodo)}
-                  disabled={markingSign}
-                >
-                  {markingSign ? "Saving…" : "✓ I've Signed"}
-                </button>
-                <button className="cp-sign-close" onClick={() => setSigningTodo(null)}>✕</button>
-              </div>
-            </div>
-            <iframe
-              className="cp-sign-frame"
-              src={signingTodo.docusignUrl}
-              title="Sign Document"
-              allow="camera"
-            />
-          </div>
-        </div>
+        <SigningModal
+          todo={signingTodo}
+          user={user}
+          onSigned={markSigned}
+          onClose={() => setSigningTodo(null)}
+        />
       )}
     </div>
   );

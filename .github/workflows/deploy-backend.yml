@@ -54,4 +54,6 @@ jobs:
             --update-env-vars "OPENSIGN_APP_ID=${{ secrets.OPENSIGN_APP_ID }}" \
             --update-env-vars "OPENSIGN_REST_KEY=${{ secrets.OPENSIGN_REST_KEY }}" \
             --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
+            --update-env-vars "FIREBASE_PROJECT_ID=ukrainianrestoration-50993" \
+            --update-env-vars "FIREBASE_STORAGE_BUCKET=ukrainianrestoration-50993.appspot.com" \
             --set-secrets "GOOGLE_CLIENT_SECRETS_JSON=google-drive-client-secret:latest"

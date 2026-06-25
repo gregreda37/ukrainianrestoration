@@ -1509,6 +1509,31 @@
   line-height: 1.5;
 }
 
+.cd-sign-upload-label {
+  display: block;
+  cursor: pointer;
+}
+
+.cd-sign-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1.5px dashed #93c5fd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cd-sign-upload-label:hover .cd-sign-upload-btn {
+  background: #dbeafe;
+  border-color: #3b82f6;
+}
+
 .cd-todo-signed-link {
   font-size: 11px;
   font-weight: 600;

@@ -14,5 +14,16 @@ service firebase.storage {
       allow write: if false;
     }
 
+    // Sign requests (PDFs uploaded by contractors to be signed)
+    match /users/{userId}/sign-requests/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Signed documents (uploaded by backend, readable by any auth'd user)
+    match /signed-documents/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
   }
 }

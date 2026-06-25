@@ -54,5 +54,9 @@ jobs:
         run: npx firebase-tools deploy --only firestore:indexes --project ukrainianrestoration-50993
         continue-on-error: true
 
+      - name: Deploy Storage rules
+        run: npx firebase-tools deploy --only storage --project ukrainianrestoration-50993
+        continue-on-error: true
+
       - name: Deploy Firebase Hosting
         run: npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993

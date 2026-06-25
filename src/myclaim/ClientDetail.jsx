@@ -160,9 +160,11 @@ export default function ClientDetail() {
   const [todoLabel,     setTodoLabel]     = useState("");
   const [todoAssigned,  setTodoAssigned]  = useState("client");
   const [todoCategory,    setTodoCategory]    = useState(SELECTION_CATEGORIES[0]);
-  const [todoSignerEmail, setTodoSignerEmail] = useState("");
-  const [todoDocUrl,      setTodoDocUrl]      = useState("");
-  const [todoDocPickId,   setTodoDocPickId]   = useState("");
+  const [todoSignerEmail,   setTodoSignerEmail]   = useState("");
+  const [todoDocUrl,        setTodoDocUrl]        = useState("");
+  const [todoDocPickId,     setTodoDocPickId]     = useState("");
+  const [todoSignFile,      setTodoSignFile]      = useState(null);
+  const [todoSignUploading, setTodoSignUploading] = useState(false);
   const [addingTodo,      setAddingTodo]      = useState(false);
   const [todoError,       setTodoError]       = useState("");
 
@@ -455,6 +457,7 @@ export default function ClientDetail() {
     setTodoLabel(""); setTodoType("upload_file"); setTodoAssigned("client");
     setTodoCategory(SELECTION_CATEGORIES[0]);
     setTodoSignerEmail(""); setTodoDocUrl(""); setTodoDocPickId("");
+    setTodoSignFile(null); setTodoSignUploading(false);
     setTodoError(""); setShowTodoForm(false);
   };
 
@@ -464,22 +467,37 @@ export default function ClientDetail() {
     setTodoError("");
 
     if (todoType === "sign_forms") {
-      const signingUrl = todoDocUrl.trim();
-      if (!signingUrl) { setTodoError("Paste the signing link from OpenSign."); return; }
+      if (!todoSignFile && !todoDocUrl.trim()) {
+        setTodoError("Upload a PDF or paste a document URL.");
+        return;
+      }
       if (!todoLabel.trim()) { setTodoError("Enter a document label."); return; }
       setAddingTodo(true);
       try {
+        let docUrl = todoDocUrl.trim();
+
+        // Upload the PDF to Firebase Storage if a file was selected
+        if (todoSignFile) {
+          setTodoSignUploading(true);
+          const safeName = todoSignFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const storageRef = ref(storage, `users/${clientUid}/documents/sign-requests/${Date.now()}_${safeName}`);
+          await uploadBytes(storageRef, todoSignFile);
+          docUrl = await getDownloadURL(storageRef);
+          setTodoSignUploading(false);
+        }
+
         const payload = {
           label: todoLabel.trim(), type: "sign_forms",
           assignedTo: "client", completed: false,
           createdAt: serverTimestamp(),
-          docusignUrl: signingUrl,
+          docusignUrl: docUrl,
         };
         const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
         setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
         resetTodoForm();
       } catch (err) {
         console.error("addTodo sign error:", err);
+        setTodoSignUploading(false);
         setTodoError(err.message || "Could not save signing task.");
       } finally { setAddingTodo(false); }
       return;
@@ -1532,14 +1550,25 @@ export default function ClientDetail() {
 
                   {todoType === "sign_forms" && (
                     <div className="cd-sign-fields">
-                      <p className="cd-sign-hint">
-                        In OpenSign: upload your PDF → add the client as signer → send.
-                        Then copy the signing link and paste it below.
-                      </p>
-                      <input className="cd-todo-input" type="url"
-                        placeholder="Paste OpenSign signing link…"
-                        value={todoDocUrl} onChange={e => setTodoDocUrl(e.target.value)}
-                        autoFocus />
+                      <label className="cd-sign-upload-label">
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          style={{ display: "none" }}
+                          onChange={e => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            setTodoSignFile(f);
+                            if (!todoLabel.trim()) {
+                              setTodoLabel(f.name.replace(/\.pdf$/i, "").replace(/[_-]/g, " "));
+                            }
+                          }}
+                        />
+                        <span className="cd-sign-upload-btn">
+                          {todoSignFile ? `✓ ${todoSignFile.name}` : "Choose PDF to sign"}
+                        </span>
+                      </label>
+                      {todoSignUploading && <p className="cd-sign-hint">Uploading PDF…</p>}
                     </div>
                   )}
 
@@ -1553,10 +1582,10 @@ export default function ClientDetail() {
                       Cancel
                     </button>
                     <button type="submit" className="cd-btn-primary"
-                      disabled={addingTodo || !todoLabel.trim()}>
+                      disabled={addingTodo || !todoLabel.trim() || (todoType === "sign_forms" && !todoSignFile && !todoDocUrl.trim())}>
                       {addingTodo
-                        ? (todoType === "sign_forms" ? "Sending…" : "Adding…")
-                        : (todoType === "sign_forms" ? "Send for Signature" : "Add Task")}
+                        ? (todoSignUploading ? "Uploading PDF…" : todoType === "sign_forms" ? "Saving…" : "Adding…")
+                        : (todoType === "sign_forms" ? "Assign for Signature" : "Add Task")}
                     </button>
                   </div>
                 </form>

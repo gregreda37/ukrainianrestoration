@@ -43,6 +43,7 @@ const Dashboard    = lazy(() => import('./myclaim/Dashboard'))
 const Clients      = lazy(() => import('./myclaim/Clients'))
 const ClientDetail = lazy(() => import('./myclaim/ClientDetail'))
 const Chatbot      = lazy(() => import('./myclaim/Chatbot'))
+const AIAnalysis   = lazy(() => import('./myclaim/AIAnalysis'))
 const Settings     = lazy(() => import('./myclaim/Settings'))
 const TeamSettings = lazy(() => import('./myclaim/TeamSettings'))
 const OptInPolicy  = lazy(() => import('./myclaim/OptInPolicy'))
@@ -156,6 +157,7 @@ export default function App() {
           <Route path="clients" element={<Suspense fallback={<PortalFallback />}><Clients /></Suspense>} />
           <Route path="clients/:id" element={<Suspense fallback={<PortalFallback />}><ClientDetail /></Suspense>} />
           <Route path="chatbot" element={<Suspense fallback={<PortalFallback />}><Chatbot /></Suspense>} />
+          <Route path="ai" element={<Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />
           <Route path="team" element={<Suspense fallback={<PortalFallback />}><TeamSettings /></Suspense>} />
         </Route>

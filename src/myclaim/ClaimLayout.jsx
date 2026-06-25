@@ -6,7 +6,7 @@ import { useAuth } from './useAuth'
 const BASE_NAV = [
   { to: '/myclaim',              label: 'Dashboard',    icon: '▦',  end: true },
   { to: '/myclaim/clients',      label: 'Clients',      icon: '👥' },
-  { to: '/myclaim/chatbot',      label: 'AI Assistant', icon: '🤖' },
+  { to: '/myclaim/ai',           label: 'AI Analysis',  icon: '🤖' },
   { to: '/myclaim/settings',     label: 'Settings',     icon: '⚙️' },
 ]
 const ADMIN_NAV = { to: '/myclaim/team', label: 'Team', icon: '👤' }

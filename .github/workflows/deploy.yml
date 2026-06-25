@@ -33,9 +33,9 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
-          # Leave VITE_BACKEND_URL unset so the /api/backend Firebase Hosting
-          # rewrite is used — same-origin, no CORS, survives org IAM policy.
-          VITE_BACKEND_URL: ""
+          # App Engine proxy at this URL fetches a Cloud Run identity token
+          # and forwards requests — org-policy safe, supports streaming SSE.
+          VITE_BACKEND_URL: https://ukrainianrestoration-50993.uc.r.appspot.com
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

@@ -126,12 +126,17 @@ def backend_proxy(path):
         headers=headers,
         data=body,
         timeout=120,
+        stream=True,
     )
-    return Response(
-        upstream.content,
+    resp = Response(
+        upstream.iter_content(chunk_size=None),
         upstream.status_code,
         content_type=upstream.headers.get("Content-Type", "application/json"),
     )
+    if "text/event-stream" in upstream.headers.get("Content-Type", ""):
+        resp.headers["X-Accel-Buffering"] = "no"
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 if __name__ == "__main__":

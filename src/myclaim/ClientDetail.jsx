@@ -10,6 +10,7 @@ import { useAuth } from "./useAuth";
 import { loadGoogleMaps } from "./loadMaps";
 import "./ClientDetail.css";
 import TemplateBuilder from "./TemplateBuilder";
+import ContractorSignModal from "./ContractorSignModal";
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
@@ -173,8 +174,12 @@ export default function ClientDetail() {
   const [templatesLoading,  setTemplatesLoading]  = useState(false);
   const [selectedTemplate,  setSelectedTemplate]  = useState(null);
   const [showBuilder,       setShowBuilder]       = useState(false);
+  const [editingTemplate,   setEditingTemplate]   = useState(null); // template being edited
   const [builderFile,       setBuilderFile]       = useState(null);
   const builderFileRef      = useRef(null);
+
+  // Contractor counter-signing
+  const [counterSigningTodo, setCounterSigningTodo] = useState(null);
   const [addingTodo,      setAddingTodo]      = useState(false);
   const [todoError,       setTodoError]       = useState("");
 
@@ -1612,20 +1617,33 @@ export default function ClientDetail() {
                           ) : templates.length === 0 ? (
                             <p className="cd-sign-hint">No templates yet. Create one below.</p>
                           ) : (
-                            <select
-                              className="cd-todo-input"
-                              value={selectedTemplate?.id || ""}
-                              onChange={e => {
-                                const t = templates.find(t => t.id === e.target.value);
-                                setSelectedTemplate(t || null);
-                                if (t && !todoLabel.trim()) setTodoLabel(t.name);
-                              }}
-                            >
-                              <option value="">— Select a template —</option>
-                              {templates.map(t => (
-                                <option key={t.id} value={t.id}>{t.name} ({(t.fields || []).length} fields)</option>
-                              ))}
-                            </select>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <select
+                                className="cd-todo-input"
+                                style={{ flex: 1 }}
+                                value={selectedTemplate?.id || ""}
+                                onChange={e => {
+                                  const t = templates.find(t => t.id === e.target.value);
+                                  setSelectedTemplate(t || null);
+                                  if (t && !todoLabel.trim()) setTodoLabel(t.name);
+                                }}
+                              >
+                                <option value="">— Select a template —</option>
+                                {templates.map(t => (
+                                  <option key={t.id} value={t.id}>{t.name} ({(t.fields || []).length} fields)</option>
+                                ))}
+                              </select>
+                              {selectedTemplate && (
+                                <button
+                                  type="button"
+                                  className="cd-sign-build-btn"
+                                  style={{ margin: 0, padding: "6px 10px", fontSize: 12 }}
+                                  onClick={() => { setEditingTemplate(selectedTemplate); setShowBuilder(true); }}
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </div>
                           )}
 
                           {/* Hidden file input for builder */}
@@ -1679,7 +1697,11 @@ export default function ClientDetail() {
                       Cancel
                     </button>
                     <button type="submit" className="cd-btn-primary"
-                      disabled={addingTodo || !todoLabel.trim() || (todoType === "sign_forms" && !todoSignFile && !todoDocUrl.trim())}>
+                      disabled={
+                        addingTodo || !todoLabel.trim() ||
+                        (todoType === "sign_forms" && signMode === "template" && !selectedTemplate) ||
+                        (todoType === "sign_forms" && signMode === "raw" && !todoSignFile && !todoDocUrl.trim())
+                      }>
                       {addingTodo
                         ? (todoSignUploading ? "Uploading PDF…" : todoType === "sign_forms" ? "Saving…" : "Adding…")
                         : (todoType === "sign_forms" ? "Assign for Signature" : "Add Task")}
@@ -1713,8 +1735,19 @@ export default function ClientDetail() {
                              `Selection${todo.selectionCategory ? ` · ${todo.selectionCategory}` : ""}`}
                           </span>
                         )}
+                        {todo.type === "sign_forms" && todo.signedDocumentUrl && !todo.contractorSigned && (
+                          <button
+                            className="cd-todo-approve-btn"
+                            onClick={e => { e.stopPropagation(); setCounterSigningTodo(todo); }}
+                          >
+                            Approve & Sign
+                          </button>
+                        )}
+                        {todo.type === "sign_forms" && todo.contractorSigned && (
+                          <span className="cd-todo-countersigned-badge">Countersigned ✓</span>
+                        )}
                         {todo.type === "sign_forms" && todo.signedDocumentUrl && (
-                          <a href={todo.signedDocumentUrl} target="_blank" rel="noreferrer"
+                          <a href={todo.contractorSignedDocUrl || todo.signedDocumentUrl} target="_blank" rel="noreferrer"
                             className="cd-todo-signed-link" onClick={e => e.stopPropagation()}>
                             Download
                           </a>
@@ -2227,18 +2260,57 @@ export default function ClientDetail() {
       )}
 
       {/* ── Template Builder modal ── */}
-      {showBuilder && builderFile && (
+      {showBuilder && (builderFile || editingTemplate) && (
         <TemplateBuilder
-          pdfFile={builderFile}
+          pdfFile={builderFile || null}
+          existingTemplate={editingTemplate || null}
           user={user}
           onSave={template => {
-            setTemplates(prev => [template, ...prev]);
+            setTemplates(prev => {
+              const idx = prev.findIndex(t => t.id === template.id);
+              if (idx >= 0) { const n = [...prev]; n[idx] = template; return n; }
+              return [template, ...prev];
+            });
             setSelectedTemplate(template);
             if (!todoLabel.trim()) setTodoLabel(template.name);
             setShowBuilder(false);
             setBuilderFile(null);
+            setEditingTemplate(null);
           }}
-          onClose={() => { setShowBuilder(false); setBuilderFile(null); }}
+          onClose={() => { setShowBuilder(false); setBuilderFile(null); setEditingTemplate(null); }}
+        />
+      )}
+
+      {/* ── Contractor Counter-Sign modal ── */}
+      {counterSigningTodo && (
+        <ContractorSignModal
+          todo={counterSigningTodo}
+          clientUid={clientUid}
+          user={user}
+          onCounterSigned={async (todo, contractorSignedDocUrl, clientDocUrl) => {
+            const { updateDoc, doc: firestoreDoc, serverTimestamp: st, addDoc, collection: col } = await import("firebase/firestore");
+            const todoRef = firestoreDoc(db, "users", clientUid, "todos", todo.id);
+            await updateDoc(todoRef, {
+              contractorSigned: true,
+              contractorSignedAt: st(),
+              contractorSignedDocUrl,
+            });
+            // Create a document record in client files
+            try {
+              await addDoc(col(db, "users", clientUid, "documents"), {
+                name:      `${todo.label} (Countersigned)`,
+                url:       clientDocUrl,
+                uploadedAt: st(),
+                type:      "signed_contract",
+              });
+            } catch {}
+            setTodos(prev => prev.map(t => t.id === todo.id
+              ? { ...t, contractorSigned: true, contractorSignedDocUrl }
+              : t
+            ));
+            setCounterSigningTodo(null);
+          }}
+          onClose={() => setCounterSigningTodo(null)}
         />
       )}
     </div>

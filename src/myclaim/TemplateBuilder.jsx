@@ -8,30 +8,35 @@ import "./TemplateBuilder.css";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
+const API = import.meta.env.VITE_BACKEND_URL ||
+  (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
+
 const FIELD_DEFAULTS = {
   signature: { w: 0.30, h: 0.09 },
   initials:  { w: 0.11, h: 0.07 },
   date:      { w: 0.20, h: 0.05 },
+  text:      { w: 0.35, h: 0.05 },
 };
 
 const FIELD_COLORS = {
   signature: { border: "#2563eb", bg: "rgba(37,99,235,0.1)" },
   initials:  { border: "#16a34a", bg: "rgba(22,163,74,0.1)" },
   date:      { border: "#d97706", bg: "rgba(217,119,6,0.1)" },
+  text:      { border: "#7c3aed", bg: "rgba(124,58,237,0.1)" },
 };
 
-const FIELD_LABELS = { signature: "Signature", initials: "Initials", date: "Date" };
-const FIELD_BADGES = { signature: "Sig", initials: "Init", date: "Date" };
+const FIELD_LABELS = { signature: "Signature", initials: "Initials", date: "Date", text: "Text Field" };
+const FIELD_BADGES = { signature: "Sig", initials: "Init", date: "Date", text: "Text" };
 
 function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
-  const [templateName, setTemplateName] = useState("");
+export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSave, onClose }) {
+  const [templateName, setTemplateName] = useState(existingTemplate?.name || "");
   const [pageImages, setPageImages] = useState([]);
   const [pdfLoading, setPdfLoading] = useState(true);
-  const [fields, setFields] = useState([]);
+  const [fields, setFields] = useState(existingTemplate?.fields || []);
   const [activeTool, setActiveTool] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -41,19 +46,16 @@ export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
   const resizeRef = useRef(null);
 
   useEffect(() => {
-    if (!pdfFile) return;
     let cancelled = false;
     setPdfLoading(true);
     setPageImages([]);
 
-    (async () => {
-      const arrayBuffer = await pdfFile.arrayBuffer();
+    const renderPdf = async (data) => {
       const pdf = await pdfjsLib.getDocument({
-        data: new Uint8Array(arrayBuffer),
+        data,
         cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/cmaps/",
         cMapPacked: true,
       }).promise;
-
       const images = [];
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
@@ -64,20 +66,34 @@ export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
         await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
         images.push(canvas.toDataURL("image/jpeg", 0.92));
       }
+      if (!cancelled) { setPageImages(images); setPdfLoading(false); }
+    };
 
-      if (!cancelled) {
-        setPageImages(images);
-        setPdfLoading(false);
-      }
-    })().catch((err) => {
-      if (!cancelled) {
-        setError("Failed to render PDF: " + err.message);
-        setPdfLoading(false);
-      }
-    });
+    if (pdfFile) {
+      pdfFile.arrayBuffer().then(buf => renderPdf(new Uint8Array(buf)))
+        .catch(err => { if (!cancelled) { setError("Failed to render PDF: " + err.message); setPdfLoading(false); } });
+    } else if (existingTemplate?.pdfUrl) {
+      (async () => {
+        try {
+          const token = await user.getIdToken();
+          const resp = await fetch(`${API}/signing/proxy-pdf`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+            body: JSON.stringify({ url: existingTemplate.pdfUrl }),
+          });
+          if (!resp.ok) throw new Error(`Proxy ${resp.status}`);
+          const buf = await resp.arrayBuffer();
+          await renderPdf(new Uint8Array(buf));
+        } catch (err) {
+          if (!cancelled) { setError("Failed to load PDF: " + err.message); setPdfLoading(false); }
+        }
+      })();
+    } else {
+      setPdfLoading(false);
+    }
 
     return () => { cancelled = true; };
-  }, [pdfFile]);
+  }, [pdfFile, existingTemplate?.pdfUrl]); // eslint-disable-line
 
   const getPageEl = useCallback((pageIndex) => {
     return document.querySelector(`.tb-page-wrap[data-page="${pageIndex}"]`);
@@ -213,18 +229,19 @@ export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
   }, []);
 
   const handleSave = async () => {
-    if (!templateName.trim()) {
-      setError("Please enter a template name.");
-      return;
-    }
+    if (!templateName.trim()) { setError("Please enter a template name."); return; }
     setError("");
     setSaving(true);
     try {
-      const safeName = pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const storagePath = `users/${user.uid}/documents/templates/${Date.now()}_${safeName}`;
-      const storageRef = ref(storage, storagePath);
-      await uploadBytes(storageRef, pdfFile);
-      const pdfUrl = await getDownloadURL(storageRef);
+      let pdfUrl = existingTemplate?.pdfUrl || "";
+
+      if (pdfFile) {
+        const safeName = pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const storagePath = `users/${user.uid}/documents/templates/${Date.now()}_${safeName}`;
+        const storageRef = ref(storage, storagePath);
+        await uploadBytes(storageRef, pdfFile);
+        pdfUrl = await getDownloadURL(storageRef);
+      }
 
       const templateData = {
         name: templateName.trim(),
@@ -234,8 +251,16 @@ export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
         createdAt: serverTimestamp(),
       };
 
-      const docRef = await addDoc(collection(db, "users", user.uid, "signTemplates"), templateData);
-      onSave({ id: docRef.id, ...templateData });
+      if (existingTemplate?.id) {
+        // Update existing — need updateDoc from firebase/firestore
+        const { updateDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const ref2 = firestoreDoc(db, "users", user.uid, "signTemplates", existingTemplate.id);
+        await updateDoc(ref2, { name: templateData.name, fields: templateData.fields });
+        onSave({ ...existingTemplate, ...templateData, id: existingTemplate.id });
+      } else {
+        const docRef = await addDoc(collection(db, "users", user.uid, "signTemplates"), templateData);
+        onSave({ id: docRef.id, ...templateData });
+      }
     } catch (err) {
       setError("Save failed: " + err.message);
       setSaving(false);
@@ -338,7 +363,7 @@ export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
         <div className="tb-sidebar">
           <div className="tb-sidebar-section">
             <div className="tb-sidebar-title">Add Fields</div>
-            {["signature", "initials", "date"].map((type) => {
+            {["signature", "initials", "date", "text"].map((type) => {
               const colors = FIELD_COLORS[type];
               const isActive = activeTool === type;
               return (
@@ -398,7 +423,7 @@ export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
               onClick={handleSave}
               disabled={saving || pdfLoading}
             >
-              {saving ? "Saving…" : "Save Template"}
+              {saving ? "Saving…" : existingTemplate?.id ? "Update Template" : "Save Template"}
             </button>
           </div>
         </div>

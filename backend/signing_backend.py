@@ -24,12 +24,20 @@ BUCKET_NAME = os.getenv("FIREBASE_STORAGE_BUCKET", "ukrainianrestoration-50993.a
 
 
 def _verify_token(req):
-    header = req.headers.get("Authorization", "")
+    # When running behind the App Engine proxy the proxy replaces Authorization
+    # with its own Cloud Run identity token and forwards the original Firebase
+    # user token under X-Firebase-ID-Token.  Fall back to Authorization for
+    # local dev (no proxy).
+    header = (
+        req.headers.get("X-Firebase-ID-Token", "")
+        or req.headers.get("Authorization", "")
+    )
     if not header.startswith("Bearer "):
         return None
     try:
         return admin_auth.verify_id_token(header[7:])
-    except Exception:
+    except Exception as exc:
+        print(f"[signing] verify_id_token failed: {exc}")
         return None
 
 
@@ -85,13 +93,13 @@ def _composite_fields(doc, fields):
 
         if ftype in ("signature", "initials") and val:
             img_bytes = base64.b64decode(val.split(",", 1)[-1])
-            # Subtle tinted background
             tint = (0.9, 0.93, 0.98) if ftype == "signature" else (0.92, 0.98, 0.94)
             page.draw_rect(rect, color=tint, fill=tint)
             page.insert_image(rect, stream=img_bytes)
 
-        elif ftype == "date" and val:
-            page.draw_rect(rect, color=(0.98, 0.97, 0.9), fill=(0.98, 0.97, 0.9))
+        elif ftype in ("date", "text") and val:
+            bg = (0.98, 0.97, 0.9) if ftype == "date" else (0.97, 0.95, 1.0)
+            page.draw_rect(rect, color=bg, fill=bg)
             page.insert_textbox(
                 rect, val,
                 fontsize=max(7, fh * 0.45),
@@ -205,3 +213,115 @@ def sign_document():
         return jsonify({"error": f"Could not save signed PDF: {exc}"}), 500
 
     return jsonify({"signedDocumentUrl": download_url})
+
+
+# ── Contractor counter-sign ──────────────────────────────────────────────────
+
+@signing_app.route("/contractor-sign", methods=["POST"])
+def contractor_sign():
+    user = _verify_token(request)
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data            = request.json or {}
+    signed_pdf_url  = data.get("signedPdfUrl",    "").strip()
+    contractor_name = data.get("contractorName",  "").strip()
+    sig_data_url    = data.get("signatureDataUrl","").strip()
+    todo_id         = data.get("todoId",          "unknown")
+    client_uid      = data.get("clientUid",       "")
+    doc_name        = data.get("docName",         "document").strip()
+
+    if not signed_pdf_url or not sig_data_url or not contractor_name:
+        return jsonify({"error": "signedPdfUrl, signatureDataUrl, and contractorName required"}), 400
+
+    # ── Download client-signed PDF ───────────────────────────────────────────
+    try:
+        resp = http_requests.get(signed_pdf_url, timeout=30)
+        resp.raise_for_status()
+        pdf_bytes = resp.content
+    except Exception as exc:
+        return jsonify({"error": f"Could not download signed PDF: {exc}"}), 502
+
+    # ── Add contractor block on last page ────────────────────────────────────
+    try:
+        sig_bytes = base64.b64decode(sig_data_url.split(",", 1)[-1])
+        doc  = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[-1]
+        pw, ph = page.rect.width, page.rect.height
+
+        margin   = 30
+        block_h  = 85
+        block_w  = (pw - 2 * margin) * 0.46
+        bx0      = pw - margin - block_w
+        by0      = ph - block_h - margin
+        bx1      = pw - margin
+        by1      = ph - margin
+
+        # Background
+        rect = fitz.Rect(bx0, by0, bx1, by1)
+        page.draw_rect(rect, color=(0.88, 0.92, 0.88), fill=(0.88, 0.92, 0.88))
+        page.draw_rect(rect, color=(0.5, 0.7, 0.5), width=0.6)
+
+        page.insert_text(
+            fitz.Point(bx0 + 6, by0 + 12),
+            "Contractor Authorization",
+            fontsize=7, color=(0.3, 0.45, 0.3),
+        )
+
+        sig_rect = fitz.Rect(bx0 + 6, by0 + 16, bx0 + block_w * 0.65, by0 + 60)
+        page.insert_image(sig_rect, stream=sig_bytes)
+
+        page.draw_line(
+            fitz.Point(bx0 + 6, by0 + 64),
+            fitz.Point(bx1 - 6, by0 + 64),
+            color=(0.6, 0.75, 0.6), width=0.4,
+        )
+
+        page.insert_text(
+            fitz.Point(bx0 + 6, by0 + 74),
+            contractor_name,
+            fontsize=8.5, color=(0.1, 0.2, 0.1),
+        )
+
+        sign_date = datetime.utcnow().strftime("%B %d, %Y")
+        page.insert_text(
+            fitz.Point(bx0 + block_w * 0.55, by0 + 74),
+            sign_date,
+            fontsize=7, color=(0.35, 0.45, 0.35),
+        )
+
+        signed_bytes = doc.tobytes(garbage=4, deflate=True)
+        doc.close()
+    except Exception as exc:
+        return jsonify({"error": f"Could not process PDF: {exc}"}), 500
+
+    # ── Upload countersigned PDF ─────────────────────────────────────────────
+    try:
+        bucket = admin_storage.bucket(BUCKET_NAME)
+        safe_name = doc_name.replace(" ", "_").replace("/", "_")
+
+        # Primary path
+        blob_path = f"signed-documents/{client_uid}/{todo_id}/countersigned.pdf"
+        blob = bucket.blob(blob_path)
+        token = str(uuid.uuid4())
+        blob.metadata = {"firebaseStorageDownloadTokens": token}
+        blob.upload_from_string(signed_bytes, content_type="application/pdf")
+        blob.patch()
+        countersigned_url = _firebase_download_url(BUCKET_NAME, blob_path, token)
+
+        # Copy into client document files
+        client_blob_path = f"users/{client_uid}/documents/{safe_name}_countersigned.pdf"
+        client_blob = bucket.blob(client_blob_path)
+        client_token = str(uuid.uuid4())
+        client_blob.metadata = {"firebaseStorageDownloadTokens": client_token}
+        client_blob.upload_from_string(signed_bytes, content_type="application/pdf")
+        client_blob.patch()
+        client_doc_url = _firebase_download_url(BUCKET_NAME, client_blob_path, client_token)
+
+    except Exception as exc:
+        return jsonify({"error": f"Could not save countersigned PDF: {exc}"}), 500
+
+    return jsonify({
+        "contractorSignedDocUrl": countersigned_url,
+        "clientDocUrl":           client_doc_url,
+    })

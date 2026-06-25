@@ -113,6 +113,11 @@ def backend_proxy(path):
         "Authorization": f"Bearer {token}",
         "Content-Type": request.content_type or "application/json",
     }
+    # Preserve the caller's Firebase ID token under a distinct header so the
+    # Flask backend can verify it independently of the Cloud Run identity token.
+    firebase_auth = request.headers.get("Authorization", "")
+    if firebase_auth:
+        headers["X-Firebase-ID-Token"] = firebase_auth
 
     body = request.get_data()
     upstream = http_requests.request(

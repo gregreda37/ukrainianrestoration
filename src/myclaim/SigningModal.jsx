@@ -13,6 +13,7 @@ const FIELD_COLORS = {
   signature: { border: "#2563eb", bg: "rgba(37,99,235,0.10)" },
   initials:  { border: "#16a34a", bg: "rgba(22,163,74,0.10)"  },
   date:      { border: "#d97706", bg: "rgba(217,119,6,0.10)"  },
+  text:      { border: "#7c3aed", bg: "rgba(124,58,237,0.10)" },
 };
 
 const today = () => new Date().toLocaleDateString("en-US", {
@@ -57,6 +58,7 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
     const vals = {};
     templateFields.forEach(f => {
       if (f.type === "date") vals[f.id] = today();
+      if (f.type === "text") vals[f.id] = "";
     });
     return vals;
   });
@@ -139,7 +141,7 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
     let payload;
 
     if (hasFields) {
-      const unfilled = templateFields.filter(f => f.type !== "date" && !fieldValues[f.id]);
+      const unfilled = templateFields.filter(f => !isFieldFilled(f) && f.type !== "date");
       if (unfilled.length) {
         setSignError(`${unfilled.length} field${unfilled.length > 1 ? "s" : ""} still need your signature — click each highlighted area on the document.`);
         return;
@@ -192,7 +194,10 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
     }
   };
 
-  const filledCount   = templateFields.filter(f => fieldValues[f.id]).length;
+  const isFieldFilled = (f) => f.type === "text"
+    ? !!fieldValues[f.id]?.trim()
+    : !!fieldValues[f.id];
+  const filledCount   = templateFields.filter(isFieldFilled).length;
   const requiredCount = templateFields.filter(f => f.type !== "date").length;
   const autoCount     = templateFields.filter(f => f.type === "date").length;
   const allDone       = filledCount >= templateFields.length;
@@ -245,12 +250,22 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
                           backgroundColor: filled ? "rgba(255,255,255,0.85)" : c.bg,
                           cursor:          field.type === "date" ? "default" : "pointer",
                         }}
-                        onClick={() => field.type !== "date" && !signed && setActiveField(field)}
+                        onClick={() => (field.type === "signature" || field.type === "initials") && !signed && setActiveField(field)}
                       >
                         {field.type === "date" ? (
                           <span className="sm-field-date-text" style={{ color: "#92400e" }}>
                             {fieldValues[field.id]}
                           </span>
+                        ) : field.type === "text" ? (
+                          <input
+                            className="sm-field-text-input"
+                            placeholder="Type here…"
+                            value={fieldValues[field.id] || ""}
+                            onChange={e => setFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                            onClick={e => e.stopPropagation()}
+                            disabled={signed}
+                            style={{ color: c.border }}
+                          />
                         ) : filled ? (
                           <img src={fieldValues[field.id]} className="sm-field-sig-img" alt="" />
                         ) : (
@@ -277,18 +292,21 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
                   <p className="sm-field-hint">Click each highlighted area on the document to add your signature or initials.</p>
                   <div className="sm-field-list">
                     {templateFields.map(f => {
-                      const filled = !!fieldValues[f.id];
+                      const filled = f.type === "text"
+                        ? !!fieldValues[f.id]?.trim()
+                        : !!fieldValues[f.id];
+                      const isAuto = f.type === "date";
                       return (
                         <div
                           key={f.id}
-                          className={`sm-field-item ${filled ? "sm-field-item--done" : "sm-field-item--todo"} ${f.type === "date" ? "sm-field-item--auto" : ""}`}
-                          onClick={() => f.type !== "date" && !signed && setActiveField(f)}
-                          style={{ cursor: f.type === "date" ? "default" : "pointer" }}
+                          className={`sm-field-item ${filled ? "sm-field-item--done" : "sm-field-item--todo"} ${isAuto ? "sm-field-item--auto" : ""}`}
+                          onClick={() => (f.type === "signature" || f.type === "initials") && !signed && setActiveField(f)}
+                          style={{ cursor: (f.type === "signature" || f.type === "initials") ? "pointer" : "default" }}
                         >
-                          <span className="sm-field-item-icon">{filled ? "✓" : f.type === "date" ? "📅" : f.type === "signature" ? "✍" : "✒"}</span>
+                          <span className="sm-field-item-icon">{filled ? "✓" : f.type === "date" ? "📅" : f.type === "text" ? "T" : f.type === "signature" ? "✍" : "✒"}</span>
                           <div className="sm-field-item-info">
                             <span className="sm-field-item-type">
-                              {f.type === "signature" ? "Signature" : f.type === "initials" ? "Initials" : "Date"}
+                              {f.type === "signature" ? "Signature" : f.type === "initials" ? "Initials" : f.type === "text" ? "Text Field" : "Date"}
                             </span>
                             <span className="sm-field-item-page">Page {f.pageIndex + 1}</span>
                           </div>

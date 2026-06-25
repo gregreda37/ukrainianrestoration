@@ -1592,6 +1592,33 @@
 }
 .cd-todo-signed-link:hover { background: #dcfce7; }
 
+.cd-todo-approve-btn {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: #16a34a;
+  border: none;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.cd-todo-approve-btn:hover { background: #15803d; }
+
+.cd-todo-countersigned-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #14532d;
+  background: #d1fae5;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* ── Selections ──────────────────────────────────── */
 .cd-sel-form {
   display: flex;

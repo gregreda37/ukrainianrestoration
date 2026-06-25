@@ -93,13 +93,19 @@ def _require_admin(org_id: str):
     """Verify the Bearer token and confirm the caller is an org admin.
     Returns (uid, None) on success or (None, (response, status_code)) on failure.
     """
-    header = request.headers.get("Authorization", "")
+    # When behind the App Engine proxy, the Firebase user token arrives under
+    # X-Firebase-ID-Token; fall back to Authorization for local dev.
+    header = (
+        request.headers.get("X-Firebase-ID-Token", "")
+        or request.headers.get("Authorization", "")
+    )
     if not header.startswith("Bearer "):
         return None, (jsonify({"error": "Missing Authorization header"}), 401)
     token = header.split(" ", 1)[1]
     try:
         decoded = admin_auth.verify_id_token(token)
-    except Exception:
+    except Exception as exc:
+        print(f"[drive] verify_id_token failed: {exc}")
         return None, (jsonify({"error": "Invalid or expired token"}), 401)
 
     uid = decoded["uid"]

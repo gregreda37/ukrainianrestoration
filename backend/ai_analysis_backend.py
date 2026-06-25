@@ -3,6 +3,7 @@ import json
 import base64
 import hashlib
 import requests
+# redeploy: secret version now exists, CORS safety-net in main.py
 import anthropic
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, Response, stream_with_context

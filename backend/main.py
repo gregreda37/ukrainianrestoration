@@ -27,13 +27,44 @@ from firebase_admin import firestore as admin_firestore
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24).hex())
 
-_cors_env = os.getenv("CORS_ORIGINS", "")
-_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
+# Production origins that must always be allowed, regardless of env var state.
+# The CORS_ORIGINS env var extends this list (useful for staging/preview URLs).
+_ALWAYS_ALLOWED = [
+    "https://ukrainianrestoration.com",
+    "https://www.ukrainianrestoration.com",
+    "https://ukrainianrestoration-50993.web.app",
+    "https://ukrainianrestoration-50993.firebaseapp.com",
 ]
+_cors_env = os.getenv("CORS_ORIGINS", "")
+_extra = [o.strip() for o in _cors_env.split(",") if o.strip()]
+_cors_origins = list(dict.fromkeys(
+    _ALWAYS_ALLOWED + _extra + [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+    ]
+))
+_cors_set = set(_cors_origins)
 CORS(app, origins=_cors_origins, supports_credentials=True)
+
+CORS_HEADERS = "Content-Type, Authorization, X-Firebase-ID-Token, X-Requested-With"
+CORS_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+
+@app.after_request
+def _cors_safety_net(response):
+    """Explicit fallback: add CORS headers if flask-cors didn't (e.g. on 4xx/5xx)."""
+    origin = request.headers.get("Origin", "")
+    if origin not in _cors_set:
+        return response
+    if "Access-Control-Allow-Origin" not in response.headers:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
+    if request.method == "OPTIONS":
+        response.headers.setdefault("Access-Control-Allow-Methods", CORS_METHODS)
+        response.headers.setdefault("Access-Control-Allow-Headers", CORS_HEADERS)
+        response.headers.setdefault("Access-Control-Max-Age", "600")
+    return response
 
 # Firebase Hosting rewrites forward the full path including the rewrite prefix
 # (e.g. /api/backend/companycam/projects). Strip it so Flask routes match.

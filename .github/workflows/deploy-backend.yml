@@ -26,6 +26,16 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Grant deploy SA access to secrets
+        run: |
+          for SECRET in anthropic-api-key google-drive-client-secret; do
+            gcloud secrets add-iam-policy-binding $SECRET \
+              --member="serviceAccount:firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com" \
+              --role="roles/secretmanager.secretAccessor" \
+              --project=ukrainianrestoration-50993 \
+              --quiet || true
+          done
+
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker gcr.io --quiet
 

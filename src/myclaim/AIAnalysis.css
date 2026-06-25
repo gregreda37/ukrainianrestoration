@@ -711,6 +711,94 @@
   padding: 12px 16px 14px;
 }
 
+/* ── Quick input card (Labor Logs / Adjuster Question) ────────────────────── */
+
+.aa-quick-input-card {
+  background: #f8fafc;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  margin-bottom: 10px;
+}
+
+.aa-quick-input-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.aa-quick-input-icon {
+  font-size: 16px;
+}
+
+.aa-quick-input-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  flex: 1;
+}
+
+.aa-quick-input-cancel {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.12s;
+}
+.aa-quick-input-cancel:hover { color: #475569; }
+
+.aa-quick-input-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.aa-quick-input-textarea {
+  width: 100%;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  background: #fff;
+  color: #1e293b;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.aa-quick-input-textarea:focus { border-color: #3b82f6; }
+.aa-quick-input-textarea::placeholder { color: #94a3b8; }
+
+.aa-quick-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.aa-quick-input-submit {
+  background: #1d4ed8;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.aa-quick-input-submit:hover:not(:disabled) { background: #1e40af; }
+.aa-quick-input-submit:disabled { opacity: 0.45; cursor: default; }
+
+/* ── Quick bar (pills after messages) ─────────────────────────────────────── */
+
 .aa-quick-bar {
   display: flex;
   gap: 6px;

@@ -20,42 +20,35 @@ const QUICK_PROMPTS = [
   {
     icon: "📋",
     label: "Claim Summary",
-    prompt: "Give me a comprehensive summary of this client's claim — key details, current progress stage, outstanding tasks, and any concerns I should be aware of.",
+    prompt:
+      "Provide a comprehensive claim summary for this client. Include: claim and policy numbers, current mitigation progress stage and what it means, current construction progress stage, all pending tasks and who they are assigned to, outstanding documents or approvals needed, budget overview with total, adjuster contact information, and any risks or blockers. Format with clear section headers.",
   },
   {
-    icon: "🔍",
-    label: "What's Missing?",
-    prompt: "Analyze the case file and identify any missing documents, incomplete tasks, or gaps that could delay the claim or create issues down the line.",
+    icon: "📦",
+    label: "Inventory List",
+    requiresPhotos: true,
+    prompt:
+      "You are being provided with CompanyCam site photos from this property damage claim. Carefully examine every photo and create a complete inventory list of all visible items — furniture, appliances, personal belongings, building materials, and anything else present.\n\nFormat the output as a markdown table with these exact columns:\n\n| Item | Room | Wrapped | Cleaned |\n\nRules:\n- Item: specific name (e.g. \"Sectional sofa\", \"55\" Samsung TV\", \"Wooden dining chair\")\n- Room: room it appears in based on photo context (e.g. \"Living Room\", \"Master Bedroom\", \"Kitchen\")\n- Wrapped: Yes or No based on whether it is visibly wrapped or protected in the photo\n- Cleaned: Yes by default for every item; only mark No if the item is visibly dirty, stained, or clearly uncleaned\n\nAfter the table, note any areas that were not clearly photographed or items that could not be confidently identified.",
   },
   {
-    icon: "📸",
-    label: "Photo Analysis",
-    prompt: "Analyze the property damage photos and describe the types of damage visible, their severity, affected areas, and what repairs will likely be needed.",
+    icon: "🔨",
+    label: "Labor Logs",
+    needsInput: true,
+    inputLabel: "Which workers were on site?",
+    inputPlaceholder: "e.g. John, Maria, Steve",
+    inputRows: 1,
+    buildPrompt: (workers) =>
+      `Using the CompanyCam photo timestamps as evidence of on-site presence, generate a labor log for the following workers: ${workers}.\n\nAssume standard working hours are 9:00 AM – 5:00 PM (8 hours per worker) unless CompanyCam timestamps suggest otherwise. If photo timestamps show activity before 9 AM or after 5 PM, use those as the actual start/end times.\n\nFormat the output as a markdown table:\n\n| Worker | Date | Start Time | End Time | Total Hours | Notes |\n\nThen provide a total labor hours summary at the bottom. Reference specific CompanyCam timestamps where available to support the hours logged.`,
   },
   {
-    icon: "💰",
-    label: "Budget Review",
-    prompt: "Review the budget items. Are the estimates reasonable for the scope of work? Are there any items that seem under- or over-estimated? What should we watch for?",
-  },
-  {
-    icon: "➡️",
-    label: "Next Steps",
-    prompt: "Based on the current claim status and progress, what are the most important actions the contractor should take in the next 1–2 weeks?",
-  },
-  {
-    icon: "📄",
-    label: "Client Report",
-    prompt: "Generate a professional, client-ready progress report summarizing the current status of their claim, completed work, pending items, and upcoming milestones.",
-  },
-  {
-    icon: "⏱️",
-    label: "Timeline Check",
-    prompt: "Review the activity log and progress stages. Has the claim been moving at a reasonable pace? Are there any bottlenecks or delays worth addressing?",
-  },
-  {
-    icon: "🏗️",
-    label: "Selections Status",
-    prompt: "Review the material selections. Are all necessary categories covered? Which ones are still pending approval? Are any selections likely to cause delays?",
+    icon: "📧",
+    label: "Adjuster Question",
+    needsInput: true,
+    inputLabel: "Paste the adjuster's question from their email:",
+    inputPlaceholder: "Paste the adjuster's question here…",
+    inputRows: 5,
+    buildPrompt: (question) =>
+      `An insurance adjuster has sent the following question:\n\n---\n${question}\n---\n\nUsing the complete client case file provided, write a thorough, professional response to this question. Include:\n- Specific facts, dates, and figures from the case file\n- References to documents or photos where relevant\n- Clear, direct answers to everything asked\n- A professional tone suitable for insurance correspondence\n\nThe response should be ready to copy and send directly to the adjuster.`,
   },
 ];
 
@@ -183,6 +176,10 @@ export default function AIAnalysis() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamError, setStreamError] = useState("");
+
+  // For prompts that need a user-supplied input before sending
+  const [activeQuickPrompt, setActiveQuickPrompt] = useState(null); // QUICK_PROMPTS entry
+  const [quickInputText, setQuickInputText] = useState("");
 
   const chatBottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -396,6 +393,25 @@ export default function AIAnalysis() {
       handleSend();
     }
   };
+
+  // ── Quick prompt click ────────────────────────────────────────────
+  const handleQuickPrompt = useCallback((q) => {
+    if (q.needsInput) {
+      setActiveQuickPrompt(q);
+      setQuickInputText("");
+    } else {
+      handleSend(q.prompt);
+    }
+  }, [handleSend]);
+
+  // ── Submit the input card (Labor Logs / Adjuster Question) ────────
+  const handleQuickInputSubmit = useCallback(() => {
+    if (!activeQuickPrompt || !quickInputText.trim()) return;
+    const fullPrompt = activeQuickPrompt.buildPrompt(quickInputText.trim());
+    setActiveQuickPrompt(null);
+    setQuickInputText("");
+    handleSend(fullPrompt);
+  }, [activeQuickPrompt, quickInputText, handleSend]);
 
   // ── Derived ──────────────────────────────────────────────────────
   const summary = clientContext?.clientSummary;
@@ -614,7 +630,7 @@ export default function AIAnalysis() {
               about their claim — documents, photos, budget, tasks, and more.
             </p>
             <div className="aa-empty-chips">
-              {QUICK_PROMPTS.slice(0, 4).map((q) => (
+              {QUICK_PROMPTS.map((q) => (
                 <div key={q.label} className="aa-empty-chip">
                   <span>{q.icon}</span> {q.label}
                 </div>
@@ -654,7 +670,7 @@ export default function AIAnalysis() {
                 <button
                   key={q.label}
                   className="aa-quick-btn"
-                  onClick={() => handleSend(q.prompt)}
+                  onClick={() => handleQuickPrompt(q)}
                 >
                   <span className="aa-quick-icon">{q.icon}</span>
                   <span>{q.label}</span>
@@ -703,13 +719,53 @@ export default function AIAnalysis() {
         {/* Input area */}
         {contextLoaded && (
           <div className="aa-input-area">
-            {messages.length > 0 && !streaming && (
+            {/* Input card for prompts that need user input */}
+            {activeQuickPrompt && (
+              <div className="aa-quick-input-card">
+                <div className="aa-quick-input-header">
+                  <span className="aa-quick-input-icon">{activeQuickPrompt.icon}</span>
+                  <span className="aa-quick-input-title">{activeQuickPrompt.label}</span>
+                  <button
+                    className="aa-quick-input-cancel"
+                    onClick={() => setActiveQuickPrompt(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <label className="aa-quick-input-label">{activeQuickPrompt.inputLabel}</label>
+                <textarea
+                  className="aa-quick-input-textarea"
+                  placeholder={activeQuickPrompt.inputPlaceholder}
+                  rows={activeQuickPrompt.inputRows || 2}
+                  value={quickInputText}
+                  onChange={(e) => setQuickInputText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && activeQuickPrompt.inputRows === 1) {
+                      e.preventDefault();
+                      handleQuickInputSubmit();
+                    }
+                  }}
+                  autoFocus
+                />
+                <div className="aa-quick-input-actions">
+                  <button
+                    className="aa-quick-input-submit"
+                    onClick={handleQuickInputSubmit}
+                    disabled={!quickInputText.trim()}
+                  >
+                    Send to Claude ↑
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {messages.length > 0 && !streaming && !activeQuickPrompt && (
               <div className="aa-quick-bar">
-                {QUICK_PROMPTS.slice(0, 4).map((q) => (
+                {QUICK_PROMPTS.map((q) => (
                   <button
                     key={q.label}
                     className="aa-quick-pill"
-                    onClick={() => handleSend(q.prompt)}
+                    onClick={() => handleQuickPrompt(q)}
                   >
                     {q.icon} {q.label}
                   </button>

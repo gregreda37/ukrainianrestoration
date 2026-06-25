@@ -44,6 +44,13 @@ jobs:
           docker build -t gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }} backend/
           docker push gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }}
 
+      - name: Grant deploy SA Cloud Run admin
+        run: |
+          gcloud projects add-iam-policy-binding ukrainianrestoration-50993 \
+            --member="serviceAccount:firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com" \
+            --role="roles/run.admin" \
+            --quiet || true
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy myclaim-backend \
@@ -68,3 +75,11 @@ jobs:
             --update-env-vars "FIREBASE_STORAGE_BUCKET=ukrainianrestoration-50993.appspot.com" \
             --remove-env-vars "ANTHROPIC_API_KEY" \
             --set-secrets "GOOGLE_CLIENT_SECRETS_JSON=google-drive-client-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest"
+
+      - name: Allow unauthenticated invocations
+        run: |
+          gcloud run services add-iam-policy-binding myclaim-backend \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --region=us-east1 \
+            --project=ukrainianrestoration-50993

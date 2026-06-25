@@ -64,10 +64,11 @@ jobs:
 
       - name: Deploy Firebase Hosting
         run: |
-          OUTPUT=$(npx firebase deploy --only hosting --project ukrainianrestoration-50993 2>&1)
-          EXIT=$?
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -q "current active version"; then
+          set +e
+          npx firebase deploy --only hosting --project ukrainianrestoration-50993 2>&1 | tee /tmp/firebase-hosting.log
+          EXIT=${PIPESTATUS[0]}
+          set -e
+          if grep -q "current active version" /tmp/firebase-hosting.log; then
             echo "Version already live — no content changes, skipping release."
             exit 0
           fi

@@ -2,10 +2,11 @@ import React, { useEffect, useState } from "react";
 import { db } from "../firebase";
 import {
   collection, getDocs, doc, getDoc, setDoc, deleteDoc,
-  query, orderBy, where, addDoc, serverTimestamp,
+  query, orderBy, where, addDoc, serverTimestamp, updateDoc,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import { api } from "./api";
+import TemplateBuilder from "./TemplateBuilder";
 import "./TeamSettings.css";
 
 const ROLES = [
@@ -39,6 +40,15 @@ export default function TeamSettings() {
   const [inviteRole,      setInviteRole]      = useState('project_manager');
   const [inviting,        setInviting]        = useState(false);
   const [inviteError,     setInviteError]     = useState('');
+
+  // Templates
+  const [templates,        setTemplates]        = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [showTplBuilder,   setShowTplBuilder]   = useState(false);
+  const [editingTemplate,  setEditingTemplate]  = useState(null);
+  const [builderFile,      setBuilderFile]      = useState(null);
+  const [deletingTplId,    setDeletingTplId]    = useState(null);
+  const tplFileRef = React.useRef(null);
 
   // Integrations
   const [driveStatus,   setDriveStatus]   = useState(null);
@@ -95,6 +105,15 @@ export default function TeamSettings() {
     })();
     return () => { cancelled = true; };
   }, [user]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    setTemplatesLoading(true);
+    getDocs(collection(db, "organization_data", orgId, "signTemplates"))
+      .then(snap => setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => {})
+      .finally(() => setTemplatesLoading(false));
+  }, [orgId]);
 
   const orgDomain = user?.email?.split('@')[1];
   const isExternal = (email) => email.trim().split('@')[1] !== orgDomain;
@@ -275,6 +294,17 @@ export default function TeamSettings() {
     if (!ts) return "Never";
     const d = ts.toDate?.() ?? new Date(ts);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const deleteTemplate = async (tpl) => {
+    if (!window.confirm(`Delete template "${tpl.name}"? This cannot be undone.`)) return;
+    setDeletingTplId(tpl.id);
+    try {
+      await deleteDoc(doc(db, "organization_data", orgId, "signTemplates", tpl.id));
+      setTemplates(prev => prev.filter(t => t.id !== tpl.id));
+    } finally {
+      setDeletingTplId(null);
+    }
   };
 
   const closeInviteModal = () => {
@@ -536,6 +566,91 @@ export default function TeamSettings() {
           </div>
         </div>
 
+        {/* ── Sign Templates ── */}
+        <div className="mc-page__hd" style={{ marginTop: 8 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: 0 }}>
+            Sign Templates
+          </h2>
+        </div>
+
+        <div className="ts-section">
+          <div className="ts-section-header">
+            <div className="ts-section-header-row">
+              <div>
+                <h2 className="ts-section-title">
+                  Document Templates
+                  <span className="ts-member-count">{templates.length}</span>
+                </h2>
+                <p className="ts-section-hint">
+                  PDF templates with client and contractor signature fields.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  ref={tplFileRef}
+                  type="file"
+                  accept="application/pdf"
+                  style={{ display: "none" }}
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) { setBuilderFile(f); setEditingTemplate(null); setShowTplBuilder(true); }
+                    e.target.value = "";
+                  }}
+                />
+                <button className="ts-invite-btn" onClick={() => tplFileRef.current?.click()}>
+                  <PlusIcon /> New Template
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {templatesLoading ? (
+            <div className="ts-loading"><div className="ts-spinner" /></div>
+          ) : templates.length === 0 ? (
+            <p className="ts-empty" style={{ padding: "20px 24px" }}>
+              No templates yet. Click "New Template" to upload a PDF and place signature fields.
+            </p>
+          ) : (
+            <div className="ts-member-list">
+              {templates.map(tpl => {
+                const clientFields     = (tpl.fields || []).filter(f => !f.signer || f.signer === "client");
+                const contractorFields = (tpl.fields || []).filter(f => f.signer === "contractor");
+                const isDeletingThis   = deletingTplId === tpl.id;
+                return (
+                  <div key={tpl.id} className="ts-member-card">
+                    <div className="ts-member-avatar" style={{ background: "#2563eb", color: "#fff", fontSize: 16 }}>
+                      ✍
+                    </div>
+                    <div className="ts-member-info">
+                      <div className="ts-member-name">{tpl.name}</div>
+                      <div className="ts-member-meta">
+                        {clientFields.length} client field{clientFields.length !== 1 ? "s" : ""}
+                        {contractorFields.length > 0 && ` · ${contractorFields.length} contractor field${contractorFields.length !== 1 ? "s" : ""}`}
+                      </div>
+                    </div>
+                    <div className="ts-member-actions">
+                      <button
+                        className="ts-assign-btn"
+                        onClick={() => { setEditingTemplate(tpl); setBuilderFile(null); setShowTplBuilder(true); }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="ts-remove-btn"
+                        onClick={() => deleteTemplate(tpl)}
+                        disabled={isDeletingThis}
+                        title="Delete template"
+                      >
+                        {isDeletingThis ? <SpinnerInline /> : <TrashIcon />}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="ts-legend">
           <div className="ts-legend-item">
             <span className="ts-role-badge ts-role-admin-badge">Admin</span>
@@ -547,6 +662,27 @@ export default function TeamSettings() {
           </div>
         </div>
       </div>
+
+      {/* ── Template Builder ── */}
+      {showTplBuilder && (builderFile || editingTemplate) && (
+        <TemplateBuilder
+          pdfFile={builderFile || null}
+          existingTemplate={editingTemplate || null}
+          orgId={orgId}
+          user={user}
+          onSave={template => {
+            setTemplates(prev => {
+              const idx = prev.findIndex(t => t.id === template.id);
+              if (idx >= 0) { const n = [...prev]; n[idx] = template; return n; }
+              return [template, ...prev];
+            });
+            setShowTplBuilder(false);
+            setBuilderFile(null);
+            setEditingTemplate(null);
+          }}
+          onClose={() => { setShowTplBuilder(false); setBuilderFile(null); setEditingTemplate(null); }}
+        />
+      )}
 
       {/* ── Assign Clients Modal ── */}
       {assignModal && (

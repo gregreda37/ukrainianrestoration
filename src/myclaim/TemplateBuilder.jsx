@@ -19,10 +19,16 @@ const FIELD_DEFAULTS = {
 };
 
 const FIELD_COLORS = {
+  // Client fields
   signature: { border: "#2563eb", bg: "rgba(37,99,235,0.1)" },
   initials:  { border: "#16a34a", bg: "rgba(22,163,74,0.1)" },
   date:      { border: "#d97706", bg: "rgba(217,119,6,0.1)" },
   text:      { border: "#7c3aed", bg: "rgba(124,58,237,0.1)" },
+  // Contractor fields (darker/distinct)
+  "contractor-signature": { border: "#1e3a8a", bg: "rgba(30,58,138,0.12)" },
+  "contractor-initials":  { border: "#14532d", bg: "rgba(20,83,45,0.12)"  },
+  "contractor-date":      { border: "#92400e", bg: "rgba(146,64,14,0.12)" },
+  "contractor-text":      { border: "#5b21b6", bg: "rgba(91,33,182,0.12)" },
 };
 
 const FIELD_LABELS = { signature: "Signature", initials: "Initials", date: "Date", text: "Text Field" };
@@ -32,13 +38,14 @@ function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSave, onClose }) {
+export default function TemplateBuilder({ pdfFile, existingTemplate, orgId, user, onSave, onClose, oneTime = false }) {
   const [templateName, setTemplateName] = useState(existingTemplate?.name || "");
   const [pageImages, setPageImages] = useState([]);
   const [pdfLoading, setPdfLoading] = useState(true);
   const [fields, setFields] = useState(existingTemplate?.fields || []);
   const [activeTool, setActiveTool] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  const [signerMode, setSignerMode] = useState("client"); // "client" | "contractor"
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -123,6 +130,7 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
     const newField = {
       id: generateId(),
       type: activeTool,
+      signer: signerMode,
       pageIndex,
       x,
       y,
@@ -133,7 +141,7 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
     setFields((prev) => [...prev, newField]);
     setSelectedId(newField.id);
     setActiveTool(null);
-  }, [activeTool]);
+  }, [activeTool, signerMode]);
 
   const handleFieldPointerDown = useCallback((e, fieldId, pageIndex) => {
     e.stopPropagation();
@@ -228,7 +236,19 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
     setSelectedId((sel) => (sel === id ? null : sel));
   }, []);
 
+  const toggleFieldSigner = useCallback((id) => {
+    setFields((prev) => prev.map((f) =>
+      f.id === id ? { ...f, signer: f.signer === "contractor" ? "client" : "contractor" } : f
+    ));
+  }, []);
+
   const handleSave = async () => {
+    // One-time mode: skip name validation, skip Firestore, just return the fields
+    if (oneTime) {
+      if (fields.length === 0) { setError("Place at least one field before continuing."); return; }
+      onSave({ fields });
+      return;
+    }
     if (!templateName.trim()) { setError("Please enter a template name."); return; }
     setError("");
     setSaving(true);
@@ -252,13 +272,17 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
       };
 
       if (existingTemplate?.id) {
-        // Update existing — need updateDoc from firebase/firestore
         const { updateDoc, doc: firestoreDoc } = await import("firebase/firestore");
-        const ref2 = firestoreDoc(db, "users", user.uid, "signTemplates", existingTemplate.id);
-        await updateDoc(ref2, { name: templateData.name, fields: templateData.fields });
+        const tplDoc = orgId
+          ? firestoreDoc(db, "organization_data", orgId, "signTemplates", existingTemplate.id)
+          : firestoreDoc(db, "users", user.uid, "signTemplates", existingTemplate.id);
+        await updateDoc(tplDoc, { name: templateData.name, fields: templateData.fields });
         onSave({ ...existingTemplate, ...templateData, id: existingTemplate.id });
       } else {
-        const docRef = await addDoc(collection(db, "users", user.uid, "signTemplates"), templateData);
+        const saveCol = orgId
+          ? collection(db, "organization_data", orgId, "signTemplates")
+          : collection(db, "users", user.uid, "signTemplates");
+        const docRef = await addDoc(saveCol, templateData);
         onSave({ id: docRef.id, ...templateData });
       }
     } catch (err) {
@@ -271,15 +295,24 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
     setActiveTool((prev) => (prev === type ? null : type));
   };
 
+  const getColors = (field) => {
+    const key = field.signer === "contractor" ? `contractor-${field.type}` : field.type;
+    return FIELD_COLORS[key] || FIELD_COLORS[field.type] || { border: "#64748b", bg: "rgba(100,116,139,0.1)" };
+  };
+
   return (
     <div className="tb-overlay" onClick={() => setSelectedId(null)}>
       <div className="tb-header" onClick={(e) => e.stopPropagation()}>
-        <input
-          className="tb-name-input"
-          placeholder="Template name…"
-          value={templateName}
-          onChange={(e) => setTemplateName(e.target.value)}
-        />
+        {oneTime ? (
+          <span className="tb-onetime-label">Place Signature Fields</span>
+        ) : (
+          <input
+            className="tb-name-input"
+            placeholder="Template name…"
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+          />
+        )}
         <button className="tb-close-btn" onClick={onClose}>✕</button>
       </div>
 
@@ -313,7 +346,7 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
                 {fields
                   .filter((f) => f.pageIndex === pageIndex)
                   .map((field) => {
-                    const colors = FIELD_COLORS[field.type];
+                    const colors = getColors(field);
                     const isSelected = selectedId === field.id;
                     return (
                       <div
@@ -334,6 +367,9 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
                       >
                         <span className="tb-field-label" style={{ color: colors.border }}>
                           {FIELD_LABELS[field.type]}
+                          <span className="tb-field-signer-tag" style={{ opacity: 0.7 }}>
+                            {field.signer === "contractor" ? " · Contractor" : " · Client"}
+                          </span>
                         </span>
                         {isSelected && (
                           <button
@@ -362,9 +398,23 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
 
         <div className="tb-sidebar">
           <div className="tb-sidebar-section">
+            <div className="tb-signer-toggle">
+              <button
+                className={`tb-signer-btn${signerMode === "client" ? " tb-signer-btn--active" : ""}`}
+                onClick={() => setSignerMode("client")}
+              >
+                Client Fields
+              </button>
+              <button
+                className={`tb-signer-btn${signerMode === "contractor" ? " tb-signer-btn--active" : ""}`}
+                onClick={() => setSignerMode("contractor")}
+              >
+                Contractor Fields
+              </button>
+            </div>
             <div className="tb-sidebar-title">Add Fields</div>
             {["signature", "initials", "date", "text"].map((type) => {
-              const colors = FIELD_COLORS[type];
+              const colors = getColors({ signer: signerMode, type });
               const isActive = activeTool === type;
               return (
                 <button
@@ -388,7 +438,7 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
               <div className="tb-no-fields">No fields placed yet.</div>
             )}
             {fields.map((field) => {
-              const colors = FIELD_COLORS[field.type];
+              const colors = getColors(field);
               const isSelected = selectedId === field.id;
               return (
                 <div
@@ -405,6 +455,14 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
                   <span className="tb-field-row-info">
                     Page {field.pageIndex + 1}
                   </span>
+                  <button
+                    className="tb-field-badge tb-field-badge--toggle"
+                    style={{ backgroundColor: colors.border }}
+                    onClick={(e) => { e.stopPropagation(); toggleFieldSigner(field.id); }}
+                    title="Click to reassign signer"
+                  >
+                    {field.signer === "contractor" ? "Contractor" : "Client"}
+                  </button>
                   <button
                     className="tb-field-row-delete"
                     onClick={(e) => { e.stopPropagation(); deleteField(field.id); }}
@@ -423,7 +481,11 @@ export default function TemplateBuilder({ pdfFile, existingTemplate, user, onSav
               onClick={handleSave}
               disabled={saving || pdfLoading}
             >
-              {saving ? "Saving…" : existingTemplate?.id ? "Update Template" : "Save Template"}
+              {oneTime
+                ? `Use These Fields (${fields.length})`
+                : saving ? "Saving…"
+                : existingTemplate?.id ? "Update Template"
+                : "Save Template"}
             </button>
           </div>
         </div>

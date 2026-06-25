@@ -1,7 +1,7 @@
 .tb-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: 1200;
   display: flex;
   flex-direction: column;
   background: #1e293b;
@@ -33,6 +33,14 @@
 }
 .tb-name-input::placeholder {
   color: #64748b;
+}
+
+.tb-onetime-label {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f1f5f9;
+  padding: 7px 0;
 }
 
 .tb-close-btn {
@@ -324,4 +332,52 @@
 .tb-save-btn:disabled {
   background: #93c5fd;
   cursor: not-allowed;
+}
+
+.tb-signer-toggle {
+  display: flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.tb-signer-btn {
+  flex: 1;
+  padding: 7px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.tb-signer-btn--active {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+.tb-field-signer-tag {
+  font-weight: 400;
+  font-size: 10px;
+}
+
+.tb-field-badge--toggle {
+  border: none;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.tb-field-badge--toggle:hover {
+  opacity: 1;
+  transform: scale(1.05);
+}
+.tb-field-badge--toggle:active {
+  transform: scale(0.97);
 }

@@ -113,6 +113,30 @@ function MarkdownMessage({ text }) {
         i++;
       }
       parts.push(<ol key={`ol-${i}`}>{items}</ol>);
+    } else if (/^\|/.test(line.trim())) {
+      const tableLines = [];
+      while (i < lines.length && /^\|/.test(lines[i].trim())) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      const parseRow = (row) => row.split("|").slice(1).map(c => c.trim()).slice(0, -1);
+      const isSep = (row) => row.replace(/[\|\-\s:]/g, "") === "";
+      const headers = parseRow(tableLines[0]);
+      const dataRows = tableLines.slice(1).filter(l => !isSep(l)).map(parseRow);
+      parts.push(
+        <div key={`tw-${i}`} className="aa-md-table-wrap">
+          <table className="aa-md-table">
+            <thead>
+              <tr>{headers.map((h, j) => <th key={j} dangerouslySetInnerHTML={{ __html: inline(h) }} />)}</tr>
+            </thead>
+            <tbody>
+              {dataRows.map((row, ri) => (
+                <tr key={ri}>{row.map((c, ci) => <td key={ci} dangerouslySetInnerHTML={{ __html: inline(c) }} />)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
     } else if (line.trim() === "") {
       parts.push(<div key={i} className="aa-spacer" />);
       i++;
@@ -125,7 +149,16 @@ function MarkdownMessage({ text }) {
   return <div className="aa-md">{parts}</div>;
 }
 
-// ── Typing cursor ─────────────────────────────────────────────────────────────
+// ── Thinking / streaming indicators ──────────────────────────────────────────
+function ThinkingState() {
+  return (
+    <div className="aa-thinking">
+      <span className="aa-thinking-label">Analyzing</span>
+      <span className="aa-thinking-dots"><span /><span /><span /></span>
+    </div>
+  );
+}
+
 function StreamingDots() {
   return <span className="aa-streaming-dots"><span /><span /><span /></span>;
 }
@@ -278,16 +311,18 @@ export default function AIAnalysis() {
 
   // ── Send message ─────────────────────────────────────────────────
   const handleSend = useCallback(
-    async (text) => {
+    async (text, opts = {}) => {
       const msg = (text || input).trim();
       if (!msg || streaming || !contextLoaded) return;
 
       setInput("");
       setStreamError("");
 
-      const userMsg = { role: "user", content: msg };
+      const userMsg = { role: "user", content: msg, label: opts.label || null };
       const nextMessages = [...messages, userMsg];
       setMessages(nextMessages);
+      // Strip UI-only fields before sending to backend
+      const apiMessages = nextMessages.map(({ role, content }) => ({ role, content }));
 
       // Placeholder for streaming assistant reply
       setMessages((prev) => [...prev, { role: "assistant", content: "", streaming: true }]);
@@ -302,7 +337,7 @@ export default function AIAnalysis() {
             "Authorization": `Bearer ${idToken}`,
           },
           body: JSON.stringify({
-            messages: nextMessages,
+            messages: apiMessages,
             cacheKey: clientContext.cacheKey,
             includePhotos: contextFlags.photos && (clientContext?.stats?.photoCount > 0),
           }),
@@ -400,7 +435,7 @@ export default function AIAnalysis() {
       setActiveQuickPrompt(q);
       setQuickInputText("");
     } else {
-      handleSend(q.prompt);
+      handleSend(q.prompt, { label: `${q.icon} ${q.label}` });
     }
   }, [handleSend]);
 
@@ -408,9 +443,10 @@ export default function AIAnalysis() {
   const handleQuickInputSubmit = useCallback(() => {
     if (!activeQuickPrompt || !quickInputText.trim()) return;
     const fullPrompt = activeQuickPrompt.buildPrompt(quickInputText.trim());
+    const label = `${activeQuickPrompt.icon} ${activeQuickPrompt.label}`;
     setActiveQuickPrompt(null);
     setQuickInputText("");
-    handleSend(fullPrompt);
+    handleSend(fullPrompt, { label });
   }, [activeQuickPrompt, quickInputText, handleSend]);
 
   // ── Derived ──────────────────────────────────────────────────────
@@ -623,7 +659,7 @@ export default function AIAnalysis() {
         {/* Welcome / empty state */}
         {!selectedClient && (
           <div className="aa-empty-state">
-            <div className="aa-empty-icon">🤖</div>
+            <div className="aa-empty-orb" />
             <h2 className="aa-empty-title">AI Claim Analysis</h2>
             <p className="aa-empty-desc">
               Select a client from the left panel, load their context, and ask anything
@@ -685,20 +721,22 @@ export default function AIAnalysis() {
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`aa-message aa-message--${msg.role}${msg.error ? " aa-message--error" : ""}`}
+                className={`aa-message aa-message--${msg.role}${msg.error ? " aa-message--error" : ""}${msg.streaming ? " aa-message--streaming" : ""}`}
               >
                 {msg.role === "assistant" && (
-                  <div className="aa-message-avatar">🤖</div>
+                  <div className={`aa-ai-orb${msg.streaming ? " aa-ai-orb--active" : ""}`} />
                 )}
                 <div className="aa-message-bubble">
                   {msg.role === "assistant" ? (
                     <>
                       {msg.content ? <MarkdownMessage text={msg.content} /> : null}
-                      {msg.streaming && !msg.content && <StreamingDots />}
+                      {msg.streaming && !msg.content && <ThinkingState />}
                       {msg.streaming && msg.content && (
                         <span className="aa-cursor">▋</span>
                       )}
                     </>
+                  ) : msg.label ? (
+                    <div className="aa-action-badge">{msg.label}</div>
                   ) : (
                     <p>{msg.content}</p>
                   )}

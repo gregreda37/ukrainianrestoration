@@ -53,10 +53,16 @@ jobs:
       - name: Deploy Firestore rules and indexes
         run: npx firebase deploy --only firestore:rules,firestore:indexes --project ukrainianrestoration-50993
         continue-on-error: true
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
       - name: Deploy Storage rules
         run: npx firebase deploy --only storage --project ukrainianrestoration-50993
         continue-on-error: true
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
       - name: Deploy Firebase Hosting
         run: npx firebase deploy --only hosting --project ukrainianrestoration-50993
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

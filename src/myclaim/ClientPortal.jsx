@@ -152,6 +152,13 @@ export default function ClientPortal() {
   const [reviewingSel,   setReviewingSel]   = useState(null);
   const [approveUrl,     setApproveUrl]     = useState("");
   const [approveNotes,   setApproveNotes]   = useState("");
+  const [editingSel,     setEditingSel]     = useState(null);
+  const [editSelProduct, setEditSelProduct] = useState("");
+  const [editSelUrl,     setEditSelUrl]     = useState("");
+  const [editSelNotes,   setEditSelNotes]   = useState("");
+  const [editSelCategory,setEditSelCategory]= useState(SELECTION_CATEGORIES[0]);
+  const [savingEditSel,  setSavingEditSel]  = useState(false);
+  const [editSelError,   setEditSelError]   = useState("");
 
   const fileInputRef    = useRef(null);
   const addressInputRef = useRef(null);
@@ -326,6 +333,40 @@ export default function ClientPortal() {
       const linked = todos.find(t => t.linkedSelectionId===sel.id && !t.completed);
       if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await updateDoc(doc(db,"users",user.uid,"todos",linked.id), u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
     } catch (err) { console.error(err); }
+  };
+
+  const openEditSel = (sel) => {
+    setEditingSel(sel);
+    setEditSelProduct(sel.product || "");
+    setEditSelUrl(sel.url || "");
+    setEditSelNotes(sel.notes || "");
+    setEditSelCategory(sel.category || SELECTION_CATEGORIES[0]);
+    setEditSelError("");
+  };
+
+  const saveEditSel = async () => {
+    if (!editSelProduct.trim()) { setEditSelError("Product name is required."); return; }
+    setSavingEditSel(true); setEditSelError("");
+    const changed =
+      editSelProduct.trim() !== editingSel.product ||
+      (editSelUrl.trim() || null) !== editingSel.url ||
+      (editSelNotes.trim() || null) !== editingSel.notes ||
+      editSelCategory !== editingSel.category;
+    if (!changed) { setEditingSel(null); setSavingEditSel(false); return; }
+    try {
+      const updates = {
+        product: editSelProduct.trim(),
+        url: editSelUrl.trim() || null,
+        notes: editSelNotes.trim() || null,
+        category: editSelCategory,
+        updatedAt: serverTimestamp(),
+      };
+      await updateDoc(doc(db, "users", user.uid, "selections", editingSel.id), updates);
+      setSelections(p => p.map(s => s.id === editingSel.id ? { ...s, ...updates } : s));
+      await logActivity("selection_updated", `Updated selection: "${editSelProduct.trim()}" (${editSelCategory})`);
+      setEditingSel(null);
+    } catch (err) { setEditSelError(err.message || "Could not save changes."); }
+    finally { setSavingEditSel(false); }
   };
 
   const fetchDocuments = async () => {
@@ -682,8 +723,10 @@ export default function ClientPortal() {
                               const isNeedsApproval = s.status==="needs_approval";
                               const isRejected = s.status==="rejected";
                               const isApproved = s.status==="approved";
+                              const canEdit = isApproved;
                               const approvedLabel = isApproved ? (s.addedBy==="client" ? "Your pick" : "You approved") : null;
                               const approvedDate  = isApproved ? formatShortDate(s.approvedAt||(s.addedBy==="client"?s.addedAt:null)) : null;
+                              const updatedDate   = s.updatedAt ? formatShortDate(s.updatedAt) : null;
 
                               const nameRow = (
                                 <div className="cp-sel-name-row">
@@ -694,27 +737,45 @@ export default function ClientPortal() {
                                 </div>
                               );
 
+                              const itemContent = (
+                                <>
+                                  {nameRow}
+                                  {s.notes && <span className="cp-sel-notes">{s.notes}</span>}
+                                  {updatedDate && <span className="cp-sel-updated">Edited {updatedDate}</span>}
+                                  {s.url && (prevData==="loading"
+                                    ? <div className="cp-sel-preview"><div className="cp-spin cp-spin-sm" /></div>
+                                    : preview ? (
+                                        <div className="cp-sel-preview">
+                                          {preview.brand && <span className="cp-sel-preview-brand">{preview.brand}</span>}
+                                          {preview.title && <span className="cp-sel-preview-title">{preview.title}</span>}
+                                          {preview.price && <span className="cp-sel-preview-price">{preview.currency==="USD"||!preview.currency?"$":preview.currency+" "}{preview.price}</span>}
+                                          {preview.description && <span className="cp-sel-preview-desc">{preview.description}</span>}
+                                          <span className="cp-sel-preview-url">{new URL(s.url).hostname} <ExternalLinkIcon /></span>
+                                        </div>
+                                      ) : <span className="cp-sel-link">View link →</span>
+                                  )}
+                                  {canEdit && <span className="cp-sel-edit-hint">Tap to edit</span>}
+                                </>
+                              );
+
                               return (
                                 <div key={s.id}>
-                                  {s.url ? (
+                                  {canEdit ? (
+                                    <div
+                                      className={`cp-sel-item cp-sel-item--editable${isNeedsApproval?" sel-pending":""}${isRejected?" sel-rejected":""}`}
+                                      onClick={() => openEditSel(s)}
+                                      role="button" tabIndex={0}
+                                      onKeyDown={e => e.key==="Enter"&&openEditSel(s)}
+                                    >
+                                      {itemContent}
+                                    </div>
+                                  ) : s.url ? (
                                     <a href={s.url} target="_blank" rel="noreferrer" className={`cp-sel-item${isNeedsApproval?" sel-pending":""}${isRejected?" sel-rejected":""}`}>
-                                      {nameRow}
-                                      {s.notes && <span className="cp-sel-notes">{s.notes}</span>}
-                                      {prevData==="loading" ? <div className="cp-sel-preview"><div className="cp-spin cp-spin-sm" /></div>
-                                        : preview ? (
-                                          <div className="cp-sel-preview">
-                                            {preview.brand && <span className="cp-sel-preview-brand">{preview.brand}</span>}
-                                            {preview.title && <span className="cp-sel-preview-title">{preview.title}</span>}
-                                            {preview.price && <span className="cp-sel-preview-price">{preview.currency==="USD"||!preview.currency?"$":preview.currency+" "}{preview.price}</span>}
-                                            {preview.description && <span className="cp-sel-preview-desc">{preview.description}</span>}
-                                            <span className="cp-sel-preview-url">{new URL(s.url).hostname} <ExternalLinkIcon /></span>
-                                          </div>
-                                        ) : <span className="cp-sel-link">View link →</span>}
+                                      {itemContent}
                                     </a>
                                   ) : (
                                     <div className={`cp-sel-item${isNeedsApproval?" sel-pending":""}${isRejected?" sel-rejected":""}`}>
-                                      {nameRow}
-                                      {s.notes && <span className="cp-sel-notes">{s.notes}</span>}
+                                      {itemContent}
                                     </div>
                                   )}
                                   {isNeedsApproval && (
@@ -958,6 +1019,48 @@ export default function ClientPortal() {
         </div>
       )}
 
+
+      {/* ── Edit Selection Modal ── */}
+      {editingSel && (
+        <div className="cp-backdrop" onClick={() => setEditingSel(null)}>
+          <div className="cp-modal" onClick={e => e.stopPropagation()}>
+            <div className="cp-modal-head">
+              <div>
+                <h3 className="cp-modal-title">Edit Selection</h3>
+                <span className="cp-cat-tag">{editingSel.category}</span>
+              </div>
+              <button className="cp-modal-x" onClick={() => setEditingSel(null)}>✕</button>
+            </div>
+            <div className="cp-modal-body">
+              <div className="cp-field">
+                <label className="cp-field-label">Category</label>
+                <select className="cp-input" value={editSelCategory} onChange={e => setEditSelCategory(e.target.value)}>
+                  {SELECTION_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="cp-field">
+                <label className="cp-field-label">Product / Item name</label>
+                <input className="cp-input" value={editSelProduct} onChange={e => setEditSelProduct(e.target.value)} placeholder="e.g. Moen Arbor Faucet" autoFocus />
+              </div>
+              <div className="cp-field">
+                <label className="cp-field-label">Product URL <span className="cp-field-muted">(optional)</span></label>
+                <input className="cp-input" type="url" value={editSelUrl} onChange={e => setEditSelUrl(e.target.value)} placeholder="https://homedepot.com/..." />
+              </div>
+              <div className="cp-field">
+                <label className="cp-field-label">Notes <span className="cp-field-muted">(color, size, finish…)</span></label>
+                <input className="cp-input" value={editSelNotes} onChange={e => setEditSelNotes(e.target.value)} placeholder="e.g. Brushed nickel, 12×24 tile, matte" />
+              </div>
+              {editSelError && <p className="cp-sel-err">{editSelError}</p>}
+              <div className="cp-modal-actions">
+                <button className="cp-btn" onClick={() => setEditingSel(null)}>Cancel</button>
+                <button className="cp-btn cp-btn--primary" onClick={saveEditSel} disabled={savingEditSel || !editSelProduct.trim()}>
+                  {savingEditSel ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Document Sidebar ── */}
       {sidebarOpen && <div className="cp-dim" onClick={() => setSidebarOpen(false)} />}

@@ -166,9 +166,10 @@ export default function AIAnalysis() {
   const [orgId, setOrgId] = useState("");
   const [clients, setClients] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [filter, setFilter] = useState("");
 
-  const [search, setSearch] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
+  // "list" = browsing clients, "detail" = client selected + context controls
+  const [clientView, setClientView] = useState("list");
   const [selectedClient, setSelectedClient] = useState(null);
 
   const [contextFlags, setContextFlags] = useState(DEFAULT_FLAGS);
@@ -183,8 +184,6 @@ export default function AIAnalysis() {
 
   const chatBottomRef = useRef(null);
   const inputRef = useRef(null);
-  const searchRef = useRef(null);
-  const dropdownRef = useRef(null);
 
   // ── Load org ID ──────────────────────────────────────────────────
   useEffect(() => {
@@ -215,24 +214,13 @@ export default function AIAnalysis() {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ── Close dropdown on outside click ─────────────────────────────
-  useEffect(() => {
-    const handler = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
-          searchRef.current && !searchRef.current.contains(e.target)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  // ── Filtered clients ─────────────────────────────────────────────
+  // ── Filtered client list ─────────────────────────────────────────
   const filteredClients = clients.filter((c) => {
-    const q = search.toLowerCase();
+    const q = filter.toLowerCase();
+    if (!q) return true;
     return (
       (c.name || "").toLowerCase().includes(q) ||
-      (c.phone || "").includes(q) ||
+      (c.phone || "").replace(/\D/g, "").includes(q.replace(/\D/g, "")) ||
       (c.address || "").toLowerCase().includes(q) ||
       (c.claimNumbers || []).some((n) => n.toLowerCase().includes(q))
     );
@@ -241,12 +229,17 @@ export default function AIAnalysis() {
   // ── Select client ────────────────────────────────────────────────
   const handleSelectClient = useCallback((client) => {
     setSelectedClient(client);
-    setSearch(client.name || client.phone || "");
-    setShowDropdown(false);
+    setClientView("detail");
     setContextLoaded(false);
     setClientContext(null);
     setMessages([]);
     setStreamError("");
+  }, []);
+
+  // ── Back to client list ──────────────────────────────────────────
+  const handleBackToList = useCallback(() => {
+    setClientView("list");
+    setFilter("");
   }, []);
 
   // ── Load context ─────────────────────────────────────────────────
@@ -267,6 +260,7 @@ export default function AIAnalysis() {
         body: JSON.stringify({
           orgId,
           clientUid: selectedClient.uid,
+          clientName: selectedClient.name || "",
           contextFlags,
         }),
       });
@@ -416,47 +410,62 @@ export default function AIAnalysis() {
           <span className="aa-model-badge">claude-sonnet-4-6</span>
         </div>
 
-        {/* Client selector */}
-        <div className="aa-section">
-          <div className="aa-section-label">Client</div>
-          <div className="aa-search-wrap" ref={searchRef}>
-            <input
-              className="aa-search"
-              placeholder={clientsLoading ? "Loading clients…" : "Search clients…"}
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setShowDropdown(true); }}
-              onFocus={() => setShowDropdown(true)}
-              disabled={clientsLoading}
-            />
-            {showDropdown && filteredClients.length > 0 && (
-              <div className="aa-dropdown" ref={dropdownRef}>
-                {filteredClients.slice(0, 12).map((c) => {
-                  const [bg, fg] = avatarColor(c.name || c.phone);
+        {/* ── LIST VIEW: show all clients ── */}
+        {clientView === "list" && (
+          <div className="aa-client-list-panel">
+            <div className="aa-list-filter-wrap">
+              <input
+                className="aa-list-filter"
+                placeholder={clientsLoading ? "Loading…" : `Filter ${clients.length} clients…`}
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                disabled={clientsLoading}
+              />
+            </div>
+
+            <div className="aa-client-list">
+              {clientsLoading ? (
+                <div className="aa-list-loading"><span className="aa-btn-spinner" /></div>
+              ) : filteredClients.length === 0 ? (
+                <div className="aa-list-empty">No clients found</div>
+              ) : (
+                filteredClients.map((c) => {
+                  const [bg, fg] = avatarColor(c.name || c.phone || "");
                   return (
                     <button
                       key={c.docId}
-                      className="aa-dropdown-item"
+                      className={`aa-client-row${selectedClient?.docId === c.docId ? " aa-client-row--active" : ""}`}
                       onClick={() => handleSelectClient(c)}
                     >
-                      <span className="aa-dropdown-avatar" style={{ background: bg, color: fg }}>
+                      <div className="aa-client-row-avatar" style={{ background: bg, color: fg }}>
                         {(c.name || c.phone || "?")[0].toUpperCase()}
-                      </span>
-                      <span className="aa-dropdown-info">
-                        <span className="aa-dropdown-name">{c.name || c.phone}</span>
-                        {c.address && <span className="aa-dropdown-addr">{c.address}</span>}
-                      </span>
+                      </div>
+                      <div className="aa-client-row-info">
+                        <div className="aa-client-row-name">{c.name || c.phone || "—"}</div>
+                        {c.address && (
+                          <div className="aa-client-row-addr">{c.address}</div>
+                        )}
+                      </div>
                       {c.claimStatus === "open" && (
-                        <span className="aa-dropdown-badge">Open</span>
+                        <span className="aa-client-row-badge">Open</span>
                       )}
                     </button>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </div>
+        )}
 
-          {selectedClient && !contextLoaded && (
-            <div className="aa-client-card">
+        {/* ── DETAIL VIEW: selected client + context controls ── */}
+        {clientView === "detail" && selectedClient && (
+          <div className="aa-detail-panel">
+            <button className="aa-back-btn" onClick={handleBackToList}>
+              ← All Clients
+            </button>
+
+            {/* Selected client card */}
+            <div className="aa-selected-card">
               <div className="aa-client-avatar" style={{ background: avatarBg, color: avatarFg }}>
                 {(selectedClient.name || selectedClient.phone || "?")[0].toUpperCase()}
               </div>
@@ -468,137 +477,123 @@ export default function AIAnalysis() {
                 )}
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Context toggles */}
-        {selectedClient && (
-          <div className="aa-section">
-            <div className="aa-section-label">Include in context</div>
-            <div className="aa-flags">
-              {Object.entries(FLAG_LABELS).map(([key, label]) => (
-                <label key={key} className="aa-flag-row">
-                  <input
-                    type="checkbox"
-                    checked={contextFlags[key]}
-                    onChange={() =>
-                      setContextFlags((prev) => ({ ...prev, [key]: !prev[key] }))
-                    }
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
+            {/* Context toggles */}
+            <div className="aa-section">
+              <div className="aa-section-label">Include in context</div>
+              <div className="aa-flags">
+                {Object.entries(FLAG_LABELS).map(([key, label]) => (
+                  <label key={key} className="aa-flag-row">
+                    <input
+                      type="checkbox"
+                      checked={contextFlags[key]}
+                      onChange={() =>
+                        setContextFlags((prev) => ({ ...prev, [key]: !prev[key] }))
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
 
-            <button
-              className="aa-load-btn"
-              onClick={handleLoadContext}
-              disabled={contextLoading || !selectedClient.uid}
-            >
-              {contextLoading ? (
-                <><span className="aa-btn-spinner" /> Loading context…</>
-              ) : contextLoaded ? (
-                "Reload Context"
-              ) : (
-                "Load Context"
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* Context stats (post-load) */}
-        {contextLoaded && stats && summary && (
-          <div className="aa-section">
-            <div className="aa-section-label">Context loaded</div>
-
-            <div className="aa-client-card aa-client-card--loaded">
-              <div className="aa-client-avatar aa-client-avatar--sm" style={{ background: avatarBg, color: avatarFg }}>
-                {(summary.name || "?")[0].toUpperCase()}
-              </div>
-              <div className="aa-client-info">
-                <div className="aa-client-name">{summary.name}</div>
-                {summary.address && (
-                  <div className="aa-client-detail aa-client-addr">{summary.address}</div>
-                )}
-              </div>
-            </div>
-
-            {summary.claimNumbers?.length > 0 && (
-              <div className="aa-stat-row">
-                <span className="aa-stat-label">Claim #</span>
-                <span className="aa-stat-val">{summary.claimNumbers[0]}</span>
-              </div>
-            )}
-
-            <div className="aa-progress-section">
-              <div className="aa-progress-label">Mitigation</div>
-              <div className="aa-progress-bar-wrap">
-                <div
-                  className="aa-progress-bar"
-                  style={{
-                    width: `${Math.max(0, ((summary.mitigationStep + 1) / 5) * 100)}%`,
-                    background: "#2563eb",
-                  }}
-                />
-              </div>
-              <div className="aa-progress-text">{mitLabel}</div>
-
-              <div className="aa-progress-label" style={{ marginTop: 8 }}>Construction</div>
-              <div className="aa-progress-bar-wrap">
-                <div
-                  className="aa-progress-bar"
-                  style={{
-                    width: `${Math.max(0, ((summary.constructionStep + 1) / 4) * 100)}%`,
-                    background: "#16a34a",
-                  }}
-                />
-              </div>
-              <div className="aa-progress-text">{conLabel}</div>
-            </div>
-
-            <div className="aa-stats-grid">
-              <div className="aa-stat-chip">
-                <div className="aa-stat-chip-val">{stats.pendingTodos ?? 0}</div>
-                <div className="aa-stat-chip-lbl">Pending tasks</div>
-              </div>
-              <div className="aa-stat-chip">
-                <div className="aa-stat-chip-val">{stats.documentCount ?? 0}</div>
-                <div className="aa-stat-chip-lbl">Documents</div>
-              </div>
-              <div className="aa-stat-chip">
-                <div className="aa-stat-chip-val">{stats.selectionCount ?? 0}</div>
-                <div className="aa-stat-chip-lbl">Selections</div>
-              </div>
-              <div className="aa-stat-chip">
-                <div className="aa-stat-chip-val">{stats.photoCount ?? 0}</div>
-                <div className="aa-stat-chip-lbl">Photos</div>
-              </div>
-            </div>
-
-            {stats.budgetTotal > 0 && (
-              <div className="aa-budget-total">
-                <span className="aa-stat-label">Budget total</span>
-                <span className="aa-budget-amount">{fmtCurrency(stats.budgetTotal)}</span>
-              </div>
-            )}
-
-            {summary.adjuster?.name && (
-              <div className="aa-adjuster-block">
-                <div className="aa-section-label" style={{ marginBottom: 4 }}>Adjuster</div>
-                <div className="aa-adjuster-name">{summary.adjuster.name}</div>
-                {summary.adjuster.company && (
-                  <div className="aa-adjuster-detail">{summary.adjuster.company}</div>
-                )}
-              </div>
-            )}
-
-            {messages.length > 0 && (
               <button
-                className="aa-clear-btn"
-                onClick={() => { setMessages([]); setStreamError(""); }}
+                className="aa-load-btn"
+                onClick={handleLoadContext}
+                disabled={contextLoading || !selectedClient.uid}
               >
-                Clear conversation
+                {contextLoading ? (
+                  <><span className="aa-btn-spinner" /> Loading context…</>
+                ) : contextLoaded ? (
+                  "↺ Reload Context"
+                ) : (
+                  "Load Context"
+                )}
               </button>
+            </div>
+
+            {/* Stats (post-load) */}
+            {contextLoaded && stats && summary && (
+              <div className="aa-section">
+                <div className="aa-section-label">Context loaded</div>
+
+                {summary.claimNumbers?.length > 0 && (
+                  <div className="aa-stat-row">
+                    <span className="aa-stat-label">Claim #</span>
+                    <span className="aa-stat-val">{summary.claimNumbers[0]}</span>
+                  </div>
+                )}
+
+                <div className="aa-progress-section">
+                  <div className="aa-progress-label">Mitigation</div>
+                  <div className="aa-progress-bar-wrap">
+                    <div
+                      className="aa-progress-bar"
+                      style={{
+                        width: `${Math.max(0, ((summary.mitigationStep + 1) / 5) * 100)}%`,
+                        background: "#2563eb",
+                      }}
+                    />
+                  </div>
+                  <div className="aa-progress-text">{mitLabel}</div>
+
+                  <div className="aa-progress-label" style={{ marginTop: 8 }}>Construction</div>
+                  <div className="aa-progress-bar-wrap">
+                    <div
+                      className="aa-progress-bar"
+                      style={{
+                        width: `${Math.max(0, ((summary.constructionStep + 1) / 4) * 100)}%`,
+                        background: "#16a34a",
+                      }}
+                    />
+                  </div>
+                  <div className="aa-progress-text">{conLabel}</div>
+                </div>
+
+                <div className="aa-stats-grid">
+                  <div className="aa-stat-chip">
+                    <div className="aa-stat-chip-val">{stats.pendingTodos ?? 0}</div>
+                    <div className="aa-stat-chip-lbl">Pending tasks</div>
+                  </div>
+                  <div className="aa-stat-chip">
+                    <div className="aa-stat-chip-val">{stats.documentCount ?? 0}</div>
+                    <div className="aa-stat-chip-lbl">Documents</div>
+                  </div>
+                  <div className="aa-stat-chip">
+                    <div className="aa-stat-chip-val">{stats.selectionCount ?? 0}</div>
+                    <div className="aa-stat-chip-lbl">Selections</div>
+                  </div>
+                  <div className="aa-stat-chip">
+                    <div className="aa-stat-chip-val">{stats.photoCount ?? 0}</div>
+                    <div className="aa-stat-chip-lbl">Photos</div>
+                  </div>
+                </div>
+
+                {stats.budgetTotal > 0 && (
+                  <div className="aa-budget-total">
+                    <span className="aa-stat-label">Budget</span>
+                    <span className="aa-budget-amount">{fmtCurrency(stats.budgetTotal)}</span>
+                  </div>
+                )}
+
+                {summary.adjuster?.name && (
+                  <div className="aa-adjuster-block">
+                    <div className="aa-section-label" style={{ marginBottom: 4 }}>Adjuster</div>
+                    <div className="aa-adjuster-name">{summary.adjuster.name}</div>
+                    {summary.adjuster.company && (
+                      <div className="aa-adjuster-detail">{summary.adjuster.company}</div>
+                    )}
+                  </div>
+                )}
+
+                {messages.length > 0 && (
+                  <button
+                    className="aa-clear-btn"
+                    onClick={() => { setMessages([]); setStreamError(""); }}
+                  >
+                    Clear conversation
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

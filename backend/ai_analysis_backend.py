@@ -70,7 +70,7 @@ def _flags_hash(context_flags):
 
 # ── Context builder ───────────────────────────────────────────────────────────
 
-def _build_context(db, org_id, client_uid, context_flags):
+def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
     """Build context string + supporting data from Firestore + CompanyCam."""
     lines = []
     stats = {}
@@ -84,8 +84,11 @@ def _build_context(db, org_id, client_uid, context_flags):
     con_step = ud.get("constructionStep", -1)
     adj = ud.get("adjuster") or {}
 
+    # Prefer Firebase Auth displayName, fall back to org client doc name
+    display_name = ud.get("displayName") or client_name_hint or "Unknown"
+
     client_summary = {
-        "name": ud.get("displayName", "Unknown"),
+        "name": display_name,
         "email": ud.get("email", ""),
         "phone": ud.get("phoneNumber", ""),
         "address": ud.get("address", ""),
@@ -98,7 +101,7 @@ def _build_context(db, org_id, client_uid, context_flags):
     }
 
     lines.append("## CLIENT INFORMATION")
-    lines.append(f"Name: {ud.get('displayName', 'N/A')}")
+    lines.append(f"Name: {display_name}")
     lines.append(f"Email: {ud.get('email', 'N/A')}")
     lines.append(f"Phone: {ud.get('phoneNumber', 'N/A')}")
     lines.append(f"Address: {ud.get('address', 'N/A')}")
@@ -258,9 +261,10 @@ def get_context():
     if not org_id or not client_uid:
         return jsonify({"error": "orgId and clientUid are required"}), 400
 
+    client_name_hint = data.get("clientName", "")
     db = admin_firestore.client()
     context_string, client_summary, photos, stats = _build_context(
-        db, org_id, client_uid, context_flags
+        db, org_id, client_uid, context_flags, client_name_hint
     )
 
     if context_string is None:

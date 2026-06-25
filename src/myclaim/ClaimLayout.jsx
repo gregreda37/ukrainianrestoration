@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import { signOut } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useAuth } from './useAuth'
@@ -16,6 +17,18 @@ export default function ClaimLayout() {
   const navigate = useNavigate()
   const nav = isAdmin ? [...BASE_NAV.slice(0, 3), ADMIN_NAV, BASE_NAV[3]] : BASE_NAV
 
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('mc-nav-collapsed') === 'true'
+  )
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev
+      localStorage.setItem('mc-nav-collapsed', String(next))
+      return next
+    })
+  }
+
   async function handleSignOut() {
     await signOut(auth)
     navigate('/myclaim/login')
@@ -23,10 +36,17 @@ export default function ClaimLayout() {
 
   return (
     <div className="mc-shell">
-      <aside className="mc-sidebar">
+      <aside className={`mc-sidebar${collapsed ? ' mc-sidebar--collapsed' : ''}`}>
         <div className="mc-sidebar__brand">
           <span className="mc-sidebar__logo">UR</span>
-          <span className="mc-sidebar__name">MyClaim</span>
+          {!collapsed && <span className="mc-sidebar__name">MyClaim</span>}
+          <button
+            className="mc-sidebar__toggle"
+            onClick={toggleCollapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? '→' : '←'}
+          </button>
         </div>
 
         <nav className="mc-nav">
@@ -36,23 +56,36 @@ export default function ClaimLayout() {
               to={to}
               end={end}
               className={({ isActive }) => `mc-nav__item${isActive ? ' mc-nav__item--active' : ''}`}
+              title={collapsed ? label : undefined}
             >
               <span className="mc-nav__icon">{icon}</span>
-              <span>{label}</span>
+              {!collapsed && <span>{label}</span>}
             </NavLink>
           ))}
         </nav>
 
         <div className="mc-sidebar__footer">
-          <div className="mc-sidebar__user">
-            <div className="mc-sidebar__avatar">
-              {user?.email?.[0]?.toUpperCase() ?? '?'}
+          {!collapsed && (
+            <div className="mc-sidebar__user">
+              <div className="mc-sidebar__avatar">
+                {user?.email?.[0]?.toUpperCase() ?? '?'}
+              </div>
+              <div className="mc-sidebar__email">{user?.email}</div>
             </div>
-            <div className="mc-sidebar__email">{user?.email}</div>
-          </div>
-          <button className="mc-sidebar__signout" onClick={handleSignOut}>
-            Sign out
-          </button>
+          )}
+          {collapsed ? (
+            <button
+              className="mc-sidebar__signout mc-sidebar__signout--icon"
+              onClick={handleSignOut}
+              title="Sign out"
+            >
+              ⎋
+            </button>
+          ) : (
+            <button className="mc-sidebar__signout" onClick={handleSignOut}>
+              Sign out
+            </button>
+          )}
         </div>
       </aside>
 

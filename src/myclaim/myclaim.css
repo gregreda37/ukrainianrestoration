@@ -36,7 +36,11 @@
   position: sticky;
   top: 0;
   overflow: hidden;
+  transition: width .2s ease;
 }
+
+/* ── Collapsed state ────────────────────────────────────────────────────────── */
+.mc-sidebar--collapsed { width: 56px; }
 
 .mc-sidebar__brand {
   display: flex;
@@ -44,6 +48,13 @@
   gap: 10px;
   padding: 24px 20px 20px;
   border-bottom: 1px solid rgba(255,255,255,.08);
+  min-height: 72px;
+}
+.mc-sidebar--collapsed .mc-sidebar__brand {
+  padding: 16px 0;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .mc-sidebar__logo {
@@ -91,6 +102,25 @@
 .mc-nav__item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .mc-nav__item--active { background: rgba(30,127,175,.25); color: #fff; }
 .mc-nav__icon { font-size: 1rem; width: 20px; text-align: center; }
+.mc-sidebar--collapsed .mc-nav__item { justify-content: center; padding: 10px 0; }
+.mc-sidebar--collapsed .mc-nav__icon { width: auto; font-size: 1.2rem; }
+
+/* ── Sidebar toggle button ──────────────────────────────────────────────────── */
+.mc-sidebar__toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #A0AEC0;
+  cursor: pointer;
+  font-size: .85rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.mc-sidebar__toggle:hover { background: rgba(255,255,255,.08); color: #fff; }
+.mc-sidebar--collapsed .mc-sidebar__toggle { margin-left: 0; font-size: .9rem; }
 
 /* ── Sidebar footer ────────────────────────────────────────────────────────── */
 .mc-sidebar__footer {
@@ -99,6 +129,21 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  align-items: stretch;
+}
+.mc-sidebar--collapsed .mc-sidebar__footer {
+  align-items: center;
+  padding: 12px 0;
+}
+.mc-sidebar__signout--icon {
+  padding: 8px;
+  font-size: 1.1rem;
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .mc-sidebar__user {

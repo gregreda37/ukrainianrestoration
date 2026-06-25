@@ -234,7 +234,7 @@ export default function TemplateBuilder({ pdfFile, user, onSave, onClose }) {
         createdAt: serverTimestamp(),
       };
 
-      const docRef = await addDoc(collection(db, "signTemplates"), templateData);
+      const docRef = await addDoc(collection(db, "users", user.uid, "signTemplates"), templateData);
       onSave({ id: docRef.id, ...templateData });
     } catch (err) {
       setError("Save failed: " + err.message);

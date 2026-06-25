@@ -50,8 +50,8 @@ jobs:
         run: gcloud app deploy proxy/app.yaml --project=ukrainianrestoration-50993 --quiet
         continue-on-error: true
 
-      - name: Deploy Firestore indexes
-        run: npx firebase-tools deploy --only firestore:indexes --project ukrainianrestoration-50993
+      - name: Deploy Firestore rules and indexes
+        run: npx firebase-tools deploy --only firestore:rules,firestore:indexes --project ukrainianrestoration-50993
         continue-on-error: true
 
       - name: Deploy Storage rules

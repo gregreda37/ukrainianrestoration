@@ -476,8 +476,7 @@ export default function ClientDetail() {
     if (!user) return;
     setTemplatesLoading(true);
     try {
-      const q = query(collection(db, "signTemplates"), where("createdBy", "==", user.uid));
-      const snap = await getDocs(q);
+      const snap = await getDocs(collection(db, "users", user.uid, "signTemplates"));
       setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error("loadTemplates:", err);

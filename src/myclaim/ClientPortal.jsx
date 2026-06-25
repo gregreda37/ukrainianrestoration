@@ -159,6 +159,8 @@ export default function ClientPortal() {
   const [editSelCategory,setEditSelCategory]= useState(SELECTION_CATEGORIES[0]);
   const [savingEditSel,  setSavingEditSel]  = useState(false);
   const [editSelError,   setEditSelError]   = useState("");
+  const [signingTodo,    setSigningTodo]    = useState(null);
+  const [markingSign,    setMarkingSign]    = useState(false);
 
   const fileInputRef    = useRef(null);
   const addressInputRef = useRef(null);
@@ -376,6 +378,32 @@ export default function ClientPortal() {
   };
   useEffect(() => { if (user) fetchDocuments(); }, [user]); // eslint-disable-line
 
+  // Listen for OpenSign postMessage events (fired when signing is complete)
+  useEffect(() => {
+    const handler = (e) => {
+      if (!signingTodo) return;
+      const data = e.data || {};
+      const type = (data.type || data.event || "").toLowerCase();
+      const done = type.includes("signed") || type.includes("completed") || type.includes("success");
+      if (done) markSigned(signingTodo);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [signingTodo]); // eslint-disable-line
+
+  const markSigned = async (todo) => {
+    if (!todo || markingSign) return;
+    setMarkingSign(true);
+    try {
+      await updateDoc(doc(db, "users", user.uid, "todos", todo.id), {
+        completed: true, completedAt: serverTimestamp(),
+      });
+      setTodos(p => p.map(t => t.id === todo.id ? { ...t, completed: true } : t));
+      setSigningTodo(null);
+    } catch (err) { console.error("markSigned error:", err); }
+    finally { setMarkingSign(false); }
+  };
+
   const openSidebar = () => { fetchDocuments(); setSidebarOpen(true); };
 
   const handleUpload = (e) => {
@@ -484,11 +512,11 @@ export default function ClientPortal() {
         <div className="cp-todo-body">
           <span className="cp-todo-label">{t.label||t.text||info.label}</span>
           {t.type==="upload_file"      && !isDone && <span className="cp-todo-hint">Tap Upload to add a document</span>}
-          {t.type==="sign_forms"       && t.docusignUrl && !isDone && <span className="cp-todo-hint">Tap Sign to open</span>}
+          {t.type==="sign_forms"       && t.docusignUrl && !isDone && <span className="cp-todo-hint">Tap Sign to sign the document</span>}
           {t.type==="add_selection"    && t.selectionCategory && !isDone && <span className="cp-todo-hint">Category: {t.selectionCategory}</span>}
           {t.type==="review_selection" && !isDone && <span className="cp-todo-hint">Tap Review to approve or reject</span>}
         </div>
-        {t.type==="sign_forms" && t.docusignUrl && !isDone && <a href={t.docusignUrl} target="_blank" rel="noreferrer" className="cp-todo-cta" onClick={e=>e.stopPropagation()}>Sign →</a>}
+        {t.type==="sign_forms" && t.docusignUrl && !isDone && <button className="cp-todo-cta cp-sign-cta" onClick={e=>{ e.stopPropagation(); setSigningTodo(t); }}>Sign →</button>}
         {t.type==="sign_forms" && isDone && t.signedDocumentUrl && <a href={t.signedDocumentUrl} target="_blank" rel="noreferrer" className="cp-todo-cta" onClick={e=>e.stopPropagation()}>View Signed →</a>}
         {t.type==="upload_file"      && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); openSidebar(); }}>Upload →</button>}
         {t.type==="add_selection"    && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); setSwapTargetId(null); setPickTodoId(t.id); setSelCategory(t.selectionCategory||SELECTION_CATEGORIES[0]); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelError(""); setShowAddSel(true); }}>Pick →</button>}
@@ -1181,6 +1209,36 @@ export default function ClientPortal() {
               <button className="cp-preview-close" onClick={() => setPreview(null)}>✕</button>
             </div>
             <img src={preview.url} alt={preview.name} className="cp-preview-img" />
+          </div>
+        </div>
+      )}
+
+      {/* ── Signing modal ──────────────────────────────────────────────────── */}
+      {signingTodo && (
+        <div className="cp-sign-overlay">
+          <div className="cp-sign-modal">
+            <div className="cp-sign-header">
+              <div className="cp-sign-header-left">
+                <PenIcon />
+                <span className="cp-sign-title">{signingTodo.label || "Sign Document"}</span>
+              </div>
+              <div className="cp-sign-header-actions">
+                <button
+                  className="cp-sign-done-btn"
+                  onClick={() => markSigned(signingTodo)}
+                  disabled={markingSign}
+                >
+                  {markingSign ? "Saving…" : "✓ I've Signed"}
+                </button>
+                <button className="cp-sign-close" onClick={() => setSigningTodo(null)}>✕</button>
+              </div>
+            </div>
+            <iframe
+              className="cp-sign-frame"
+              src={signingTodo.docusignUrl}
+              title="Sign Document"
+              allow="camera"
+            />
           </div>
         </div>
       )}

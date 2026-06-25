@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import { loadGoogleMaps } from "./loadMaps";
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5000';
+const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5000' : '/api/backend');
 import {
   doc, getDoc, addDoc, setDoc, getDocs,
   collection, serverTimestamp,

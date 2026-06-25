@@ -20,6 +20,10 @@
         "function": "mapsLoader"
       },
       {
+        "source": "/api/backend/**",
+        "function": "backendProxy"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

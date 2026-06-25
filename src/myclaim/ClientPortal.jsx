@@ -3,7 +3,7 @@ import axios from "axios";
 import { auth, db, storage } from "../firebase";
 import { loadGoogleMaps } from "./loadMaps";
 
-const API = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5001";
+const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 import {
   collection, getDocs, getDoc, addDoc, deleteDoc, doc, serverTimestamp,
   updateDoc, setDoc, query, orderBy, where,

@@ -4,7 +4,7 @@ import { auth, db } from '../firebase'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5000'
+const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5000' : '/api/backend')
 
 export default function Settings() {
   const { user } = useAuth()

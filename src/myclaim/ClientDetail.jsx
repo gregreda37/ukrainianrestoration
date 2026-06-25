@@ -10,7 +10,7 @@ import { useAuth } from "./useAuth";
 import { loadGoogleMaps } from "./loadMaps";
 import "./ClientDetail.css";
 
-const API = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5001";
+const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const MITIGATION_STEPS = [

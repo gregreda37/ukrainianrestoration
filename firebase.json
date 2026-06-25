@@ -21,7 +21,10 @@
       },
       {
         "source": "/api/backend/**",
-        "function": "backendProxy"
+        "run": {
+          "serviceId": "myclaim-backend",
+          "region": "us-east1"
+        }
       },
       {
         "source": "**",

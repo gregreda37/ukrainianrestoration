@@ -287,15 +287,13 @@ export default function AIAnalysis() {
       const idToken = await auth.currentUser.getIdToken();
       const res = await fetch(`${API}/ai/context`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Firebase-ID-Token": idToken,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orgId,
           clientUid: selectedClient.uid,
           clientName: selectedClient.name || "",
           contextFlags,
+          idToken,
         }),
       });
       const data = await res.json();
@@ -333,14 +331,12 @@ export default function AIAnalysis() {
         const idToken = await auth.currentUser.getIdToken();
         const res = await fetch(`${API}/ai/chat`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Firebase-ID-Token": idToken,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             messages: apiMessages,
             cacheKey: clientContext.cacheKey,
             includePhotos: contextFlags.photos && (clientContext?.stats?.photoCount > 0),
+            idToken,
           }),
         });
 

@@ -43,12 +43,13 @@ Always cite specific numbers, names, and dates from the case file. Be direct and
 def _require_auth():
     """Verify Firebase ID token. Returns (uid, None) on success or (None, error_response).
 
-    Accepts token via X-Firebase-ID-Token header (preferred — Firebase Hosting
-    rewrites overwrite the Authorization header with the service agent token
-    when proxying to Cloud Run, so Authorization cannot carry the user token).
-    Falls back to Authorization: Bearer for direct/local calls.
+    Token is passed in the request JSON body as `idToken` — same pattern as
+    CompanyCam (body-only, no custom headers). This avoids custom CORS headers
+    in the preflight and survives Firebase Hosting's Authorization replacement.
+    Falls back to Authorization: Bearer for direct curl/test calls.
     """
-    token = request.headers.get("X-Firebase-ID-Token", "")
+    body = request.get_json(silent=True) or {}
+    token = body.get("idToken", "")
     if not token:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):

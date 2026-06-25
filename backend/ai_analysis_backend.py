@@ -11,7 +11,7 @@ from firebase_admin import firestore as admin_firestore, auth as admin_auth
 
 ai_analysis_app = Blueprint("ai_analysis_app", __name__)
 
-CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 CACHE_TTL_MINUTES = 30
 
 MITIGATION_LABELS = [

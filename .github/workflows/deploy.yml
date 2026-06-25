@@ -64,8 +64,13 @@ jobs:
           fi
           exit $STATUS
 
-      # Deploy functions via firebase-tools so they are registered with Firebase
-      # infrastructure. This is required for Firebase Hosting rewrites to invoke
-      # functions using the Firebase service agent (without allUsers IAM).
+      # Functions MUST be deployed via firebase-tools (not gcloud) so they are
+      # registered with Firebase infrastructure. Firebase Hosting rewrites use
+      # the Firebase service agent to invoke registered functions — this bypasses
+      # the org policy that blocks allUsers:cloudfunctions.invoker.
+      # WIF ADC does not work for firebase deploy functions (only hosting);
+      # FIREBASE_TOKEN (a long-lived OAuth refresh token) is required here.
       - name: Deploy Cloud Functions
         run: npx firebase-tools deploy --only functions --project ukrainianrestoration-50993
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

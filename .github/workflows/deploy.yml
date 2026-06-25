@@ -64,29 +64,8 @@ jobs:
           fi
           exit $STATUS
 
-      - name: Deploy mapsLoader function
-        run: |
-          gcloud functions deploy mapsLoader \
-            --runtime nodejs22 \
-            --trigger-http \
-            --allow-unauthenticated \
-            --no-gen2 \
-            --region us-central1 \
-            --project ukrainianrestoration-50993 \
-            --source functions/ \
-            --entry-point mapsLoader \
-            --set-secrets GOOGLE_MAPS_KEY=GOOGLE_MAPS_KEY:latest
-
-      - name: Deploy backendProxy function
-        run: |
-          gcloud functions deploy backendProxy \
-            --runtime nodejs22 \
-            --trigger-http \
-            --allow-unauthenticated \
-            --no-gen2 \
-            --region us-central1 \
-            --project ukrainianrestoration-50993 \
-            --source functions/ \
-            --entry-point backendProxy \
-            --memory 256MB \
-            --timeout 120s
+      # Deploy functions via firebase-tools so they are registered with Firebase
+      # infrastructure. This is required for Firebase Hosting rewrites to invoke
+      # functions using the Firebase service agent (without allUsers IAM).
+      - name: Deploy Cloud Functions
+        run: npx firebase-tools deploy --only functions --project ukrainianrestoration-50993

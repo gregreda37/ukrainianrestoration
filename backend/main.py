@@ -33,6 +33,21 @@ _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
 ]
 CORS(app, origins=_cors_origins, supports_credentials=True)
 
+# Firebase Hosting rewrites forward the full path including the rewrite prefix
+# (e.g. /api/backend/companycam/projects). Strip it so Flask routes match.
+_PATH_PREFIX = "/api/backend"
+
+class _StripPrefixMiddleware:
+    def __init__(self, wsgi_app):
+        self._app = wsgi_app
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO", "")
+        if path.startswith(_PATH_PREFIX):
+            environ["PATH_INFO"] = path[len(_PATH_PREFIX):] or "/"
+        return self._app(environ, start_response)
+
+app.wsgi_app = _StripPrefixMiddleware(app.wsgi_app)
+
 app.register_blueprint(landing_page_app, url_prefix="/landing-page")
 app.register_blueprint(company_chatbot_app, url_prefix="/company-chatbot")
 app.register_blueprint(claim_chatbot_app, url_prefix="/claim-chatbot")

@@ -542,88 +542,6 @@ export default function ClientPortal() {
           </div>
         )}
 
-        {/* ── Selections (below progress, above main grid) ── */}
-        {portalSections.selections && (
-          <div className="cp-below">
-            <div className="cp-card">
-              <div className="cp-card-head">
-                <h2 className="cp-card-title">Client Selections</h2>
-                <button className="cp-btn cp-btn--primary" onClick={() => { setSwapTargetId(null); setPickTodoId(null); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelCategory(SELECTION_CATEGORIES[0]); setShowAddSel(true); setSelError(""); }}>
-                  + Add Selection
-                </button>
-              </div>
-              {selections.length===0
-                ? <p className="cp-todo-empty">No selections added yet.</p>
-                : Object.entries(selections.reduce((acc,s) => { (acc[s.category]=acc[s.category]||[]).push(s); return acc; },{})).map(([cat,items]) => {
-                    const isOpen = openSections.has(cat);
-                    return (
-                      <div key={cat} className={`cp-sel-group${isOpen?" open":""}`}>
-                        <button className="cp-sel-group-btn" onClick={() => setOpenSections(p => { const s=new Set(p); s.has(cat)?s.delete(cat):s.add(cat); return s; })}>
-                          <span className="cp-sel-group-name">{cat}</span>
-                          <span className="cp-sel-group-count">{items.length} item{items.length!==1?"s":""}</span>
-                          <ChevronIcon className={`cp-chevron${isOpen?" open":""}`} />
-                        </button>
-                        <div className="cp-sel-items">
-                          {items.map(s => {
-                            const prevData = s.url ? linkPreviews[s.url] : null;
-                            const preview  = prevData && prevData!=="loading" && prevData!=="error" ? prevData : null;
-                            const isNeedsApproval = s.status==="needs_approval";
-                            const isRejected = s.status==="rejected";
-                            const isApproved = s.status==="approved";
-                            const approvedLabel = isApproved ? (s.addedBy==="client" ? "Your pick" : "You approved") : null;
-                            const approvedDate  = isApproved ? formatShortDate(s.approvedAt||(s.addedBy==="client"?s.addedAt:null)) : null;
-
-                            const nameRow = (
-                              <div className="cp-sel-name-row">
-                                <span className="cp-sel-name">{s.product}</span>
-                                {isApproved && <span className="cp-status cp-status-approved">✓ {approvedLabel}{approvedDate?` · ${approvedDate}`:""}</span>}
-                                {isRejected && <span className="cp-status cp-status-rejected">Rejected</span>}
-                                {isNeedsApproval && <span className="cp-status cp-status-pending">Needs Approval</span>}
-                              </div>
-                            );
-
-                            return (
-                              <div key={s.id}>
-                                {s.url ? (
-                                  <a href={s.url} target="_blank" rel="noreferrer" className={`cp-sel-item${isNeedsApproval?" sel-pending":""}${isRejected?" sel-rejected":""}`}>
-                                    {nameRow}
-                                    {s.notes && <span className="cp-sel-notes">{s.notes}</span>}
-                                    {prevData==="loading" ? <div className="cp-sel-preview"><div className="cp-spin cp-spin-sm" /></div>
-                                      : preview ? (
-                                        <div className="cp-sel-preview">
-                                          {preview.brand && <span className="cp-sel-preview-brand">{preview.brand}</span>}
-                                          {preview.title && <span className="cp-sel-preview-title">{preview.title}</span>}
-                                          {preview.price && <span className="cp-sel-preview-price">{preview.currency==="USD"||!preview.currency?"$":preview.currency+" "}{preview.price}</span>}
-                                          {preview.description && <span className="cp-sel-preview-desc">{preview.description}</span>}
-                                          <span className="cp-sel-preview-url">{new URL(s.url).hostname} <ExternalLinkIcon /></span>
-                                        </div>
-                                      ) : <span className="cp-sel-link">View link →</span>}
-                                  </a>
-                                ) : (
-                                  <div className={`cp-sel-item${isNeedsApproval?" sel-pending":""}${isRejected?" sel-rejected":""}`}>
-                                    {nameRow}
-                                    {s.notes && <span className="cp-sel-notes">{s.notes}</span>}
-                                  </div>
-                                )}
-                                {isNeedsApproval && (
-                                  <div className="cp-sel-approval">
-                                    <button className="cp-approval-btn approve" onClick={() => { setReviewingSel(s); setApproveUrl(s.url||""); setApproveNotes(s.notes||""); }}>✓ Review &amp; Approve</button>
-                                    <button className="cp-approval-btn reject"  onClick={() => rejectSelection(s)}>✕ Reject</button>
-                                    <button className="cp-approval-btn swap"    onClick={() => { setSwapTargetId(s.id); setSelCategory(s.category); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelError(""); setPickTodoId(null); setShowAddSel(true); }}>↔ Swap</button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })
-              }
-            </div>
-          </div>
-        )}
-
         {/* ── 2-column layout ── */}
         <div className="cp-layout">
 
@@ -736,6 +654,86 @@ export default function ClientPortal() {
                 </div>
               )}
             </div>
+
+            {/* Selections */}
+            {portalSections.selections && (
+              <div className="cp-card">
+                <div className="cp-card-head">
+                  <h2 className="cp-card-title">Client Selections</h2>
+                  <button className="cp-btn cp-btn--primary" onClick={() => { setSwapTargetId(null); setPickTodoId(null); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelCategory(SELECTION_CATEGORIES[0]); setShowAddSel(true); setSelError(""); }}>
+                    + Add Selection
+                  </button>
+                </div>
+                {selections.length===0
+                  ? <p className="cp-todo-empty">No selections added yet.</p>
+                  : Object.entries(selections.reduce((acc,s) => { (acc[s.category]=acc[s.category]||[]).push(s); return acc; },{})).map(([cat,items]) => {
+                      const isOpen = openSections.has(cat);
+                      return (
+                        <div key={cat} className={`cp-sel-group${isOpen?" open":""}`}>
+                          <button className="cp-sel-group-btn" onClick={() => setOpenSections(p => { const s=new Set(p); s.has(cat)?s.delete(cat):s.add(cat); return s; })}>
+                            <span className="cp-sel-group-name">{cat}</span>
+                            <span className="cp-sel-group-count">{items.length} item{items.length!==1?"s":""}</span>
+                            <ChevronIcon className={`cp-chevron${isOpen?" open":""}`} />
+                          </button>
+                          <div className="cp-sel-items">
+                            {items.map(s => {
+                              const prevData = s.url ? linkPreviews[s.url] : null;
+                              const preview  = prevData && prevData!=="loading" && prevData!=="error" ? prevData : null;
+                              const isNeedsApproval = s.status==="needs_approval";
+                              const isRejected = s.status==="rejected";
+                              const isApproved = s.status==="approved";
+                              const approvedLabel = isApproved ? (s.addedBy==="client" ? "Your pick" : "You approved") : null;
+                              const approvedDate  = isApproved ? formatShortDate(s.approvedAt||(s.addedBy==="client"?s.addedAt:null)) : null;
+
+                              const nameRow = (
+                                <div className="cp-sel-name-row">
+                                  <span className="cp-sel-name">{s.product}</span>
+                                  {isApproved && <span className="cp-status cp-status-approved">✓ {approvedLabel}{approvedDate?` · ${approvedDate}`:""}</span>}
+                                  {isRejected && <span className="cp-status cp-status-rejected">Rejected</span>}
+                                  {isNeedsApproval && <span className="cp-status cp-status-pending">Needs Approval</span>}
+                                </div>
+                              );
+
+                              return (
+                                <div key={s.id}>
+                                  {s.url ? (
+                                    <a href={s.url} target="_blank" rel="noreferrer" className={`cp-sel-item${isNeedsApproval?" sel-pending":""}${isRejected?" sel-rejected":""}`}>
+                                      {nameRow}
+                                      {s.notes && <span className="cp-sel-notes">{s.notes}</span>}
+                                      {prevData==="loading" ? <div className="cp-sel-preview"><div className="cp-spin cp-spin-sm" /></div>
+                                        : preview ? (
+                                          <div className="cp-sel-preview">
+                                            {preview.brand && <span className="cp-sel-preview-brand">{preview.brand}</span>}
+                                            {preview.title && <span className="cp-sel-preview-title">{preview.title}</span>}
+                                            {preview.price && <span className="cp-sel-preview-price">{preview.currency==="USD"||!preview.currency?"$":preview.currency+" "}{preview.price}</span>}
+                                            {preview.description && <span className="cp-sel-preview-desc">{preview.description}</span>}
+                                            <span className="cp-sel-preview-url">{new URL(s.url).hostname} <ExternalLinkIcon /></span>
+                                          </div>
+                                        ) : <span className="cp-sel-link">View link →</span>}
+                                    </a>
+                                  ) : (
+                                    <div className={`cp-sel-item${isNeedsApproval?" sel-pending":""}${isRejected?" sel-rejected":""}`}>
+                                      {nameRow}
+                                      {s.notes && <span className="cp-sel-notes">{s.notes}</span>}
+                                    </div>
+                                  )}
+                                  {isNeedsApproval && (
+                                    <div className="cp-sel-approval">
+                                      <button className="cp-approval-btn approve" onClick={() => { setReviewingSel(s); setApproveUrl(s.url||""); setApproveNotes(s.notes||""); }}>✓ Review &amp; Approve</button>
+                                      <button className="cp-approval-btn reject"  onClick={() => rejectSelection(s)}>✕ Reject</button>
+                                      <button className="cp-approval-btn swap"    onClick={() => { setSwapTargetId(s.id); setSelCategory(s.category); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelError(""); setPickTodoId(null); setShowAddSel(true); }}>↔ Swap</button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })
+                }
+              </div>
+            )}
 
             {/* Budget */}
             {portalSections.budget && budgetItems.length > 0 && (

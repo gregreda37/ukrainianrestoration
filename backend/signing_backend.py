@@ -65,11 +65,21 @@ def proxy_pdf():
     try:
         resp = http_requests.get(pdf_url, timeout=30)
         resp.raise_for_status()
+    except http_requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        return jsonify({"error": f"Storage returned {status} for PDF URL"}), 502
     except Exception as exc:
         return jsonify({"error": f"Could not fetch PDF: {exc}"}), 502
 
-    return Response(resp.content, content_type="application/pdf",
-                    headers={"Content-Disposition": "inline"})
+    content_type = resp.headers.get("content-type", "application/pdf").split(";")[0]
+    if "pdf" not in content_type and len(resp.content) < 100:
+        return jsonify({"error": f"URL did not return a PDF (got {content_type})"}), 502
+
+    return Response(
+        resp.content,
+        content_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
 
 
 # ── Sign ─────────────────────────────────────────────────────────────────────

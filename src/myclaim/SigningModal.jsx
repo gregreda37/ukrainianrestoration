@@ -88,12 +88,20 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
     (async () => {
       try {
         const token     = await user.getIdToken();
-        const proxyResp = await fetch(`${API}/signing/proxy-pdf`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify({ url: todo.docusignUrl }),
-        });
-        if (!proxyResp.ok) throw new Error(`Proxy error ${proxyResp.status}`);
+        let proxyResp;
+        try {
+          proxyResp = await fetch(`${API}/signing/proxy-pdf`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+            body: JSON.stringify({ url: todo.docusignUrl }),
+          });
+        } catch (netErr) {
+          throw new Error(`Network error — could not reach server (${netErr.message})`);
+        }
+        if (!proxyResp.ok) {
+          const body = await proxyResp.json().catch(() => ({}));
+          throw new Error(`Server error ${proxyResp.status}: ${body.error || proxyResp.statusText}`);
+        }
         const buf = await proxyResp.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({
           data: new Uint8Array(buf),

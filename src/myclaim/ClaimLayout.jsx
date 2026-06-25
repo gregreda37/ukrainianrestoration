@@ -59,6 +59,20 @@ export default function ClaimLayout() {
       <main className="mc-main">
         <Outlet />
       </main>
+
+      <nav className="mc-bottomnav">
+        {nav.map(({ to, label, icon, end }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) => `mc-bottomnav__item${isActive ? ' mc-bottomnav__item--active' : ''}`}
+          >
+            <span className="mc-bottomnav__icon">{icon}</span>
+            <span className="mc-bottomnav__label">{label}</span>
+          </NavLink>
+        ))}
+      </nav>
     </div>
   )
 }

@@ -2140,3 +2140,34 @@
   .pd-header-team { display: none; }
   .pd-icon-btn span { display: none; }
 }
+
+@media (max-width: 600px) {
+  .pd-main { padding: 20px 14px 80px; gap: 18px; }
+  .pd-welcome h1 { font-size: 22px; }
+  .pd-header { padding: 0 14px; gap: 8px; }
+  .pd-logo { height: 32px; }
+  .pd-trackers { gap: 12px; }
+  .pd-tracker-card { padding: 16px 14px 10px; border-radius: 14px; }
+  .pd-tracker-title { font-size: 11px; }
+
+  /* Sidebar (drawer) full-width on mobile */
+  .pd-sidebar { width: 100%; max-width: 100%; border-radius: 0; }
+
+  /* Chat panel */
+  .pd-chat-panel { border-radius: 16px 16px 0 0; }
+  .pd-chat-open .pd-chat-panel { height: 60vh; }
+
+  /* Modals */
+  .pd-modal,
+  .pd-approve-modal { max-width: 95vw; border-radius: 16px; }
+
+  /* Photo grid */
+  .pd-photo-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 400px) {
+  .pd-main { padding: 14px 10px 80px; }
+  .pd-welcome h1 { font-size: 20px; }
+  .pd-header-block { display: none; }
+  .pd-tracker-card { padding: 12px 12px 8px; }
+}

@@ -650,3 +650,34 @@
   font-size: 13px;
   color: #dc2626;
 }
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 640px) {
+  .ts-root { padding: 16px 14px 80px; }
+  .ts-title { font-size: 20px; }
+  .ts-page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .ts-org-badge { align-self: flex-start; }
+
+  .ts-section { border-radius: 14px; }
+  .ts-section-header { padding: 16px 16px 12px; }
+  .ts-section-title { font-size: 15px; }
+
+  /* Member rows */
+  .ts-member-row { padding: 14px 16px; gap: 10px; }
+  .ts-member-avatar { width: 36px; height: 36px; font-size: 15px; }
+  .ts-member-name { font-size: 14px; }
+  .ts-member-actions { flex-wrap: wrap; gap: 6px; }
+  .ts-member-actions button { padding: 5px 8px; font-size: 12px; }
+
+  /* Invite section */
+  .ts-invite-grid { grid-template-columns: 1fr; }
+  .ts-invite-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .ts-invite-row input { width: 100%; }
+  .ts-invite-row button { width: 100%; justify-content: center; }
+}
+
+@media (max-width: 400px) {
+  .ts-root { padding: 12px 10px 80px; }
+  .ts-section-header { padding: 12px 12px 10px; }
+  .ts-member-row { padding: 12px 12px; gap: 8px; }
+}

@@ -1,0 +1,12 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "todos",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "opensignRequestId", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -33,15 +33,10 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
-          # VITE_BACKEND_URL intentionally omitted — production always routes through
-          # Firebase Hosting (/api/backend) so the frontend uses the same-origin path.
+          # App Engine proxy is publicly accessible (no allUsers IAM needed), so we
+          # hard-code its stable URL. The proxy forwards to Cloud Run with auth.
+          VITE_BACKEND_URL: https://ukrainianrestoration-50993.uc.r.appspot.com/api/backend
 
-      - name: Install Functions dependencies
-        run: npm ci --prefix functions
-
-      # WIF auth — sets GOOGLE_APPLICATION_CREDENTIALS for all subsequent steps.
-      # firebase-tools v15 uses google-auth-library which reads ADC natively,
-      # so no FIREBASE_TOKEN or service account key is needed.
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -51,23 +46,17 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Deploy API proxy to App Engine
+        run: gcloud app deploy proxy/app.yaml --project=ukrainianrestoration-50993 --quiet
+
       - name: Deploy Firebase Hosting
         run: |
           set +e
           OUTPUT=$(npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993 2>&1)
           STATUS=$?
           echo "$OUTPUT"
-          # A 400 "already active version" means the content is unchanged and
-          # the current live version is already correct — treat as success.
           if [ $STATUS -ne 0 ] && echo "$OUTPUT" | grep -q "is the current active version"; then
             echo "Hosting already up to date — skipping release."
             exit 0
           fi
           exit $STATUS
-
-      # Functions must be deployed via firebase-tools to register them with Firebase
-      # infrastructure so Hosting rewrites can invoke them via the service agent.
-      # firebase-github-actions SA has roles/firebase.admin, which allows WIF ADC
-      # to work for both hosting and functions deploy without a FIREBASE_TOKEN.
-      - name: Deploy Cloud Functions
-        run: npx firebase-tools deploy --only functions --project ukrainianrestoration-50993

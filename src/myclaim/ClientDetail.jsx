@@ -464,40 +464,23 @@ export default function ClientDetail() {
     setTodoError("");
 
     if (todoType === "sign_forms") {
-      const docEntry = todoDocPickId ? docs.find(d => d.id === todoDocPickId) : null;
-      const resolvedUrl = docEntry ? docEntry.downloadURL : todoDocUrl.trim();
-      const email = todoSignerEmail.trim();
-      if (!resolvedUrl) { setTodoError("Select a document or paste a PDF URL."); return; }
-      if (!email)       { setTodoError("Enter the client's email address."); return; }
-      if (!todoLabel.trim()) { setTodoError("Enter a task description."); return; }
+      const signingUrl = todoDocUrl.trim();
+      if (!signingUrl) { setTodoError("Paste the signing link from OpenSign."); return; }
+      if (!todoLabel.trim()) { setTodoError("Enter a document label."); return; }
       setAddingTodo(true);
       try {
-        const resp = await fetch(`${API}/opensign/send`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            docUrl:      resolvedUrl,
-            docName:     docEntry ? docEntry.name : todoLabel.trim(),
-            signerName:  client?.name || "",
-            signerEmail: email,
-          }),
-        });
-        const result = await resp.json();
-        if (!resp.ok) throw new Error(result.error || "OpenSign request failed");
         const payload = {
           label: todoLabel.trim(), type: "sign_forms",
           assignedTo: "client", completed: false,
           createdAt: serverTimestamp(),
-          docusignUrl:        result.signingUrl  || "",
-          opensignRequestId:  result.requestId   || "",
-          signerEmail: email,
-          docName: docEntry?.name || todoLabel.trim(),
+          docusignUrl: signingUrl,
         };
         const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
         setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
         resetTodoForm();
       } catch (err) {
         console.error("addTodo sign error:", err);
-        setTodoError(err.message || "Could not send signing request.");
+        setTodoError(err.message || "Could not save signing task.");
       } finally { setAddingTodo(false); }
       return;
     }
@@ -1549,30 +1532,14 @@ export default function ClientDetail() {
 
                   {todoType === "sign_forms" && (
                     <div className="cd-sign-fields">
-                      {docs.filter(d => d.downloadURL).length > 0 && (
-                        <select className="cd-sel-input" value={todoDocPickId}
-                          onChange={e => {
-                            const id = e.target.value;
-                            setTodoDocPickId(id);
-                            if (id) {
-                              const d = docs.find(doc => doc.id === id);
-                              if (d && !todoLabel) setTodoLabel(`Sign: ${d.name}`);
-                            }
-                          }}>
-                          <option value="">— Pick uploaded document —</option>
-                          {docs.filter(d => d.downloadURL).map(d => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                          ))}
-                        </select>
-                      )}
-                      {!todoDocPickId && (
-                        <input className="cd-todo-input" type="url"
-                          placeholder="Or paste PDF URL…"
-                          value={todoDocUrl} onChange={e => setTodoDocUrl(e.target.value)} />
-                      )}
-                      <input className="cd-todo-input" type="email"
-                        placeholder="Client email address"
-                        value={todoSignerEmail} onChange={e => setTodoSignerEmail(e.target.value)} />
+                      <p className="cd-sign-hint">
+                        In OpenSign: upload your PDF → add the client as signer → send.
+                        Then copy the signing link and paste it below.
+                      </p>
+                      <input className="cd-todo-input" type="url"
+                        placeholder="Paste OpenSign signing link…"
+                        value={todoDocUrl} onChange={e => setTodoDocUrl(e.target.value)}
+                        autoFocus />
                     </div>
                   )}
 

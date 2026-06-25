@@ -76,10 +76,11 @@ jobs:
             --remove-env-vars "ANTHROPIC_API_KEY" \
             --set-secrets "GOOGLE_CLIENT_SECRETS_JSON=google-drive-client-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest"
 
-      - name: Allow unauthenticated invocations
+      - name: Grant Firebase service agent Cloud Run invoker
         run: |
           gcloud run services add-iam-policy-binding myclaim-backend \
-            --member="allUsers" \
+            --member="serviceAccount:service-352830294101@gcp-sa-firebase.iam.gserviceaccount.com" \
             --role="roles/run.invoker" \
             --region=us-east1 \
-            --project=ukrainianrestoration-50993
+            --project=ukrainianrestoration-50993 \
+            --quiet || true

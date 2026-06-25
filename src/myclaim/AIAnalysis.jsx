@@ -5,7 +5,8 @@ import { useAuth } from "./useAuth";
 import { NavCollapseContext } from "./ClaimLayout";
 import "./AIAnalysis.css";
 
-const API = import.meta.env.VITE_BACKEND_URL;
+const API = import.meta.env.VITE_BACKEND_URL ||
+  (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
 const MITIGATION_LABELS = [
   "Claim Submitted", "Mitigation in Progress", "Mitigation Completed",

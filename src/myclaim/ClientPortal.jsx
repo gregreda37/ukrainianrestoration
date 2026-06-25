@@ -488,7 +488,8 @@ export default function ClientPortal() {
           {t.type==="add_selection"    && t.selectionCategory && !isDone && <span className="cp-todo-hint">Category: {t.selectionCategory}</span>}
           {t.type==="review_selection" && !isDone && <span className="cp-todo-hint">Tap Review to approve or reject</span>}
         </div>
-        {t.type==="sign_forms"       && t.docusignUrl && !isDone && <a href={t.docusignUrl} target="_blank" rel="noreferrer" className="cp-todo-cta" onClick={e=>e.stopPropagation()}>Sign →</a>}
+        {t.type==="sign_forms" && t.docusignUrl && !isDone && <a href={t.docusignUrl} target="_blank" rel="noreferrer" className="cp-todo-cta" onClick={e=>e.stopPropagation()}>Sign →</a>}
+        {t.type==="sign_forms" && isDone && t.signedDocumentUrl && <a href={t.signedDocumentUrl} target="_blank" rel="noreferrer" className="cp-todo-cta" onClick={e=>e.stopPropagation()}>View Signed →</a>}
         {t.type==="upload_file"      && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); openSidebar(); }}>Upload →</button>}
         {t.type==="add_selection"    && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); setSwapTargetId(null); setPickTodoId(t.id); setSelCategory(t.selectionCategory||SELECTION_CATEGORIES[0]); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelError(""); setShowAddSel(true); }}>Pick →</button>}
         {t.type==="review_selection" && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); const sel=selections.find(s=>s.id===t.linkedSelectionId); if (sel) { setReviewingSel(sel); setApproveUrl(sel.url||""); setApproveNotes(sel.notes||""); } }}>Review →</button>}

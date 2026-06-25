@@ -1491,6 +1491,26 @@
 .cd-todo-type-selection { background: #f5f3ff; color: #7c3aed; }
 .cd-todo-type-sign      { background: #f0fdf4; color: #16a34a; }
 
+.cd-sign-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cd-todo-signed-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: #16a34a;
+  text-decoration: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f0fdf4;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.cd-todo-signed-link:hover { background: #dcfce7; }
+
 /* ── Selections ──────────────────────────────────── */
 .cd-sel-form {
   display: flex;

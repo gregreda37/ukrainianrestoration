@@ -159,9 +159,12 @@ export default function ClientDetail() {
   const [todoType,      setTodoType]      = useState("upload_file");
   const [todoLabel,     setTodoLabel]     = useState("");
   const [todoAssigned,  setTodoAssigned]  = useState("client");
-  const [todoCategory,  setTodoCategory]  = useState(SELECTION_CATEGORIES[0]);
-  const [addingTodo,    setAddingTodo]    = useState(false);
-  const [todoError,     setTodoError]     = useState("");
+  const [todoCategory,    setTodoCategory]    = useState(SELECTION_CATEGORIES[0]);
+  const [todoSignerEmail, setTodoSignerEmail] = useState("");
+  const [todoDocUrl,      setTodoDocUrl]      = useState("");
+  const [todoDocPickId,   setTodoDocPickId]   = useState("");
+  const [addingTodo,      setAddingTodo]      = useState(false);
+  const [todoError,       setTodoError]       = useState("");
 
   // Address autocomplete
   const addressInputRef       = useRef(null);
@@ -448,11 +451,59 @@ export default function ClientDetail() {
     finally { setSavingProg(false); }
   };
 
+  const resetTodoForm = () => {
+    setTodoLabel(""); setTodoType("upload_file"); setTodoAssigned("client");
+    setTodoCategory(SELECTION_CATEGORIES[0]);
+    setTodoSignerEmail(""); setTodoDocUrl(""); setTodoDocPickId("");
+    setTodoError(""); setShowTodoForm(false);
+  };
+
   // ── Todos ─────────────────────────────────────────────────────────────
   const addTodo = async (e) => {
     e.preventDefault();
+    setTodoError("");
+
+    if (todoType === "sign_forms") {
+      const docEntry = todoDocPickId ? docs.find(d => d.id === todoDocPickId) : null;
+      const resolvedUrl = docEntry ? docEntry.downloadURL : todoDocUrl.trim();
+      const email = todoSignerEmail.trim();
+      if (!resolvedUrl) { setTodoError("Select a document or paste a PDF URL."); return; }
+      if (!email)       { setTodoError("Enter the client's email address."); return; }
+      if (!todoLabel.trim()) { setTodoError("Enter a task description."); return; }
+      setAddingTodo(true);
+      try {
+        const resp = await fetch(`${API}/opensign/send`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            docUrl:      resolvedUrl,
+            docName:     docEntry ? docEntry.name : todoLabel.trim(),
+            signerName:  client?.name || "",
+            signerEmail: email,
+          }),
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.error || "OpenSign request failed");
+        const payload = {
+          label: todoLabel.trim(), type: "sign_forms",
+          assignedTo: "client", completed: false,
+          createdAt: serverTimestamp(),
+          docusignUrl:        result.signingUrl  || "",
+          opensignRequestId:  result.requestId   || "",
+          signerEmail: email,
+          docName: docEntry?.name || todoLabel.trim(),
+        };
+        const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
+        setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
+        resetTodoForm();
+      } catch (err) {
+        console.error("addTodo sign error:", err);
+        setTodoError(err.message || "Could not send signing request.");
+      } finally { setAddingTodo(false); }
+      return;
+    }
+
     if (!clientUid || !todoLabel.trim()) { setTodoError("Please enter a task label."); return; }
-    setAddingTodo(true); setTodoError("");
+    setAddingTodo(true);
     try {
       const payload = {
         label: todoLabel.trim(), type: todoType,
@@ -462,8 +513,7 @@ export default function ClientDetail() {
       if (todoType === "add_selection") payload.selectionCategory = todoCategory;
       const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
       setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
-      setTodoLabel(""); setTodoType("upload_file"); setTodoAssigned("client");
-      setTodoCategory(SELECTION_CATEGORIES[0]); setShowTodoForm(false);
+      resetTodoForm();
     } catch (err) { console.error("addTodo error:", err); setTodoError(err.message || "Could not add todo."); }
     finally { setAddingTodo(false); }
   };
@@ -1470,17 +1520,25 @@ export default function ClientDetail() {
                   </div>
                   <div className="cd-todo-type-row">
                     {[
-                      { type:"upload_file",   icon:"📄", label:"Upload File"     },
-                      { type:"add_selection", icon:"🎨", label:"Make Selection"  },
-                      { type:"general",       icon:"✓",  label:"General Task"    },
+                      { type:"upload_file",   icon:"📄", label:"Upload File"    },
+                      { type:"add_selection", icon:"🎨", label:"Make Selection" },
+                      { type:"sign_forms",    icon:"✍️", label:"Sign Document"  },
+                      { type:"general",       icon:"✓",  label:"General Task"   },
                     ].map(opt => (
                       <button key={opt.type} type="button"
                         className={`cd-todo-type-btn${todoType === opt.type ? " active" : ""}`}
-                        onClick={() => setTodoType(opt.type)}>
+                        onClick={() => {
+                          setTodoType(opt.type);
+                          setTodoError("");
+                          if (opt.type === "sign_forms" && !todoSignerEmail) {
+                            setTodoSignerEmail(clientFields?.email || "");
+                          }
+                        }}>
                         <span>{opt.icon}</span>{opt.label}
                       </button>
                     ))}
                   </div>
+
                   {todoType === "add_selection" && (
                     <select className="cd-sel-input" value={todoCategory}
                       onChange={e => setTodoCategory(e.target.value)}
@@ -1488,16 +1546,50 @@ export default function ClientDetail() {
                       {SELECTION_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   )}
-                  <input className="cd-todo-input" placeholder="Task description…"
-                    value={todoLabel} onChange={e => setTodoLabel(e.target.value)} autoFocus />
+
+                  {todoType === "sign_forms" && (
+                    <div className="cd-sign-fields">
+                      {docs.filter(d => d.downloadURL).length > 0 && (
+                        <select className="cd-sel-input" value={todoDocPickId}
+                          onChange={e => {
+                            const id = e.target.value;
+                            setTodoDocPickId(id);
+                            if (id) {
+                              const d = docs.find(doc => doc.id === id);
+                              if (d && !todoLabel) setTodoLabel(`Sign: ${d.name}`);
+                            }
+                          }}>
+                          <option value="">— Pick uploaded document —</option>
+                          {docs.filter(d => d.downloadURL).map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      {!todoDocPickId && (
+                        <input className="cd-todo-input" type="url"
+                          placeholder="Or paste PDF URL…"
+                          value={todoDocUrl} onChange={e => setTodoDocUrl(e.target.value)} />
+                      )}
+                      <input className="cd-todo-input" type="email"
+                        placeholder="Client email address"
+                        value={todoSignerEmail} onChange={e => setTodoSignerEmail(e.target.value)} />
+                    </div>
+                  )}
+
+                  <input className="cd-todo-input"
+                    placeholder={todoType === "sign_forms" ? "Document label (e.g. Authorization Form)" : "Task description…"}
+                    value={todoLabel} onChange={e => setTodoLabel(e.target.value)}
+                    autoFocus={todoType !== "sign_forms"} />
                   {todoError && <p className="cd-todo-error">{todoError}</p>}
                   <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
-                    <button type="button" className="cd-btn-secondary"
-                      onClick={() => { setShowTodoForm(false); setTodoLabel(""); setTodoError(""); }}>
+                    <button type="button" className="cd-btn-secondary" onClick={resetTodoForm}>
                       Cancel
                     </button>
-                    <button type="submit" className="cd-btn-primary" disabled={addingTodo || !todoLabel.trim()}>
-                      {addingTodo ? "Adding…" : "Add Task"}
+                    <button type="submit" className="cd-btn-primary"
+                      disabled={addingTodo || !todoLabel.trim()}>
+                      {addingTodo
+                        ? (todoType === "sign_forms" ? "Sending…" : "Adding…")
+                        : (todoType === "sign_forms" ? "Send for Signature" : "Add Task")}
                     </button>
                   </div>
                 </form>
@@ -1519,9 +1611,20 @@ export default function ClientDetail() {
                           <span className="cd-todo-text">{todo.label}</span>
                         </div>
                         {todo.type && todo.type !== "general" && (
-                          <span className={`cd-todo-type-badge cd-todo-type-${todo.type === "upload_file" ? "upload" : "selection"}`}>
-                            {todo.type === "upload_file" ? "Upload" : `Selection${todo.selectionCategory ? ` · ${todo.selectionCategory}` : ""}`}
+                          <span className={`cd-todo-type-badge cd-todo-type-${
+                            todo.type === "upload_file" ? "upload" :
+                            todo.type === "sign_forms"  ? "sign"   : "selection"
+                          }`}>
+                            {todo.type === "upload_file" ? "Upload" :
+                             todo.type === "sign_forms"  ? (todo.completed ? "Signed ✓" : "Signature Pending") :
+                             `Selection${todo.selectionCategory ? ` · ${todo.selectionCategory}` : ""}`}
                           </span>
+                        )}
+                        {todo.type === "sign_forms" && todo.signedDocumentUrl && (
+                          <a href={todo.signedDocumentUrl} target="_blank" rel="noreferrer"
+                            className="cd-todo-signed-link" onClick={e => e.stopPropagation()}>
+                            Download
+                          </a>
                         )}
                         <button className="cd-todo-delete" onClick={() => deleteTodo(todo.id)}>✕</button>
                       </li>

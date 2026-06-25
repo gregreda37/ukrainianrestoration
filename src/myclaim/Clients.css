@@ -543,9 +543,18 @@
 
 /* ── Responsive ─────────────────────────────────── */
 @media (max-width: 600px) {
-  .cl-main { padding: 28px 16px 60px; }
-  .cl-title { font-size: 24px; }
+  .cl-main { padding: 16px 14px 80px; gap: 18px; }
+  .cl-title { font-size: 22px; }
   .cl-grid { grid-template-columns: 1fr; }
-  .cl-page-header { align-items: flex-start; flex-direction: column; }
+  .cl-page-header { align-items: flex-start; flex-direction: column; gap: 10px; }
   .cl-add-btn { width: 100%; justify-content: center; }
+  .cl-search-wrap { width: 100%; }
+  .cl-search { width: 100%; }
+  .cl-filters { flex-wrap: wrap; gap: 6px; }
+  .cl-modal { max-width: 95vw; border-radius: 16px; }
+}
+
+@media (max-width: 400px) {
+  .cl-main { padding: 12px 10px 80px; }
+  .cl-title { font-size: 20px; }
 }

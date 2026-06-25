@@ -33,7 +33,8 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
-          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
+          # VITE_BACKEND_URL intentionally omitted — production always routes through
+          # Firebase Hosting (/api/backend) so the frontend uses the same-origin path.
 
       - name: Install Functions dependencies
         run: npm ci --prefix functions
@@ -45,7 +46,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-action-1273406172@ukrainianrestoration-50993.iam.gserviceaccount.com
+          service_account: firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -64,13 +65,9 @@ jobs:
           fi
           exit $STATUS
 
-      # Functions MUST be deployed via firebase-tools (not gcloud) so they are
-      # registered with Firebase infrastructure. Firebase Hosting rewrites use
-      # the Firebase service agent to invoke registered functions — this bypasses
-      # the org policy that blocks allUsers:cloudfunctions.invoker.
-      # WIF ADC does not work for firebase deploy functions (only hosting);
-      # FIREBASE_TOKEN (a long-lived OAuth refresh token) is required here.
+      # Functions must be deployed via firebase-tools to register them with Firebase
+      # infrastructure so Hosting rewrites can invoke them via the service agent.
+      # firebase-github-actions SA has roles/firebase.admin, which allows WIF ADC
+      # to work for both hosting and functions deploy without a FIREBASE_TOKEN.
       - name: Deploy Cloud Functions
         run: npx firebase-tools deploy --only functions --project ukrainianrestoration-50993
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

@@ -154,13 +154,14 @@ export default function ClientDetail() {
   const [savingProg, setSavingProg] = useState(false);
 
   // Todos
-  const [todos,        setTodos]        = useState([]);
-  const [showTodoForm, setShowTodoForm] = useState(false);
-  const [todoType,     setTodoType]     = useState("upload_file");
-  const [todoLabel,    setTodoLabel]    = useState("");
-  const [todoAssigned, setTodoAssigned] = useState("client");
-  const [addingTodo,   setAddingTodo]   = useState(false);
-  const [todoError,    setTodoError]    = useState("");
+  const [todos,         setTodos]         = useState([]);
+  const [showTodoForm,  setShowTodoForm]  = useState(false);
+  const [todoType,      setTodoType]      = useState("upload_file");
+  const [todoLabel,     setTodoLabel]     = useState("");
+  const [todoAssigned,  setTodoAssigned]  = useState("client");
+  const [todoCategory,  setTodoCategory]  = useState(SELECTION_CATEGORIES[0]);
+  const [addingTodo,    setAddingTodo]    = useState(false);
+  const [todoError,     setTodoError]     = useState("");
 
   // Address autocomplete
   const addressInputRef       = useRef(null);
@@ -458,9 +459,11 @@ export default function ClientDetail() {
         assignedTo: todoAssigned, completed: false,
         createdAt: serverTimestamp(),
       };
+      if (todoType === "add_selection") payload.selectionCategory = todoCategory;
       const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
       setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
-      setTodoLabel(""); setTodoType("upload_file"); setTodoAssigned("client"); setShowTodoForm(false);
+      setTodoLabel(""); setTodoType("upload_file"); setTodoAssigned("client");
+      setTodoCategory(SELECTION_CATEGORIES[0]); setShowTodoForm(false);
     } catch (err) { console.error("addTodo error:", err); setTodoError(err.message || "Could not add todo."); }
     finally { setAddingTodo(false); }
   };
@@ -1467,9 +1470,9 @@ export default function ClientDetail() {
                   </div>
                   <div className="cd-todo-type-row">
                     {[
-                      { type:"upload_file", icon:"📄", label:"Upload File"     },
-                      { type:"selection",   icon:"🎨", label:"Make Selection"  },
-                      { type:"general",     icon:"✓",  label:"General Task"    },
+                      { type:"upload_file",   icon:"📄", label:"Upload File"     },
+                      { type:"add_selection", icon:"🎨", label:"Make Selection"  },
+                      { type:"general",       icon:"✓",  label:"General Task"    },
                     ].map(opt => (
                       <button key={opt.type} type="button"
                         className={`cd-todo-type-btn${todoType === opt.type ? " active" : ""}`}
@@ -1478,6 +1481,13 @@ export default function ClientDetail() {
                       </button>
                     ))}
                   </div>
+                  {todoType === "add_selection" && (
+                    <select className="cd-sel-input" value={todoCategory}
+                      onChange={e => setTodoCategory(e.target.value)}
+                      style={{ marginBottom: 8 }}>
+                      {SELECTION_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  )}
                   <input className="cd-todo-input" placeholder="Task description…"
                     value={todoLabel} onChange={e => setTodoLabel(e.target.value)} autoFocus />
                   {todoError && <p className="cd-todo-error">{todoError}</p>}
@@ -1509,8 +1519,8 @@ export default function ClientDetail() {
                           <span className="cd-todo-text">{todo.label}</span>
                         </div>
                         {todo.type && todo.type !== "general" && (
-                          <span className={`cd-todo-type-badge cd-todo-type-${todo.type === "upload_file" ? "upload" : todo.type}`}>
-                            {todo.type === "upload_file" ? "Upload" : "Selection"}
+                          <span className={`cd-todo-type-badge cd-todo-type-${todo.type === "upload_file" ? "upload" : "selection"}`}>
+                            {todo.type === "upload_file" ? "Upload" : `Selection${todo.selectionCategory ? ` · ${todo.selectionCategory}` : ""}`}
                           </span>
                         )}
                         <button className="cd-todo-delete" onClick={() => deleteTodo(todo.id)}>✕</button>

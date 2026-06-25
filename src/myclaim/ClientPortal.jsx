@@ -289,6 +289,12 @@ export default function ClientPortal() {
       if (fromTodoId) payload.fromTodoId = fromTodoId;
       await addDoc(collection(db,"users",user.uid,"selections"), payload);
       if (swapId) await updateDoc(doc(db,"users",user.uid,"selections",swapId), { status:"rejected" });
+      // Auto-complete the linked todo when client fulfills a selection request
+      if (fromTodoId) {
+        const todoUpd = { completed: true, completedAt: serverTimestamp() };
+        await updateDoc(doc(db,"users",user.uid,"todos",fromTodoId), todoUpd);
+        setTodos(p => p.map(t => t.id===fromTodoId ? { ...t, ...todoUpd } : t));
+      }
       const snap = await getDocs(query(collection(db,"users",user.uid,"selections"), orderBy("addedAt","asc")));
       setSelections(snap.docs.map(d => ({ id:d.id, ...d.data() })));
       await logActivity("selection_added", `Added selection: "${selProduct.trim()}" (${selCategory})`);

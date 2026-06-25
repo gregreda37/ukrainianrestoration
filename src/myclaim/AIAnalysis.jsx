@@ -1,8 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { db } from "../firebase";
-import {
-  collection, getDocs, getDoc, doc, query, orderBy,
-} from "firebase/firestore";
+import { db, auth } from "../firebase";
+import { collection, getDocs, getDoc, doc } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import "./AIAnalysis.css";
 
@@ -259,9 +257,13 @@ export default function AIAnalysis() {
     setMessages([]);
     setStreamError("");
     try {
+      const idToken = await auth.currentUser.getIdToken();
       const res = await fetch(`${API}/ai/context`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           orgId,
           clientUid: selectedClient.uid,
@@ -270,6 +272,7 @@ export default function AIAnalysis() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load context");
+      // cacheKey stored server-side; contextString never touches the client
       setClientContext(data);
       setContextLoaded(true);
     } catch (err) {
@@ -297,23 +300,28 @@ export default function AIAnalysis() {
       setStreaming(true);
 
       try {
-        const photoUrls = contextFlags.photos && clientContext?.photos?.length
-          ? clientContext.photos.slice(0, 15).map((p) => p.mediumUrl || p.thumbUrl)
-          : [];
-
+        const idToken = await auth.currentUser.getIdToken();
         const res = await fetch(`${API}/ai/chat`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${idToken}`,
+          },
           body: JSON.stringify({
             messages: nextMessages,
-            contextString: clientContext.contextString,
-            includePhotos: photoUrls.length > 0,
-            photoUrls,
+            cacheKey: clientContext.cacheKey,
+            includePhotos: contextFlags.photos && (clientContext?.stats?.photoCount > 0),
           }),
         });
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
+          if (errData.error === "context_expired") {
+            // Auto-reset so the user sees the reload prompt clearly
+            setContextLoaded(false);
+            setClientContext(null);
+            throw new Error("Context expired after 30 min — click Reload Context to continue.");
+          }
           throw new Error(errData.error || `HTTP ${res.status}`);
         }
 
@@ -732,7 +740,7 @@ export default function AIAnalysis() {
             <div className="aa-input-hint">
               Enter to send · Shift+Enter for new line
               {contextFlags.photos && clientContext?.photos?.length > 0 && (
-                <span className="aa-photo-hint"> · {clientContext.photos.length} photos included</span>
+                <span className="aa-photo-hint"> · {clientContext.stats?.photoCount} photos included</span>
               )}
             </div>
           </div>

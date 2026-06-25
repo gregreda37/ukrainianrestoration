@@ -1,14 +1,17 @@
 import os
 import json
 import base64
+import hashlib
 import requests
 import anthropic
+from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, Response, stream_with_context
-from firebase_admin import firestore as admin_firestore
+from firebase_admin import firestore as admin_firestore, auth as admin_auth
 
 ai_analysis_app = Blueprint("ai_analysis_app", __name__)
 
 CLAUDE_MODEL = "claude-sonnet-4-6"
+CACHE_TTL_MINUTES = 30
 
 MITIGATION_LABELS = [
     "Claim Submitted", "Mitigation in Progress", "Mitigation Completed",
@@ -34,6 +37,23 @@ Your role:
 Always cite specific numbers, names, and dates from the case file. Be direct and actionable."""
 
 
+# ── Auth ─────────────────────────────────────────────────────────────────────
+
+def _require_auth():
+    """Verify Firebase ID token. Returns (uid, None) on success or (None, error_response)."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None, (jsonify({"error": "Unauthorized"}), 401)
+    token = auth_header[7:]
+    try:
+        decoded = admin_auth.verify_id_token(token)
+        return decoded["uid"], None
+    except Exception:
+        return None, (jsonify({"error": "Invalid or expired token"}), 401)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
 def _ts_str(ts):
     if ts is None:
         return "N/A"
@@ -42,14 +62,22 @@ def _ts_str(ts):
     return str(ts)
 
 
-def _build_context_string(db, org_id, client_uid, context_flags):
+def _flags_hash(context_flags):
+    return hashlib.sha256(
+        json.dumps(context_flags, sort_keys=True).encode()
+    ).hexdigest()[:12]
+
+
+# ── Context builder ───────────────────────────────────────────────────────────
+
+def _build_context(db, org_id, client_uid, context_flags):
+    """Build context string + supporting data from Firestore + CompanyCam."""
     lines = []
     stats = {}
 
-    # ── Client profile ──────────────────────────────────────────────
     user_doc = db.collection("users").document(client_uid).get()
     if not user_doc.exists:
-        return None, None, []
+        return None, None, [], {}
 
     ud = user_doc.to_dict()
     mit_step = ud.get("mitigationStep", -1)
@@ -90,7 +118,7 @@ def _build_context_string(db, org_id, client_uid, context_flags):
             if v:
                 lines.append(f"{k.replace('_', ' ').title()}: {v}")
 
-    # ── Todos ────────────────────────────────────────────────────────
+    # Todos
     todos_snap = db.collection("users").document(client_uid).collection("todos").get()
     todos = [t.to_dict() | {"id": t.id} for t in todos_snap]
     pending = [t for t in todos if not t.get("completed")]
@@ -109,7 +137,7 @@ def _build_context_string(db, org_id, client_uid, context_flags):
             for t in completed:
                 lines.append(f"  - {t.get('label', 'Unnamed')}")
 
-    # ── Documents ────────────────────────────────────────────────────
+    # Documents
     docs_snap = db.collection("users").document(client_uid).collection("documents").get()
     docs = [d.to_dict() | {"id": d.id} for d in docs_snap]
     stats["documentCount"] = len(docs)
@@ -121,28 +149,24 @@ def _build_context_string(db, org_id, client_uid, context_flags):
             if folder_docs:
                 lines.append(f"{folder.upper()} FOLDER:")
                 for d in folder_docs:
-                    ts = _ts_str(d.get("uploadedAt"))
-                    lines.append(f"  - {d.get('name', 'Unnamed')} (uploaded {ts})")
+                    lines.append(f"  - {d.get('name', 'Unnamed')} (uploaded {_ts_str(d.get('uploadedAt'))})")
 
-    # ── Selections ───────────────────────────────────────────────────
+    # Selections
     sels_snap = db.collection("users").document(client_uid).collection("selections").get()
     sels = [s.to_dict() | {"id": s.id} for s in sels_snap]
     stats["selectionCount"] = len(sels)
-    pending_sels = [s for s in sels if s.get("status") == "needs_approval"]
-    stats["pendingSelections"] = len(pending_sels)
+    stats["pendingSelections"] = len([s for s in sels if s.get("status") == "needs_approval"])
 
     if context_flags.get("selections", True):
         lines.append(f"\n## MATERIAL SELECTIONS ({len(sels)} items)")
-        status_icon = {"approved": "✅", "rejected": "❌", "needs_approval": "⏳"}
+        icons = {"approved": "✅", "rejected": "❌", "needs_approval": "⏳"}
         for s in sels:
-            icon = status_icon.get(s.get("status", ""), "?")
+            icon = icons.get(s.get("status", ""), "?")
             lines.append(f"  {icon} {s.get('category', '?')}: {s.get('product', 'N/A')} [{s.get('status', '?')}]")
             if s.get("notes"):
                 lines.append(f"      Notes: {s['notes']}")
-            if s.get("url"):
-                lines.append(f"      Link: {s['url']}")
 
-    # ── Budget ───────────────────────────────────────────────────────
+    # Budget
     budget_snap = db.collection("users").document(client_uid).collection("budget").get()
     budget_items = [b.to_dict() | {"id": b.id} for b in budget_snap]
     budget_total = sum(b.get("total", 0) for b in budget_items)
@@ -155,7 +179,7 @@ def _build_context_string(db, org_id, client_uid, context_flags):
             qty_str = f" x{b.get('qty', 1)} {b.get('unit', '')}" if b.get("priceType") == "per_unit" else ""
             lines.append(f"  - {b.get('label', 'Item')}{qty_str}: ${b.get('total', 0):,.2f}")
 
-    # ── Activity ─────────────────────────────────────────────────────
+    # Activity
     if context_flags.get("activity", True):
         acts_ref = (
             db.collection("users").document(client_uid)
@@ -174,14 +198,13 @@ def _build_context_string(db, org_id, client_uid, context_flags):
                 "actor": ad.get("actor", "?"),
             })
         stats["recentActivityCount"] = len(acts)
-
         if acts:
             lines.append(f"\n## RECENT ACTIVITY (last {len(acts)} events)")
             for a in acts:
                 detail = f" — {a['details']}" if a.get("details") else ""
                 lines.append(f"  [{a['ts']}] {a['actor']}: {a['type']}{detail}")
 
-    # ── CompanyCam photos ────────────────────────────────────────────
+    # CompanyCam photos
     ccam_project_id = ud.get("companyCamProjectId", "")
     photos = []
     stats["hasPhotos"] = bool(ccam_project_id)
@@ -190,7 +213,6 @@ def _build_context_string(db, org_id, client_uid, context_flags):
     if ccam_project_id and context_flags.get("photos", True):
         org_doc = db.collection("organization_data").document(org_id).get()
         ccam_key = org_doc.to_dict().get("companyCamAPI", "") if org_doc.exists else ""
-
         if ccam_key:
             try:
                 resp = requests.get(
@@ -208,24 +230,26 @@ def _build_context_string(db, org_id, client_uid, context_flags):
                         medium = next((u["uri"] for u in uris if u.get("type") == "medium"), None)
                         thumb = next((u["uri"] for u in uris if u.get("type") == "thumb"), None)
                         if medium or thumb:
-                            photos.append({
-                                "id": ph.get("id"),
-                                "thumbUrl": thumb or medium,
-                                "mediumUrl": medium or thumb,
-                            })
+                            photos.append({"id": ph.get("id"), "thumbUrl": thumb or medium, "mediumUrl": medium or thumb})
                     if photos:
                         lines.append(f"\n## COMPANYCAM PHOTOS")
                         lines.append(f"Total photos on file: {stats['photoCount']}")
                         lines.append("(Photo thumbnails will be provided as images in this conversation)")
             except Exception as e:
-                print(f"[ai/context] CompanyCam fetch error: {e}")
+                print(f"[ai/context] CompanyCam error: {e}")
 
     context_string = "\n".join(lines)
     return context_string, client_summary, photos, stats
 
 
+# ── Routes ────────────────────────────────────────────────────────────────────
+
 @ai_analysis_app.route("/context", methods=["POST"])
 def get_context():
+    caller_uid, err = _require_auth()
+    if err:
+        return err
+
     data = request.json or {}
     org_id = data.get("orgId", "")
     client_uid = data.get("clientUid", "")
@@ -235,48 +259,97 @@ def get_context():
         return jsonify({"error": "orgId and clientUid are required"}), 400
 
     db = admin_firestore.client()
+    context_string, client_summary, photos, stats = _build_context(
+        db, org_id, client_uid, context_flags
+    )
 
-    result = _build_context_string(db, org_id, client_uid, context_flags)
-    if result[0] is None:
+    if context_string is None:
         return jsonify({"error": "Client not found"}), 404
 
-    context_string, client_summary, photos, stats = result
+    # ── Store context in Firestore cache ─────────────────────────────
+    cache_key = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
 
-    return jsonify({
+    db.collection("ai_context_cache").document(cache_key).set({
         "contextString": context_string,
+        "photoUrls": [p.get("mediumUrl") or p.get("thumbUrl") for p in photos[:15]],
+        "orgId": org_id,
+        "clientUid": client_uid,
+        "callerUid": caller_uid,
+        "expiresAt": expires_at,
+        "createdAt": admin_firestore.SERVER_TIMESTAMP,
+    })
+
+    # contextString is NOT returned to the client — only the cache key
+    return jsonify({
+        "cacheKey": cache_key,
         "clientSummary": client_summary,
-        "photos": photos[:30],
+        "photos": photos[:30],  # thumb URLs for sidebar preview only
         "stats": stats,
+        "expiresAt": expires_at,
     })
 
 
 @ai_analysis_app.route("/chat", methods=["POST"])
 def chat():
+    caller_uid, err = _require_auth()
+    if err:
+        return err
+
     data = request.json or {}
     messages = data.get("messages", [])
-    context_string = data.get("contextString", "")
+    cache_key = data.get("cacheKey", "")
     include_photos = data.get("includePhotos", False)
-    photo_urls = data.get("photoUrls", [])
 
     if not messages:
         return jsonify({"error": "messages required"}), 400
+    if not cache_key:
+        return jsonify({"error": "cacheKey required — load context first"}), 400
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not configured on server"}), 500
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # ── Resolve context from Firestore cache ─────────────────────────
+    db = admin_firestore.client()
+    cache_doc = db.collection("ai_context_cache").document(cache_key).get()
 
-    # Build Claude message array — inject context into first user message
+    if not cache_doc.exists:
+        return jsonify({"error": "context_expired"}), 400
+
+    cache_data = cache_doc.to_dict()
+
+    # Verify the caller owns this cache entry
+    if cache_data.get("callerUid") != caller_uid:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    expires_at_str = cache_data.get("expiresAt", "")
+    if expires_at_str:
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str)
+            if datetime.now(timezone.utc) > expires_at:
+                return jsonify({"error": "context_expired"}), 400
+        except ValueError:
+            pass  # Malformed date — proceed anyway
+
+    context_string = cache_data.get("contextString", "")
+    photo_urls = cache_data.get("photoUrls", []) if include_photos else []
+
+    # ── Build Claude messages with prompt caching ────────────────────
     claude_messages = []
     for i, msg in enumerate(messages):
         if i == 0 and msg.get("role") == "user":
             user_text = msg.get("content", "")
-            context_block = f"<case_file>\n{context_string}\n</case_file>\n\n" if context_string else ""
-            content = [{"type": "text", "text": context_block + user_text}]
-
-            # Attach photos to first message if requested
-            if include_photos and photo_urls:
+            # context block marked for caching — Claude will cache this prefix
+            content = [
+                {
+                    "type": "text",
+                    "text": f"<case_file>\n{context_string}\n</case_file>\n\n{user_text}",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+            # Attach photos after the cached text block
+            if photo_urls:
                 fetched = 0
                 for url in photo_urls[:15]:
                     try:
@@ -294,19 +367,27 @@ def chat():
                             fetched += 1
                     except Exception as e:
                         print(f"[ai/chat] photo fetch failed: {e}")
-                print(f"[ai/chat] attached {fetched} photos")
+                print(f"[ai/chat] attached {fetched} photos from cache")
 
             claude_messages.append({"role": "user", "content": content})
         else:
             claude_messages.append(msg)
+
+    client = anthropic.Anthropic(api_key=api_key)
 
     def generate():
         try:
             with client.messages.stream(
                 model=CLAUDE_MODEL,
                 max_tokens=4096,
-                system=SYSTEM_PROMPT,
+                # System prompt cached as a separate prefix
+                system=[{
+                    "type": "text",
+                    "text": SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }],
                 messages=claude_messages,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             ) as stream:
                 for text in stream.text_stream:
                     yield f"data: {json.dumps({'text': text})}\n\n"

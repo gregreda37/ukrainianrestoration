@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useContext } from "react";
 import { db, auth } from "../firebase";
 import { collection, getDocs, getDoc, doc } from "firebase/firestore";
 import { useAuth } from "./useAuth";
+import { NavCollapseContext } from "./ClaimLayout";
 import "./AIAnalysis.css";
 
 const API = import.meta.env.VITE_BACKEND_URL;
@@ -162,6 +163,7 @@ const avatarColor = (str = "") => {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function AIAnalysis() {
   const { user } = useAuth();
+  const collapseNav = useContext(NavCollapseContext);
 
   const [orgId, setOrgId] = useState("");
   const [clients, setClients] = useState([]);
@@ -234,7 +236,8 @@ export default function AIAnalysis() {
     setClientContext(null);
     setMessages([]);
     setStreamError("");
-  }, []);
+    collapseNav?.();
+  }, [collapseNav]);
 
   // ── Back to client list ──────────────────────────────────────────
   const handleBackToList = useCallback(() => {

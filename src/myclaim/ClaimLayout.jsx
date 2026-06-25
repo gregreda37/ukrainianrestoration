@@ -1,8 +1,11 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { signOut } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useAuth } from './useAuth'
+
+export const NavCollapseContext = createContext(null)
+export const useNavCollapse = () => useContext(NavCollapseContext)
 
 const BASE_NAV = [
   { to: '/myclaim',              label: 'Dashboard',    icon: '▦',  end: true },
@@ -34,7 +37,13 @@ export default function ClaimLayout() {
     navigate('/myclaim/login')
   }
 
+  function collapseNav() {
+    setCollapsed(true)
+    localStorage.setItem('mc-nav-collapsed', 'true')
+  }
+
   return (
+    <NavCollapseContext.Provider value={collapseNav}>
     <div className="mc-shell">
       <aside className={`mc-sidebar${collapsed ? ' mc-sidebar--collapsed' : ''}`}>
         <div className="mc-sidebar__brand">
@@ -107,5 +116,6 @@ export default function ClaimLayout() {
         ))}
       </nav>
     </div>
+    </NavCollapseContext.Provider>
   )
 }

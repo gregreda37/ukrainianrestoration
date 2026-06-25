@@ -289,7 +289,7 @@ export default function AIAnalysis() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${idToken}`,
+          "X-Firebase-ID-Token": idToken,
         },
         body: JSON.stringify({
           orgId,
@@ -335,7 +335,7 @@ export default function AIAnalysis() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${idToken}`,
+            "X-Firebase-ID-Token": idToken,
           },
           body: JSON.stringify({
             messages: apiMessages,

@@ -41,11 +41,20 @@ Always cite specific numbers, names, and dates from the case file. Be direct and
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 def _require_auth():
-    """Verify Firebase ID token. Returns (uid, None) on success or (None, error_response)."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    """Verify Firebase ID token. Returns (uid, None) on success or (None, error_response).
+
+    Accepts token via X-Firebase-ID-Token header (preferred — Firebase Hosting
+    rewrites overwrite the Authorization header with the service agent token
+    when proxying to Cloud Run, so Authorization cannot carry the user token).
+    Falls back to Authorization: Bearer for direct/local calls.
+    """
+    token = request.headers.get("X-Firebase-ID-Token", "")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
         return None, (jsonify({"error": "Unauthorized"}), 401)
-    token = auth_header[7:]
     try:
         decoded = admin_auth.verify_id_token(token)
         return decoded["uid"], None

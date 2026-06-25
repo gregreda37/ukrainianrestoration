@@ -56,4 +56,5 @@ jobs:
             --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
             --update-env-vars "FIREBASE_PROJECT_ID=ukrainianrestoration-50993" \
             --update-env-vars "FIREBASE_STORAGE_BUCKET=ukrainianrestoration-50993.appspot.com" \
+            --remove-env-vars "ANTHROPIC_API_KEY" \
             --set-secrets "GOOGLE_CLIENT_SECRETS_JSON=google-drive-client-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest"

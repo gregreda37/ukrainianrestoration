@@ -45,7 +45,9 @@ _cors_origins = list(dict.fromkeys(
     ]
 ))
 _cors_set = set(_cors_origins)
-CORS(app, origins=_cors_origins, supports_credentials=True)
+CORS(app, origins=_cors_origins, supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization", "X-Firebase-ID-Token", "X-Requested-With"],
+     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 
 CORS_HEADERS = "Content-Type, Authorization, X-Firebase-ID-Token, X-Requested-With"
 CORS_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
@@ -61,8 +63,8 @@ def _cors_safety_net(response):
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Vary"] = "Origin"
     if request.method == "OPTIONS":
-        response.headers.setdefault("Access-Control-Allow-Methods", CORS_METHODS)
-        response.headers.setdefault("Access-Control-Allow-Headers", CORS_HEADERS)
+        response.headers["Access-Control-Allow-Methods"] = CORS_METHODS
+        response.headers["Access-Control-Allow-Headers"] = CORS_HEADERS
         response.headers.setdefault("Access-Control-Max-Age", "600")
     return response
 

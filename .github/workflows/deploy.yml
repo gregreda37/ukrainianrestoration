@@ -33,9 +33,9 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
-          # Cloud Run is --allow-unauthenticated; hit it directly so the Firebase
-          # user token is not stripped by the App Engine proxy.
-          VITE_BACKEND_URL: https://myclaim-backend-fr6sb3q2na-ue.a.run.app
+          # Leave VITE_BACKEND_URL unset so the /api/backend Firebase Hosting
+          # rewrite is used — same-origin, no CORS, survives org IAM policy.
+          VITE_BACKEND_URL: ""
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

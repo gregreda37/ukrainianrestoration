@@ -35,7 +35,7 @@ jobs:
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
           # App Engine proxy at this URL fetches a Cloud Run identity token
           # and forwards requests — org-policy safe, supports streaming SSE.
-          VITE_BACKEND_URL: https://ukrainianrestoration-50993.uc.r.appspot.com
+          VITE_BACKEND_URL: https://ukrainianrestoration-50993.uc.r.appspot.com/api/backend
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

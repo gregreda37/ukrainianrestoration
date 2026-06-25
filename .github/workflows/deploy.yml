@@ -63,6 +63,14 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
       - name: Deploy Firebase Hosting
-        run: npx firebase deploy --only hosting --project ukrainianrestoration-50993
+        run: |
+          OUTPUT=$(npx firebase deploy --only hosting --project ukrainianrestoration-50993 2>&1)
+          EXIT=$?
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "current active version"; then
+            echo "Version already live — no content changes, skipping release."
+            exit 0
+          fi
+          exit $EXIT
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

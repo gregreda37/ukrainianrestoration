@@ -70,7 +70,7 @@ const TODO_TYPE_INFO = {
 
 const MITIGATION_STEPS    = ["Claim Submitted","Mitigation in Progress","Mitigation Completed","Estimate Submitted","Estimate Approved"];
 const CONSTRUCTION_STEPS  = ["Construction Estimate Received","Construction Estimate Approved","Construction Beginning","Construction Completes"];
-const PORTAL_DEFAULTS     = { todos:true, mitigationProgress:true, constructionProgress:true, budget:true, selections:false, photos:true };
+const PORTAL_DEFAULTS     = { todos:true, mitigationProgress:true, constructionProgress:true, budget:true, selections:true, photos:true };
 
 // ── Progress tracker component ──────────────────────────────────────────────
 function ProgressTracker({ steps, currentStep = -1 }) {

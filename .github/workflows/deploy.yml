@@ -48,15 +48,7 @@ jobs:
 
       - name: Deploy API proxy to App Engine
         run: gcloud app deploy proxy/app.yaml --project=ukrainianrestoration-50993 --quiet
+        continue-on-error: true
 
       - name: Deploy Firebase Hosting
-        run: |
-          set +e
-          OUTPUT=$(npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993 2>&1)
-          STATUS=$?
-          echo "$OUTPUT"
-          if [ $STATUS -ne 0 ] && echo "$OUTPUT" | grep -q "is the current active version"; then
-            echo "Hosting already up to date — skipping release."
-            exit 0
-          fi
-          exit $STATUS
+        run: npx firebase-tools deploy --only hosting --project ukrainianrestoration-50993

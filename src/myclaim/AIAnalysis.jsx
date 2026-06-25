@@ -189,7 +189,7 @@ const avatarColor = (str = "") => {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function AIAnalysis() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const collapseNav = useContext(NavCollapseContext);
 
   const [orgId, setOrgId] = useState("");
@@ -210,6 +210,7 @@ export default function AIAnalysis() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamError, setStreamError] = useState("");
+  const [selectedModel, setSelectedModel] = useState("claude-haiku-4-5-20251001");
 
   // For prompts that need a user-supplied input before sending
   const [activeQuickPrompt, setActiveQuickPrompt] = useState(null); // QUICK_PROMPTS entry
@@ -336,6 +337,7 @@ export default function AIAnalysis() {
             messages: apiMessages,
             cacheKey: clientContext.cacheKey,
             includePhotos: contextFlags.photos && (clientContext?.stats?.photoCount > 0),
+            model: selectedModel,
             idToken,
           }),
         });
@@ -459,7 +461,9 @@ export default function AIAnalysis() {
       <aside className="aa-sidebar">
         <div className="aa-sidebar-header">
           <span className="aa-sidebar-title">AI Analysis</span>
-          <span className="aa-model-badge">claude-sonnet-4-6</span>
+          <span className="aa-model-badge">
+            {selectedModel === "claude-sonnet-4-6" ? "Sonnet" : "Haiku"}
+          </span>
         </div>
 
         {/* ── LIST VIEW: show all clients ── */}
@@ -827,9 +831,20 @@ export default function AIAnalysis() {
               </button>
             </div>
             <div className="aa-input-hint">
-              Enter to send · Shift+Enter for new line
+              <span>Enter to send · Shift+Enter for new line</span>
               {contextFlags.photos && clientContext?.photos?.length > 0 && (
                 <span className="aa-photo-hint"> · {clientContext.stats?.photoCount} photos included</span>
+              )}
+              {isAdmin && (
+                <select
+                  className="aa-model-select"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  disabled={streaming}
+                >
+                  <option value="claude-haiku-4-5-20251001">Haiku — Fast</option>
+                  <option value="claude-sonnet-4-6">Sonnet — Detailed</option>
+                </select>
               )}
             </div>
           </div>

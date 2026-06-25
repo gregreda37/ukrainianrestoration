@@ -12,6 +12,10 @@ from firebase_admin import firestore as admin_firestore, auth as admin_auth
 ai_analysis_app = Blueprint("ai_analysis_app", __name__)
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+ALLOWED_MODELS = {
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+}
 CACHE_TTL_MINUTES = 30
 
 MITIGATION_LABELS = [
@@ -315,6 +319,9 @@ def chat():
     messages = data.get("messages", [])
     cache_key = data.get("cacheKey", "")
     include_photos = data.get("includePhotos", False)
+    model = data.get("model", CLAUDE_MODEL)
+    if model not in ALLOWED_MODELS:
+        model = CLAUDE_MODEL
 
     if not messages:
         return jsonify({"error": "messages required"}), 400
@@ -393,7 +400,7 @@ def chat():
     def generate():
         try:
             with client.messages.stream(
-                model=CLAUDE_MODEL,
+                model=model,
                 max_tokens=4096,
                 # System prompt cached as a separate prefix
                 system=[{

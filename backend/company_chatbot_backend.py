@@ -11,7 +11,8 @@ from firebase_admin import firestore
 
 load_dotenv()
 
-db = firestore.client()
+def _db():
+    return firestore.client()
 # Set up Azure OpenAI credentials
 openai.api_type = "azure"
 openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")  # Example: https://<your-resource-name>.openai.azure.com/

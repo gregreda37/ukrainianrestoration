@@ -53,10 +53,16 @@ REDIRECT_URI = os.getenv(
 _client_config: dict | None = None
 _secrets_json_env = os.getenv("GOOGLE_CLIENT_SECRETS_JSON", "").strip()
 if _secrets_json_env:
-    _client_config = json.loads(_secrets_json_env)
+    try:
+        _client_config = json.loads(_secrets_json_env)
+    except json.JSONDecodeError as _e:
+        print(f"[drive] WARNING: GOOGLE_CLIENT_SECRETS_JSON is invalid JSON — Drive integration disabled: {_e}")
 elif os.path.exists(_SECRETS_FILE):
-    with open(_SECRETS_FILE) as _f:
-        _client_config = json.load(_f)
+    try:
+        with open(_SECRETS_FILE) as _f:
+            _client_config = json.load(_f)
+    except (json.JSONDecodeError, OSError) as _e:
+        print(f"[drive] WARNING: Could not load {_SECRETS_FILE}: {_e}")
 
 CLIENT_ID     = ""
 CLIENT_SECRET = ""

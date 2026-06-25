@@ -327,6 +327,11 @@ def companycam_classify_route():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "cors_origins": _cors_origins})
+
+
 if __name__ == "__main__":
     print("Starting the backend server...")
     app.run(debug=True, port=5001)

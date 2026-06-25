@@ -9,6 +9,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "./useAuth";
 import { loadGoogleMaps } from "./loadMaps";
 import "./ClientDetail.css";
+import TemplateBuilder from "./TemplateBuilder";
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
@@ -165,6 +166,15 @@ export default function ClientDetail() {
   const [todoDocPickId,     setTodoDocPickId]     = useState("");
   const [todoSignFile,      setTodoSignFile]      = useState(null);
   const [todoSignUploading, setTodoSignUploading] = useState(false);
+
+  // Template signing
+  const [signMode,          setSignMode]          = useState("template"); // "template" | "raw"
+  const [templates,         setTemplates]         = useState([]);
+  const [templatesLoading,  setTemplatesLoading]  = useState(false);
+  const [selectedTemplate,  setSelectedTemplate]  = useState(null);
+  const [showBuilder,       setShowBuilder]       = useState(false);
+  const [builderFile,       setBuilderFile]       = useState(null);
+  const builderFileRef      = useRef(null);
   const [addingTodo,      setAddingTodo]      = useState(false);
   const [todoError,       setTodoError]       = useState("");
 
@@ -458,7 +468,22 @@ export default function ClientDetail() {
     setTodoCategory(SELECTION_CATEGORIES[0]);
     setTodoSignerEmail(""); setTodoDocUrl(""); setTodoDocPickId("");
     setTodoSignFile(null); setTodoSignUploading(false);
+    setSignMode("template"); setSelectedTemplate(null); setBuilderFile(null);
     setTodoError(""); setShowTodoForm(false);
+  };
+
+  const loadTemplates = async () => {
+    if (!user) return;
+    setTemplatesLoading(true);
+    try {
+      const q = query(collection(db, "signTemplates"), where("createdBy", "==", user.uid));
+      const snap = await getDocs(q);
+      setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      console.error("loadTemplates:", err);
+    } finally {
+      setTemplatesLoading(false);
+    }
   };
 
   // ── Todos ─────────────────────────────────────────────────────────────
@@ -467,31 +492,47 @@ export default function ClientDetail() {
     setTodoError("");
 
     if (todoType === "sign_forms") {
-      if (!todoSignFile && !todoDocUrl.trim()) {
-        setTodoError("Upload a PDF or paste a document URL.");
+      if (!todoLabel.trim()) { setTodoError("Enter a document label."); return; }
+      if (signMode === "template" && !selectedTemplate) {
+        setTodoError("Select a template or switch to Raw PDF.");
         return;
       }
-      if (!todoLabel.trim()) { setTodoError("Enter a document label."); return; }
+      if (signMode === "raw" && !todoSignFile && !todoDocUrl.trim()) {
+        setTodoError("Upload a PDF.");
+        return;
+      }
       setAddingTodo(true);
       try {
-        let docUrl = todoDocUrl.trim();
+        let payload;
 
-        // Upload the PDF to Firebase Storage if a file was selected
-        if (todoSignFile) {
-          setTodoSignUploading(true);
-          const safeName = todoSignFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-          const storageRef = ref(storage, `users/${clientUid}/documents/sign-requests/${Date.now()}_${safeName}`);
-          await uploadBytes(storageRef, todoSignFile);
-          docUrl = await getDownloadURL(storageRef);
-          setTodoSignUploading(false);
+        if (signMode === "template" && selectedTemplate) {
+          payload = {
+            label: todoLabel.trim(), type: "sign_forms",
+            assignedTo: "client", completed: false,
+            createdAt: serverTimestamp(),
+            docusignUrl:    selectedTemplate.pdfUrl,
+            templateFields: selectedTemplate.fields,
+            templateName:   selectedTemplate.name,
+          };
+        } else {
+          // Raw PDF upload
+          let docUrl = todoDocUrl.trim();
+          if (todoSignFile) {
+            setTodoSignUploading(true);
+            const safeName = todoSignFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const storageRef = ref(storage, `users/${clientUid}/documents/sign-requests/${Date.now()}_${safeName}`);
+            await uploadBytes(storageRef, todoSignFile);
+            docUrl = await getDownloadURL(storageRef);
+            setTodoSignUploading(false);
+          }
+          payload = {
+            label: todoLabel.trim(), type: "sign_forms",
+            assignedTo: "client", completed: false,
+            createdAt: serverTimestamp(),
+            docusignUrl: docUrl,
+          };
         }
 
-        const payload = {
-          label: todoLabel.trim(), type: "sign_forms",
-          assignedTo: "client", completed: false,
-          createdAt: serverTimestamp(),
-          docusignUrl: docUrl,
-        };
         const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
         setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
         resetTodoForm();
@@ -1531,8 +1572,9 @@ export default function ClientDetail() {
                         onClick={() => {
                           setTodoType(opt.type);
                           setTodoError("");
-                          if (opt.type === "sign_forms" && !todoSignerEmail) {
+                          if (opt.type === "sign_forms") {
                             setTodoSignerEmail(clientFields?.email || "");
+                            loadTemplates();
                           }
                         }}>
                         <span>{opt.icon}</span>{opt.label}
@@ -1550,24 +1592,80 @@ export default function ClientDetail() {
 
                   {todoType === "sign_forms" && (
                     <div className="cd-sign-fields">
-                      <label className="cd-sign-upload-label">
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          style={{ display: "none" }}
-                          onChange={e => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            setTodoSignFile(f);
-                            if (!todoLabel.trim()) {
-                              setTodoLabel(f.name.replace(/\.pdf$/i, "").replace(/[_-]/g, " "));
-                            }
-                          }}
-                        />
-                        <span className="cd-sign-upload-btn">
-                          {todoSignFile ? `✓ ${todoSignFile.name}` : "Choose PDF to sign"}
-                        </span>
-                      </label>
+                      {/* Mode tabs */}
+                      <div className="cd-sign-tabs">
+                        <button type="button"
+                          className={`cd-sign-tab${signMode === "template" ? " active" : ""}`}
+                          onClick={() => { setSignMode("template"); loadTemplates(); }}>
+                          Use Template
+                        </button>
+                        <button type="button"
+                          className={`cd-sign-tab${signMode === "raw" ? " active" : ""}`}
+                          onClick={() => setSignMode("raw")}>
+                          Raw PDF
+                        </button>
+                      </div>
+
+                      {signMode === "template" && (
+                        <div className="cd-sign-template-section">
+                          {templatesLoading ? (
+                            <p className="cd-sign-hint">Loading templates…</p>
+                          ) : templates.length === 0 ? (
+                            <p className="cd-sign-hint">No templates yet. Create one below.</p>
+                          ) : (
+                            <select
+                              className="cd-todo-input"
+                              value={selectedTemplate?.id || ""}
+                              onChange={e => {
+                                const t = templates.find(t => t.id === e.target.value);
+                                setSelectedTemplate(t || null);
+                                if (t && !todoLabel.trim()) setTodoLabel(t.name);
+                              }}
+                            >
+                              <option value="">— Select a template —</option>
+                              {templates.map(t => (
+                                <option key={t.id} value={t.id}>{t.name} ({(t.fields || []).length} fields)</option>
+                              ))}
+                            </select>
+                          )}
+
+                          {/* Hidden file input for builder */}
+                          <input
+                            ref={builderFileRef}
+                            type="file"
+                            accept="application/pdf"
+                            style={{ display: "none" }}
+                            onChange={e => {
+                              const f = e.target.files?.[0];
+                              if (f) { setBuilderFile(f); setShowBuilder(true); }
+                            }}
+                          />
+                          <button type="button" className="cd-sign-build-btn"
+                            onClick={() => builderFileRef.current?.click()}>
+                            + Build New Template
+                          </button>
+                        </div>
+                      )}
+
+                      {signMode === "raw" && (
+                        <label className="cd-sign-upload-label">
+                          <input
+                            type="file"
+                            accept="application/pdf"
+                            style={{ display: "none" }}
+                            onChange={e => {
+                              const f = e.target.files?.[0];
+                              if (!f) return;
+                              setTodoSignFile(f);
+                              if (!todoLabel.trim()) setTodoLabel(f.name.replace(/\.pdf$/i, "").replace(/[_-]/g, " "));
+                            }}
+                          />
+                          <span className="cd-sign-upload-btn">
+                            {todoSignFile ? `✓ ${todoSignFile.name}` : "Choose PDF to sign"}
+                          </span>
+                        </label>
+                      )}
+
                       {todoSignUploading && <p className="cd-sign-hint">Uploading PDF…</p>}
                     </div>
                   )}
@@ -2127,6 +2225,22 @@ export default function ClientDetail() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Template Builder modal ── */}
+      {showBuilder && builderFile && (
+        <TemplateBuilder
+          pdfFile={builderFile}
+          user={user}
+          onSave={template => {
+            setTemplates(prev => [template, ...prev]);
+            setSelectedTemplate(template);
+            if (!todoLabel.trim()) setTodoLabel(template.name);
+            setShowBuilder(false);
+            setBuilderFile(null);
+          }}
+          onClose={() => { setShowBuilder(false); setBuilderFile(null); }}
+        />
       )}
     </div>
   );

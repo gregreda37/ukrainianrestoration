@@ -1509,6 +1509,51 @@
   line-height: 1.5;
 }
 
+.cd-sign-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.cd-sign-tab {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cd-sign-tab.active {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.cd-sign-template-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cd-sign-build-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  background: transparent;
+  border: 1.5px dashed #93c5fd;
+  border-radius: 7px;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.cd-sign-build-btn:hover { background: #eff6ff; }
+
 .cd-sign-upload-label {
   display: block;
   cursor: pointer;

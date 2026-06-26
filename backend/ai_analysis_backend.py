@@ -1,9 +1,12 @@
+import io
 import os
 import json
 import base64
 import hashlib
 import requests
-from concurrent.futures import ThreadPoolExecutor
+import numpy as np
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import anthropic
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, Response, stream_with_context
@@ -11,12 +14,21 @@ from firebase_admin import firestore as admin_firestore, auth as admin_auth
 
 ai_analysis_app = Blueprint("ai_analysis_app", __name__)
 
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-ALLOWED_MODELS = {
-    "claude-haiku-4-5-20251001",
-    "claude-sonnet-4-6",
-}
+CLAUDE_MODEL    = "claude-haiku-4-5-20251001"
+ALLOWED_MODELS  = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6"}
 CACHE_TTL_MINUTES = 30
+
+# ── Image pipeline constants ──────────────────────────────────────────────────
+# CompanyCam URI priority: original can be huge (>10 MB); large ~1-3 MB is ideal.
+CCAM_URI_PRIORITY = ["large", "original", "medium", "thumb"]
+IMAGE_MAX_DIM   = 1024   # px — Claude reads fine at 1024; larger wastes tokens
+JPEG_QUALITY    = 82     # output quality after resize
+MAX_PHOTOS_LLM  = 20     # max images actually sent to Claude per request
+BLUR_THRESHOLD  = 80.0   # Laplacian variance below this → reject as blurry/out-of-focus
+DEDUP_BITS      = 8      # perceptual hash bit-distance threshold for near-duplicates
+FETCH_TIMEOUT   = 15     # seconds per image
+FETCH_WORKERS   = 8      # parallel fetches
+MAX_RAW_BYTES   = 10 * 1024 * 1024  # 10 MB per image cap
 
 MITIGATION_LABELS = [
     "Claim Submitted", "Mitigation in Progress", "Mitigation Completed",
@@ -34,7 +46,7 @@ You have been given a complete client case file and have access to their claim i
 Your role:
 - Provide specific, data-grounded analysis based on the actual case file provided
 - Identify missing documentation, incomplete tasks, or risks that could slow the claim
-- Analyze property damage from photos when available — be specific about damage types and scope
+- Analyze property damage from photos when available — be specific about damage types, scope, and location
 - Help the contractor prioritize next steps and flag urgencies
 - Generate clear summaries and client-ready reports when asked
 - Flag concerns about timeline, budget discrepancies, or claim status
@@ -42,17 +54,10 @@ Your role:
 Always cite specific numbers, names, and dates from the case file. Be direct and actionable."""
 
 
-# ── Auth ─────────────────────────────────────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────────────────
 
 def _require_auth():
-    """Verify Firebase ID token. Returns (uid, None) on success or (None, error_response).
-
-    Token is passed in the request JSON body as `idToken` — same pattern as
-    CompanyCam (body-only, no custom headers). This avoids custom CORS headers
-    in the preflight and survives Firebase Hosting's Authorization replacement.
-    Falls back to Authorization: Bearer for direct curl/test calls.
-    """
-    body = request.get_json(silent=True) or {}
+    body  = request.get_json(silent=True) or {}
     token = body.get("idToken", "")
     if not token:
         auth_header = request.headers.get("Authorization", "")
@@ -83,6 +88,173 @@ def _flags_hash(context_flags):
     ).hexdigest()[:12]
 
 
+def _best_ccam_url(uris: list) -> tuple[str | None, str | None]:
+    """
+    Return (full_url, thumb_url) from a CompanyCam photo's `uris` array.
+    full_url uses the highest-quality URI available for the LLM.
+    thumb_url is always the smallest for sidebar preview.
+    """
+    uri_map = {u.get("type"): u.get("uri") for u in uris if u.get("type") and u.get("uri")}
+    full_url = next((uri_map[t] for t in CCAM_URI_PRIORITY if t in uri_map), None)
+    thumb_url = uri_map.get("thumb") or uri_map.get("medium") or full_url
+    return full_url, thumb_url
+
+
+# ── Image preprocessing pipeline ─────────────────────────────────────────────
+
+def _compute_blur_score(img: Image.Image) -> float:
+    """
+    Laplacian variance as a sharpness measure.
+    Uses fast numpy approximation: var of second-order pixel differences.
+    Higher = sharper. Returns 0.0 on failure.
+    """
+    try:
+        gray = np.array(img.convert("L"), dtype=np.float32)
+        # Discrete Laplacian kernel: center=4, neighbours=-1
+        lap = (
+            4 * gray
+            - np.roll(gray,  1, axis=0)
+            - np.roll(gray, -1, axis=0)
+            - np.roll(gray,  1, axis=1)
+            - np.roll(gray, -1, axis=1)
+        )
+        return float(np.var(lap))
+    except Exception:
+        return 0.0
+
+
+def _compute_phash(img: Image.Image) -> int:
+    """
+    64-bit perceptual hash (dHash variant).
+    Returns an integer; compare two hashes with bin(a ^ b).count('1') < DEDUP_BITS.
+    """
+    try:
+        # Resize to 9×8, compute horizontal differences → 64 bits
+        small = img.convert("L").resize((9, 8), Image.LANCZOS)
+        pixels = list(small.getdata())
+        bits = 0
+        for row in range(8):
+            for col in range(8):
+                idx = row * 9 + col
+                if pixels[idx] > pixels[idx + 1]:
+                    bits |= 1 << (row * 8 + col)
+        return bits
+    except Exception:
+        return 0
+
+
+def _hamming(a: int, b: int) -> int:
+    return bin(a ^ b).count("1")
+
+
+def _fetch_and_process(url: str) -> dict | None:
+    """
+    Fetch one CompanyCam image URL, quality-check it, and resize for Claude.
+    Returns a dict with the Claude image block plus metadata, or None to skip.
+    """
+    try:
+        resp = requests.get(url, timeout=FETCH_TIMEOUT, stream=True)
+        if not resp.ok:
+            print(f"[ai/img] HTTP {resp.status_code} for {url[:80]}")
+            return None
+
+        # Stream into memory with a size cap
+        chunks, total = [], 0
+        for chunk in resp.iter_content(chunk_size=65_536):
+            total += len(chunk)
+            if total > MAX_RAW_BYTES:
+                print(f"[ai/img] image too large (>{MAX_RAW_BYTES // 1_048_576} MB), skipping")
+                return None
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+        if not raw:
+            return None
+
+        img = Image.open(io.BytesIO(raw))
+        if img.mode not in ("RGB", "RGBA", "L"):
+            img = img.convert("RGB")
+        elif img.mode == "RGBA":
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            bg.paste(img, mask=img.split()[3])
+            img = bg
+        elif img.mode == "L":
+            img = img.convert("RGB")
+
+        blur = _compute_blur_score(img)
+        phash = _compute_phash(img)
+
+        if blur < BLUR_THRESHOLD:
+            print(f"[ai/img] blur={blur:.1f} < {BLUR_THRESHOLD} → skipped")
+            return None
+
+        # Resize to Claude's sweet spot — 1024px max side
+        w, h = img.size
+        if max(w, h) > IMAGE_MAX_DIM:
+            scale = IMAGE_MAX_DIM / max(w, h)
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+        data = base64.standard_b64encode(buf.getvalue()).decode()
+
+        return {
+            "block": {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": data},
+            },
+            "blur": blur,
+            "phash": phash,
+            "bytes": len(buf.getvalue()),
+        }
+    except Exception as e:
+        print(f"[ai/img] process error: {e}")
+        return None
+
+
+def _select_best_photos(photo_infos: list[dict], max_count: int = MAX_PHOTOS_LLM) -> list[dict]:
+    """
+    Given a list of photo dicts (each with fullUrl + capturedAt):
+    1. Fetch + quality-score in parallel
+    2. Deduplicate near-identical shots
+    3. Return the best `max_count` Claude image blocks sorted by sharpness desc.
+    Prints a summary line for server logs.
+    """
+    urls = [p["fullUrl"] for p in photo_infos if p.get("fullUrl")]
+    if not urls:
+        return []
+
+    # Parallel fetch + process
+    raw_results: list[dict | None] = [None] * len(urls)
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        future_to_idx = {pool.submit(_fetch_and_process, url): i for i, url in enumerate(urls)}
+        for future in as_completed(future_to_idx):
+            raw_results[future_to_idx[future]] = future.result()
+
+    # Filter None (failed/blurry)
+    good = [r for r in raw_results if r is not None]
+
+    # Deduplicate: keep only the sharpest from each near-duplicate cluster
+    kept: list[dict] = []
+    for candidate in sorted(good, key=lambda x: x["blur"], reverse=True):
+        duplicate = False
+        for k in kept:
+            if _hamming(candidate["phash"], k["phash"]) < DEDUP_BITS:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(candidate)
+        if len(kept) >= max_count:
+            break
+
+    total_kb = sum(r["bytes"] for r in kept) // 1024
+    print(
+        f"[ai/img] {len(urls)} fetched → {len(good)} passed blur "
+        f"→ {len(kept)} after dedup (≤{max_count}) "
+        f"— {total_kb} KB total"
+    )
+    return kept
+
+
 # ── Context builder ───────────────────────────────────────────────────────────
 
 def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
@@ -98,8 +270,6 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
     mit_step = ud.get("mitigationStep", -1)
     con_step = ud.get("constructionStep", -1)
     adj = ud.get("adjuster") or {}
-
-    # Prefer Firebase Auth displayName, fall back to org client doc name
     display_name = ud.get("displayName") or client_name_hint or "Unknown"
 
     client_summary = {
@@ -139,9 +309,9 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
     # Todos
     todos_snap = db.collection("users").document(client_uid).collection("todos").get()
     todos = [t.to_dict() | {"id": t.id} for t in todos_snap]
-    pending = [t for t in todos if not t.get("completed")]
+    pending   = [t for t in todos if not t.get("completed")]
     completed = [t for t in todos if t.get("completed")]
-    stats["pendingTodos"] = len(pending)
+    stats["pendingTodos"]   = len(pending)
     stats["completedTodos"] = len(completed)
 
     if context_flags.get("todos", True):
@@ -172,8 +342,8 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
     # Selections
     sels_snap = db.collection("users").document(client_uid).collection("selections").get()
     sels = [s.to_dict() | {"id": s.id} for s in sels_snap]
-    stats["selectionCount"] = len(sels)
-    stats["pendingSelections"] = len([s for s in sels if s.get("status") == "needs_approval"])
+    stats["selectionCount"]     = len(sels)
+    stats["pendingSelections"]  = len([s for s in sels if s.get("status") == "needs_approval"])
 
     if context_flags.get("selections", True):
         lines.append(f"\n## MATERIAL SELECTIONS ({len(sels)} items)")
@@ -185,10 +355,10 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                 lines.append(f"      Notes: {s['notes']}")
 
     # Budget
-    budget_snap = db.collection("users").document(client_uid).collection("budget").get()
+    budget_snap  = db.collection("users").document(client_uid).collection("budget").get()
     budget_items = [b.to_dict() | {"id": b.id} for b in budget_snap]
     budget_total = sum(b.get("total", 0) for b in budget_items)
-    stats["budgetTotal"] = budget_total
+    stats["budgetTotal"]     = budget_total
     stats["budgetItemCount"] = len(budget_items)
 
     if context_flags.get("budget", True) and budget_items:
@@ -210,10 +380,10 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
         for a in acts_ref:
             ad = a.to_dict()
             acts.append({
-                "type": ad.get("type", "?"),
+                "type":    ad.get("type", "?"),
                 "details": ad.get("details", ""),
-                "ts": _ts_str(ad.get("timestamp")),
-                "actor": ad.get("actor", "?"),
+                "ts":      _ts_str(ad.get("timestamp")),
+                "actor":   ad.get("actor", "?"),
             })
         stats["recentActivityCount"] = len(acts)
         if acts:
@@ -222,18 +392,24 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                 detail = f" — {a['details']}" if a.get("details") else ""
                 lines.append(f"  [{a['ts']}] {a['actor']}: {a['type']}{detail}")
 
-    # CompanyCam photos — paginate all pages, thumb URLs only (16x fewer tokens than medium)
+    # ── CompanyCam photos ─────────────────────────────────────────────────────
+    # Stores two URLs per photo:
+    #   fullUrl  — highest resolution available (large → original → medium → thumb)
+    #              used by the LLM preprocessing pipeline
+    #   thumbUrl — smallest available, used for the sidebar preview only
     ccam_project_id = ud.get("companyCamProjectId", "")
-    photos = []
-    stats["hasPhotos"] = bool(ccam_project_id)
+    photos: list[dict] = []
+    stats["hasPhotos"]  = bool(ccam_project_id)
     stats["photoCount"] = 0
 
     if ccam_project_id and context_flags.get("photos", True):
-        org_doc = db.collection("organization_data").document(org_id).get()
+        org_doc  = db.collection("organization_data").document(org_id).get()
         ccam_key = org_doc.to_dict().get("companyCamAPI", "") if org_doc.exists else ""
-        if ccam_key:
+        if not ccam_key:
+            print(f"[ai/context] no companyCamAPI key for org {org_id}")
+        else:
             try:
-                all_raw = []
+                all_raw: list[dict] = []
                 page = 1
                 while True:
                     resp = requests.get(
@@ -243,6 +419,7 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                         timeout=15,
                     )
                     if not resp.ok:
+                        print(f"[ai/context] CompanyCam API {resp.status_code}: {resp.text[:200]}")
                         break
                     batch = resp.json()
                     if isinstance(batch, dict):
@@ -252,27 +429,25 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                         break
                     page += 1
 
-                stats["photoCount"] = len(all_raw)
+                stats["photoCount"]          = len(all_raw)
                 client_summary["photoCount"] = len(all_raw)
 
                 for ph in all_raw:
                     uris = ph.get("uris", [])
-                    thumb = next((u["uri"] for u in uris if u.get("type") == "thumb"), None)
-                    medium = next((u["uri"] for u in uris if u.get("type") == "medium"), None)
-                    url = thumb or medium
-                    captured_at = ph.get("captured_at")  # Unix timestamp
-                    if url:
+                    full_url, thumb_url = _best_ccam_url(uris)
+                    captured_at = ph.get("captured_at")
+                    if full_url:
                         photos.append({
-                            "id": ph.get("id"),
-                            "thumbUrl": url,
-                            "capturedAt": captured_at,
+                            "id":          ph.get("id"),
+                            "fullUrl":     full_url,
+                            "thumbUrl":    thumb_url,
+                            "capturedAt":  captured_at,
                         })
 
                 if photos:
                     lines.append(f"\n## COMPANYCAM PHOTOS")
                     lines.append(f"Total photos on file: {stats['photoCount']}")
-                    lines.append("(Thumbnails will be provided as images in this conversation)")
-                    # Include timestamps as text — Claude reads these for labor log analysis
+                    lines.append(f"(Up to {MAX_PHOTOS_LLM} best-quality images will be attached)")
                     sorted_photos = sorted(photos, key=lambda x: x.get("capturedAt") or 0)
                     lines.append("\nPhoto timestamps (chronological):")
                     for i, ph in enumerate(sorted_photos, 1):
@@ -280,6 +455,7 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                         if ts:
                             dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                             lines.append(f"  Photo {i}: {dt.strftime('%Y-%m-%d %H:%M UTC')}")
+
             except Exception as e:
                 print(f"[ai/context] CompanyCam error: {e}")
 
@@ -295,15 +471,15 @@ def get_context():
     if err:
         return err
 
-    data = request.json or {}
-    org_id = data.get("orgId", "")
-    client_uid = data.get("clientUid", "")
-    context_flags = data.get("contextFlags", {})
+    data           = request.json or {}
+    org_id         = data.get("orgId", "")
+    client_uid     = data.get("clientUid", "")
+    context_flags  = data.get("contextFlags", {})
+    client_name_hint = data.get("clientName", "")
 
     if not org_id or not client_uid:
         return jsonify({"error": "orgId and clientUid are required"}), 400
 
-    client_name_hint = data.get("clientName", "")
     db = admin_firestore.client()
     context_string, client_summary, photos, stats = _build_context(
         db, org_id, client_uid, context_flags, client_name_hint
@@ -312,27 +488,27 @@ def get_context():
     if context_string is None:
         return jsonify({"error": "Client not found"}), 404
 
-    # ── Store context in Firestore cache ─────────────────────────────
-    cache_key = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
+    cache_key  = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
 
+    # Store full-quality URLs (not thumbs) for the LLM pipeline
     db.collection("ai_context_cache").document(cache_key).set({
-        "contextString": context_string,
-        "photoUrls": [p["thumbUrl"] for p in photos if p.get("thumbUrl")],
-        "orgId": org_id,
-        "clientUid": client_uid,
-        "callerUid": caller_uid,
-        "expiresAt": expires_at,
-        "createdAt": admin_firestore.SERVER_TIMESTAMP,
+        "contextString":  context_string,
+        "photoInfos":     photos,                  # full objects with fullUrl + thumbUrl
+        "photoUrls":      [p["fullUrl"] for p in photos if p.get("fullUrl")],  # legacy compat
+        "orgId":          org_id,
+        "clientUid":      client_uid,
+        "callerUid":      caller_uid,
+        "expiresAt":      expires_at,
+        "createdAt":      admin_firestore.SERVER_TIMESTAMP,
     })
 
-    # contextString is NOT returned to the client — only the cache key
     return jsonify({
-        "cacheKey": cache_key,
+        "cacheKey":      cache_key,
         "clientSummary": client_summary,
-        "photos": photos[:30],  # first 30 for sidebar preview only
-        "stats": stats,
-        "expiresAt": expires_at,
+        "photos":        photos[:30],   # first 30 thumbs for sidebar preview
+        "stats":         stats,
+        "expiresAt":     expires_at,
     })
 
 
@@ -342,11 +518,11 @@ def chat():
     if err:
         return err
 
-    data = request.json or {}
-    messages = data.get("messages", [])
-    cache_key = data.get("cacheKey", "")
+    data           = request.json or {}
+    messages       = data.get("messages", [])
+    cache_key      = data.get("cacheKey", "")
     include_photos = data.get("includePhotos", False)
-    model = data.get("model", CLAUDE_MODEL)
+    model          = data.get("model", CLAUDE_MODEL)
     if model not in ALLOWED_MODELS:
         model = CLAUDE_MODEL
 
@@ -359,8 +535,8 @@ def chat():
     if not api_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not configured on server"}), 500
 
-    # ── Resolve context from Firestore cache ─────────────────────────
-    db = admin_firestore.client()
+    # ── Resolve context from Firestore cache ──────────────────────────────────
+    db        = admin_firestore.client()
     cache_doc = db.collection("ai_context_cache").document(cache_key).get()
 
     if not cache_doc.exists:
@@ -368,28 +544,41 @@ def chat():
 
     cache_data = cache_doc.to_dict()
 
-    # Verify the caller owns this cache entry
     if cache_data.get("callerUid") != caller_uid:
         return jsonify({"error": "Unauthorized"}), 403
 
     expires_at_str = cache_data.get("expiresAt", "")
     if expires_at_str:
         try:
-            expires_at = datetime.fromisoformat(expires_at_str)
-            if datetime.now(timezone.utc) > expires_at:
+            if datetime.now(timezone.utc) > datetime.fromisoformat(expires_at_str):
                 return jsonify({"error": "context_expired"}), 400
         except ValueError:
-            pass  # Malformed date — proceed anyway
+            pass
 
     context_string = cache_data.get("contextString", "")
-    photo_urls = cache_data.get("photoUrls", []) if include_photos else []
 
-    # ── Build Claude messages with prompt caching ────────────────────
-    claude_messages = []
+    # ── Preprocess photos ─────────────────────────────────────────────────────
+    image_blocks: list[dict] = []
+    if include_photos:
+        # Prefer the richer photoInfos stored by the new /context endpoint;
+        # fall back to plain photoUrls if this cache entry was created by old code.
+        photo_infos = cache_data.get("photoInfos")
+        if photo_infos:
+            # photoInfos is a list of {fullUrl, thumbUrl, capturedAt, ...}
+            selected = _select_best_photos(photo_infos, MAX_PHOTOS_LLM)
+        else:
+            # Legacy: plain URL list — wrap into the same format
+            legacy_urls = cache_data.get("photoUrls", [])
+            legacy_infos = [{"fullUrl": u} for u in legacy_urls]
+            selected = _select_best_photos(legacy_infos, MAX_PHOTOS_LLM)
+
+        image_blocks = [r["block"] for r in selected]
+
+    # ── Build Claude messages ─────────────────────────────────────────────────
+    claude_messages: list[dict] = []
     for i, msg in enumerate(messages):
         if i == 0 and msg.get("role") == "user":
             user_text = msg.get("content", "")
-            # context block marked for caching — Claude will cache this prefix
             content = [
                 {
                     "type": "text",
@@ -397,49 +586,19 @@ def chat():
                     "cache_control": {"type": "ephemeral"},
                 }
             ]
-            # Parallel-fetch up to 100 thumbnails (thumbs ~40 tok each vs ~640 for mediums)
-            if photo_urls:
-                urls_to_fetch = photo_urls[:100]
-
-                def _fetch_image(url):
-                    try:
-                        r = requests.get(url, timeout=8)
-                        if r.ok:
-                            media = r.headers.get("content-type", "image/jpeg").split(";")[0]
-                            return {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media,
-                                    "data": base64.standard_b64encode(r.content).decode("utf-8"),
-                                },
-                            }
-                    except Exception as e:
-                        print(f"[ai/chat] photo fetch failed: {e}")
-                    return None
-
-                with ThreadPoolExecutor(max_workers=10) as pool:
-                    results = list(pool.map(_fetch_image, urls_to_fetch))
-
-                fetched = 0
-                for img in results:
-                    if img:
-                        content.append(img)
-                        fetched += 1
-                print(f"[ai/chat] attached {fetched}/{len(urls_to_fetch)} photos")
-
+            # Append preprocessed image blocks (already quality-filtered + resized)
+            content.extend(image_blocks)
             claude_messages.append({"role": "user", "content": content})
         else:
             claude_messages.append(msg)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    claude_client = anthropic.Anthropic(api_key=api_key)
 
     def generate():
         try:
-            with client.messages.stream(
+            with claude_client.messages.stream(
                 model=model,
                 max_tokens=4096,
-                # System prompt cached as a separate prefix
                 system=[{
                     "type": "text",
                     "text": SYSTEM_PROMPT,
@@ -462,8 +621,8 @@ def chat():
         stream_with_context(generate()),
         content_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control":    "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
+            "Connection":       "keep-alive",
         },
     )

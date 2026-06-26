@@ -34,6 +34,7 @@ const QUICK_PROMPTS = [
   {
     icon: "🔨",
     label: "Labor Logs",
+    requiresPhotos: true,
     needsInput: true,
     inputLabel: "Which workers were on site?",
     inputPlaceholder: "e.g. John, Maria, Steve",
@@ -336,7 +337,7 @@ export default function AIAnalysis() {
           body: JSON.stringify({
             messages: apiMessages,
             cacheKey: clientContext.cacheKey,
-            includePhotos: contextFlags.photos && (clientContext?.stats?.photoCount > 0),
+            includePhotos: (opts.forcePhotos || contextFlags.photos) && (clientContext?.stats?.photoCount > 0),
             model: selectedModel,
             idToken,
           }),
@@ -434,7 +435,7 @@ export default function AIAnalysis() {
       setActiveQuickPrompt(q);
       setQuickInputText("");
     } else {
-      handleSend(q.prompt, { label: `${q.icon} ${q.label}` });
+      handleSend(q.prompt, { label: `${q.icon} ${q.label}`, forcePhotos: !!q.requiresPhotos });
     }
   }, [handleSend]);
 
@@ -443,9 +444,10 @@ export default function AIAnalysis() {
     if (!activeQuickPrompt || !quickInputText.trim()) return;
     const fullPrompt = activeQuickPrompt.buildPrompt(quickInputText.trim());
     const label = `${activeQuickPrompt.icon} ${activeQuickPrompt.label}`;
+    const forcePhotos = !!activeQuickPrompt.requiresPhotos;
     setActiveQuickPrompt(null);
     setQuickInputText("");
-    handleSend(fullPrompt, { label });
+    handleSend(fullPrompt, { label, forcePhotos });
   }, [activeQuickPrompt, quickInputText, handleSend]);
 
   // ── Derived ──────────────────────────────────────────────────────

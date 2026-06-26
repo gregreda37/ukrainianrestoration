@@ -5,6 +5,12 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   getAuth,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+  signInWithEmailAndPassword,
+  updatePassword,
+  fetchSignInMethodsForEmail,
 } from 'firebase/auth'
 import { useNavigate, Navigate, Link } from 'react-router-dom'
 import { auth, db } from '../firebase'
@@ -45,6 +51,12 @@ export default function Login() {
   const [msgIndex, setMsgIndex] = useState(0)
   const [agreed, setAgreed] = useState(false)
 
+  const [email, setEmail] = useState('')
+  const [emailPassword, setEmailPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPass, setShowPass] = useState(false)
+  const [pendingPasswordCreation, setPendingPasswordCreation] = useState(false)
+
   useEffect(() => {
     const t = requestAnimationFrame(() => setEntered(true))
     return () => cancelAnimationFrame(t)
@@ -52,8 +64,45 @@ export default function Login() {
 
   useEffect(() => { return () => {} }, [])
 
+  // Detect return from email sign-in link
+  useEffect(() => {
+    if (!isSignInWithEmailLink(auth, window.location.href)) return
+    const savedEmail = window.localStorage.getItem('emailForSignIn')
+    if (!savedEmail) {
+      setStep('email')
+      setError('Enter your email address to complete sign-in.')
+      return
+    }
+    setPendingPasswordCreation(true)
+    signInWithEmailLink(auth, savedEmail, window.location.href)
+      .then(async (result) => {
+        window.localStorage.removeItem('emailForSignIn')
+        window.history.replaceState({}, '', window.location.pathname)
+        const userSnap = await getDoc(doc(db, 'users', result.user.uid))
+        if (!userSnap.exists()) {
+          await auth.signOut()
+          setPendingPasswordCreation(false)
+          setError("This email isn't registered with any active claim. Contact your contractor.")
+          setStep('email')
+          return
+        }
+        const hasPassword = result.user.providerData.some(p => p.providerId === 'password')
+        if (!hasPassword) {
+          setEmail(savedEmail)
+          setStep('create-password')
+        } else {
+          setPendingPasswordCreation(false)
+        }
+      })
+      .catch(err => {
+        setPendingPasswordCreation(false)
+        setError(friendlyEmailError(err.code))
+        setStep('email')
+      })
+  }, [])
+
   if (loading) return <div className="mc-splash"><div className="mc-spinner" /></div>
-  if (user && step !== 'loading') return <Navigate to={user.phoneNumber ? '/myclaim/portal' : '/myclaim'} replace />
+  if (user && step !== 'loading' && !pendingPasswordCreation) return <Navigate to={user.phoneNumber ? '/myclaim/portal' : '/myclaim'} replace />
 
   async function handleSendCode(e) {
     e.preventDefault()
@@ -143,6 +192,69 @@ export default function Login() {
       }, 3000)
     } catch (err) {
       setError(err.code === 'auth/invalid-verification-code' ? 'Incorrect code. Try again.' : err.message)
+      setSubmitting(false)
+    }
+  }
+
+  async function handleEmailContinue(e) {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const trimmed = email.trim().toLowerCase()
+      const methods = await fetchSignInMethodsForEmail(auth, trimmed)
+      if (methods.includes('google.com') && !methods.includes('password')) {
+        setError('This email uses Google sign-in. Use the Admin (Google) option below.')
+        return
+      }
+      if (methods.includes('password')) {
+        setStep('email-password')
+        return
+      }
+      await sendSignInLinkToEmail(auth, trimmed, {
+        url: window.location.origin + '/myclaim/login',
+        handleCodeInApp: true,
+      })
+      window.localStorage.setItem('emailForSignIn', trimmed)
+      setStep('email-sent')
+    } catch (err) {
+      setError(friendlyEmailError(err.code))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleEmailSignIn(e) {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), emailPassword)
+      setMsgIndex(0)
+      setStep('loading')
+      setTimeout(() => navigate('/myclaim/portal'), 2500)
+    } catch (err) {
+      setError(friendlyEmailError(err.code))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleCreatePassword(e) {
+    e.preventDefault()
+    if (emailPassword.length < 8) { setError('Password must be at least 8 characters.'); return }
+    if (emailPassword !== confirmPassword) { setError('Passwords do not match.'); return }
+    setError('')
+    setSubmitting(true)
+    try {
+      await updatePassword(auth.currentUser, emailPassword)
+      setPendingPasswordCreation(false)
+      setMsgIndex(0)
+      setStep('loading')
+      setTimeout(() => navigate('/myclaim/portal'), 2500)
+    } catch (err) {
+      setError(friendlyEmailError(err.code))
+    } finally {
       setSubmitting(false)
     }
   }
@@ -379,6 +491,143 @@ export default function Login() {
             </>
           )}
 
+          {/* Email entry */}
+          {step === 'email' && (
+            <>
+              <button className="mc-login__back" type="button" onClick={() => { setStep('phone'); setError('') }}>
+                ← Back
+              </button>
+              <h1 className="mc-login__title">Sign in with email.</h1>
+              <p className="mc-login__sub">Enter the email on your account.</p>
+              <form className="mc-login__form" onSubmit={handleEmailContinue} noValidate>
+                <div className="mc-field-group">
+                  <label className="mc-field-label">EMAIL ADDRESS</label>
+                  <input
+                    className="mc-input-plain"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    autoFocus
+                    required
+                  />
+                </div>
+                {error && <p className="mc-login__error">{error}</p>}
+                <button className="mc-btn-pill" type="submit" disabled={submitting || !email.trim()}>
+                  {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Checking…</> : 'Continue'}
+                </button>
+              </form>
+            </>
+          )}
+
+          {/* Email link sent */}
+          {step === 'email-sent' && (
+            <>
+              <button className="mc-login__back" type="button" onClick={() => { setStep('email'); setError('') }}>
+                ← Back
+              </button>
+              <div className="mc-login__email-sent-icon">✉️</div>
+              <h1 className="mc-login__title">Check your email.</h1>
+              <p className="mc-login__sub">
+                We sent a sign-in link to <strong>{email}</strong>. Click the link to continue — no password needed.
+              </p>
+              <p className="mc-login__sub" style={{ marginTop: 8, fontSize: '0.8rem', color: '#9CA3AF' }}>
+                Didn't get it? Check your spam folder or{' '}
+                <button
+                  className="mc-login__consent-link"
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 'inherit' }}
+                  onClick={() => { setStep('email'); setError('') }}
+                >
+                  try again
+                </button>.
+              </p>
+            </>
+          )}
+
+          {/* Email + password sign-in (returning user) */}
+          {step === 'email-password' && (
+            <>
+              <button className="mc-login__back" type="button" onClick={() => { setStep('email'); setError(''); setEmailPassword('') }}>
+                ← Back
+              </button>
+              <h1 className="mc-login__title">Welcome back.</h1>
+              <p className="mc-login__sub">Enter your password for <strong>{email}</strong>.</p>
+              <form className="mc-login__form" onSubmit={handleEmailSignIn} noValidate>
+                <div className="mc-field-group">
+                  <label className="mc-field-label">PASSWORD</label>
+                  <div className="mc-login__pass-wrap">
+                    <input
+                      className="mc-input-plain"
+                      type={showPass ? 'text' : 'password'}
+                      value={emailPassword}
+                      onChange={e => setEmailPassword(e.target.value)}
+                      placeholder="••••••••"
+                      autoFocus
+                      required
+                    />
+                    <button type="button" className="mc-login__pass-toggle" onClick={() => setShowPass(v => !v)}>
+                      {showPass ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </div>
+                {error && <p className="mc-login__error">{error}</p>}
+                <button className="mc-btn-pill" type="submit" disabled={submitting || !emailPassword}>
+                  {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Signing in…</> : 'Sign In'}
+                </button>
+              </form>
+            </>
+          )}
+
+          {/* Create password (new user after email link) */}
+          {step === 'create-password' && (
+            <>
+              <h1 className="mc-login__title">Create a password.</h1>
+              <p className="mc-login__sub">You're in. Set a password so you can sign in directly next time.</p>
+              <form className="mc-login__form" onSubmit={handleCreatePassword} noValidate>
+                <div className="mc-field-group">
+                  <label className="mc-field-label">NEW PASSWORD</label>
+                  <div className="mc-login__pass-wrap">
+                    <input
+                      className="mc-input-plain"
+                      type={showPass ? 'text' : 'password'}
+                      value={emailPassword}
+                      onChange={e => setEmailPassword(e.target.value)}
+                      placeholder="Min. 8 characters"
+                      autoFocus
+                      required
+                    />
+                    <button type="button" className="mc-login__pass-toggle" onClick={() => setShowPass(v => !v)}>
+                      {showPass ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </div>
+                <div className="mc-field-group">
+                  <label className="mc-field-label">CONFIRM PASSWORD</label>
+                  <input
+                    className="mc-input-plain"
+                    type={showPass ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat password"
+                    required
+                  />
+                </div>
+                {error && <p className="mc-login__error">{error}</p>}
+                <button className="mc-btn-pill" type="submit" disabled={submitting || !emailPassword || !confirmPassword}>
+                  {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Saving…</> : 'Set Password & Continue'}
+                </button>
+              </form>
+            </>
+          )}
+
+          {step !== 'admin' && step !== 'email' && step !== 'email-sent' && step !== 'email-password' && step !== 'create-password' && (
+            <div className="mc-login__alt-methods">
+              <button className="mc-login__email-link" type="button" onClick={() => { setStep('email'); setError('') }}>
+                Sign in with email instead
+              </button>
+            </div>
+          )}
+
           {step !== 'admin' && (
             <button className="mc-login__admin-link" type="button" onClick={() => { setStep('admin'); setError('') }}>
               Admin login
@@ -410,6 +659,22 @@ function friendlyPhoneError(code, message) {
     case 'auth/quota-exceeded':          return 'SMS quota exceeded. Try again later.'
     case 'auth/network-request-failed':  return 'Network error. Check your connection and try again.'
     default: return `Could not send code (${code ?? message ?? 'unknown'}). Try again.`
+  }
+}
+
+function friendlyEmailError(code) {
+  switch (code) {
+    case 'auth/invalid-email':             return 'Enter a valid email address.'
+    case 'auth/user-not-found':            return 'No account found with that email.'
+    case 'auth/wrong-password':            return 'Incorrect password. Try again.'
+    case 'auth/too-many-requests':         return 'Too many attempts. Wait a few minutes and try again.'
+    case 'auth/invalid-action-code':       return 'This sign-in link has expired or already been used. Request a new one.'
+    case 'auth/expired-action-code':       return 'This sign-in link has expired. Request a new one.'
+    case 'auth/invalid-credential':        return 'Incorrect password. Try again.'
+    case 'auth/network-request-failed':    return 'Network error. Check your connection and try again.'
+    case 'auth/weak-password':             return 'Password is too weak. Use at least 8 characters.'
+    case 'auth/requires-recent-login':     return 'Session expired. Sign in again to change your password.'
+    default: return `Sign-in failed (${code ?? 'unknown'}). Try again.`
   }
 }
 

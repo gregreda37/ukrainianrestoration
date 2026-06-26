@@ -2139,6 +2139,50 @@
 }
 .mc-login__consent-link:hover { color: #155E88; }
 
+.mc-login__email-sent-icon {
+  font-size: 2.5rem;
+  margin-bottom: 8px;
+}
+
+.mc-login__pass-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.mc-login__pass-wrap .mc-input-plain {
+  flex: 1;
+  padding-right: 56px;
+}
+.mc-login__pass-toggle {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6B7280;
+  cursor: pointer;
+  padding: 4px;
+  letter-spacing: .04em;
+}
+.mc-login__pass-toggle:hover { color: #1E7FAF; }
+
+.mc-login__alt-methods {
+  margin-top: 16px;
+  text-align: center;
+}
+.mc-login__email-link {
+  background: none;
+  border: none;
+  font-size: 0.8125rem;
+  color: #6B7280;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.mc-login__email-link:hover { color: #1E7FAF; }
+
 /* ── Opt-in policy page ─────────────────────────────────────────────────────── */
 .mc-optin-page {
   min-height: 100vh;

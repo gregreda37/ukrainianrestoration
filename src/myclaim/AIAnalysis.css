@@ -1003,3 +1003,31 @@
   animation: aa-spin .7s linear infinite;
   vertical-align: middle;
 }
+
+/* ── Photo classification panel ─────────────────────────────────────────── */
+.aa-photos-section { margin-top: 4px; }
+.aa-photos-summary { font-size: 11px; color: #64748b; margin-bottom: 8px; }
+.aa-photo-cats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.aa-cat-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px; font-size: 12px;
+  background: #f1f5f9; border: 1.5px solid #e2e8f0;
+  color: #475569; cursor: pointer; transition: all .15s;
+}
+.aa-cat-chip:hover { background: #e2e8f0; border-color: #cbd5e1; }
+.aa-cat-chip--active { background: #eff6ff; border-color: #2563eb; color: #1d4ed8; font-weight: 500; }
+.aa-cat-count {
+  background: #e2e8f0; color: #64748b; font-size: 10px;
+  padding: 1px 5px; border-radius: 10px; font-weight: 600;
+}
+.aa-cat-chip--active .aa-cat-count { background: #bfdbfe; color: #1d4ed8; }
+.aa-clear-cat-btn {
+  display: block; width: 100%; padding: 5px; border: none;
+  background: none; color: #2563eb; font-size: 11px; cursor: pointer;
+  text-align: left; margin-bottom: 4px;
+}
+.aa-clear-cat-btn:hover { text-decoration: underline; }
+.aa-classify-loading {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: #64748b; padding: 8px 0;
+}

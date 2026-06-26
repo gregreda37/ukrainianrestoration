@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import json
 import base64
 import hashlib
@@ -29,6 +30,21 @@ DEDUP_BITS      = 8      # perceptual hash bit-distance threshold for near-dupli
 FETCH_TIMEOUT   = 15     # seconds per image
 FETCH_WORKERS   = 8      # parallel fetches
 MAX_RAW_BYTES   = 10 * 1024 * 1024  # 10 MB per image cap
+
+PHOTO_CATEGORIES = [
+    "Worker",
+    "Equipment",        # dehumidifiers, air movers, fans, blowers
+    "Moisture Reading", # moisture meters, gauges, thermal imaging
+    "Demolition",       # removed drywall, gutted walls, tear-out
+    "Water Damage",     # visible staining, flooding, wet materials
+    "Mold",             # mold, mildew, microbial growth
+    "Contents",         # furniture, belongings, personal items
+    "Structural",       # framing, joists, foundation
+    "Documentation",    # scope sheets, labels, paperwork
+    "Before",           # before remediation work
+    "After",            # after work completed
+    "Other",
+]
 
 MITIGATION_LABELS = [
     "Claim Submitted", "Mitigation in Progress", "Mitigation Completed",
@@ -213,34 +229,34 @@ def _fetch_and_process(url: str) -> dict | None:
 
 def _select_best_photos(photo_infos: list[dict], max_count: int = MAX_PHOTOS_LLM) -> list[dict]:
     """
-    Given a list of photo dicts (each with fullUrl + capturedAt):
+    Given a list of photo dicts (each with fullUrl + thumbUrl + capturedAt):
     1. Fetch + quality-score in parallel
     2. Deduplicate near-identical shots
-    3. Return the best `max_count` Claude image blocks sorted by sharpness desc.
-    Prints a summary line for server logs.
+    3. Return the best `max_count` results (each includes block, blur, url, thumbUrl).
     """
-    urls = [p["fullUrl"] for p in photo_infos if p.get("fullUrl")]
-    if not urls:
+    entries = [
+        (p["fullUrl"], p.get("thumbUrl") or p["fullUrl"])
+        for p in photo_infos if p.get("fullUrl")
+    ]
+    if not entries:
         return []
 
-    # Parallel fetch + process
-    raw_results: list[dict | None] = [None] * len(urls)
+    raw_results: list[dict | None] = [None] * len(entries)
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
-        future_to_idx = {pool.submit(_fetch_and_process, url): i for i, url in enumerate(urls)}
+        future_to_idx = {pool.submit(_fetch_and_process, url): i for i, (url, _) in enumerate(entries)}
         for future in as_completed(future_to_idx):
-            raw_results[future_to_idx[future]] = future.result()
+            i = future_to_idx[future]
+            result = future.result()
+            if result is not None:
+                result["url"]      = entries[i][0]
+                result["thumbUrl"] = entries[i][1]
+            raw_results[i] = result
 
-    # Filter None (failed/blurry)
     good = [r for r in raw_results if r is not None]
 
-    # Deduplicate: keep only the sharpest from each near-duplicate cluster
     kept: list[dict] = []
     for candidate in sorted(good, key=lambda x: x["blur"], reverse=True):
-        duplicate = False
-        for k in kept:
-            if _hamming(candidate["phash"], k["phash"]) < DEDUP_BITS:
-                duplicate = True
-                break
+        duplicate = any(_hamming(candidate["phash"], k["phash"]) < DEDUP_BITS for k in kept)
         if not duplicate:
             kept.append(candidate)
         if len(kept) >= max_count:
@@ -248,7 +264,7 @@ def _select_best_photos(photo_infos: list[dict], max_count: int = MAX_PHOTOS_LLM
 
     total_kb = sum(r["bytes"] for r in kept) // 1024
     print(
-        f"[ai/img] {len(urls)} fetched → {len(good)} passed blur "
+        f"[ai/img] {len(entries)} fetched → {len(good)} passed blur "
         f"→ {len(kept)} after dedup (≤{max_count}) "
         f"— {total_kb} KB total"
     )
@@ -266,8 +282,10 @@ def _process_and_cache_photos(db, cache_key: str, photo_infos: list[dict],
     try:
         selected = _select_best_photos(photo_infos, MAX_PHOTOS_LLM)
         image_blocks = [r["block"] for r in selected]
+        photo_meta   = [{"url": r.get("url", ""), "thumbUrl": r.get("thumbUrl", r.get("url", ""))} for r in selected]
         db.collection("ai_photo_blocks").document(cache_key).set({
             "imageBlocks":    image_blocks,
+            "photoMeta":      photo_meta,
             "processedCount": len(image_blocks),
             "callerUid":      caller_uid,
             "expiresAt":      expires_at,
@@ -418,71 +436,10 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                 lines.append(f"  [{a['ts']}] {a['actor']}: {a['type']}{detail}")
 
     # ── CompanyCam photos ─────────────────────────────────────────────────────
-    # Stores two URLs per photo:
-    #   fullUrl  — highest resolution available (large → original → medium → thumb)
-    #              used by the LLM preprocessing pipeline
-    #   thumbUrl — smallest available, used for the sidebar preview only
     ccam_project_id = ud.get("companyCamProjectId", "")
     photos: list[dict] = []
     stats["hasPhotos"]  = bool(ccam_project_id)
     stats["photoCount"] = 0
-
-    if ccam_project_id and context_flags.get("photos", True):
-        org_doc  = db.collection("organization_data").document(org_id).get()
-        ccam_key = org_doc.to_dict().get("companyCamAPI", "") if org_doc.exists else ""
-        if not ccam_key:
-            print(f"[ai/context] no companyCamAPI key for org {org_id}")
-        else:
-            try:
-                all_raw: list[dict] = []
-                page = 1
-                while True:
-                    resp = requests.get(
-                        f"https://api.companycam.com/v2/projects/{ccam_project_id}/photos",
-                        headers={"Authorization": f"Bearer {ccam_key}"},
-                        params={"per_page": 50, "page": page},
-                        timeout=15,
-                    )
-                    if not resp.ok:
-                        print(f"[ai/context] CompanyCam API {resp.status_code}: {resp.text[:200]}")
-                        break
-                    batch = resp.json()
-                    if isinstance(batch, dict):
-                        batch = batch.get("data", [])
-                    all_raw.extend(batch)
-                    if len(batch) < 50:
-                        break
-                    page += 1
-
-                stats["photoCount"]          = len(all_raw)
-                client_summary["photoCount"] = len(all_raw)
-
-                for ph in all_raw:
-                    uris = ph.get("uris", [])
-                    full_url, thumb_url = _best_ccam_url(uris)
-                    captured_at = ph.get("captured_at")
-                    if full_url:
-                        photos.append({
-                            "id":          ph.get("id"),
-                            "fullUrl":     full_url,
-                            "thumbUrl":    thumb_url,
-                            "capturedAt":  captured_at,
-                        })
-
-                if photos:
-                    lines.append(f"\n## COMPANYCAM PHOTOS")
-                    lines.append(f"Total photos on file: {stats['photoCount']}")
-                    lines.append(f"(Up to {MAX_PHOTOS_LLM} best-quality images will be attached)")
-                    sorted_photos = sorted(photos, key=lambda x: x.get("capturedAt") or 0)
-                    lines.append("\nPhoto timestamps (chronological):")
-                    for i, ph in enumerate(sorted_photos, 1):
-                        ts = ph.get("capturedAt")
-                        if ts:
-                            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-                            lines.append(f"  Photo {i}: {dt.strftime('%Y-%m-%d %H:%M UTC')}")
-
-            except Exception as e:
-                print(f"[ai/context] CompanyCam error: {e}")
 
     context_string = "\n".join(lines)
     return context_string, client_summary, photos, stats
@@ -529,27 +486,185 @@ def get_context():
             "createdAt":     admin_firestore.SERVER_TIMESTAMP,
         })
 
-        # Pre-process photos here so /chat never does inline image fetching.
-        # Storing in ai_photo_blocks keeps blobs out of the main cache doc.
-        photos_processed = 0
-        photos_status    = "none"
-        if photos and context_flags.get("photos", True):
-            print(f"[ai/context] pre-processing {len(photos)} photos for {cache_key}")
-            photos_processed = _process_and_cache_photos(db, cache_key, photos, caller_uid, expires_at)
-            photos_status    = "ready" if photos_processed > 0 else "error"
-
         return jsonify({
-            "cacheKey":        cache_key,
-            "clientSummary":   client_summary,
-            "photos":          photos[:30],   # sidebar thumbnails (metadata only)
-            "stats":           stats,
-            "expiresAt":       expires_at,
-            "photosStatus":    photos_status,
-            "photosProcessed": photos_processed,
+            "cacheKey":      cache_key,
+            "clientSummary": client_summary,
+            "stats":         stats,
+            "expiresAt":     expires_at,
         })
     except Exception as e:
         print(f"[ai/context] unhandled error: {e}")
         return jsonify({"error": f"Context build failed: {str(e)}"}), 500
+
+
+@ai_analysis_app.route("/classify-photos", methods=["POST"])
+def classify_photos():
+    caller_uid, err = _require_auth()
+    if err:
+        return err
+
+    data       = request.json or {}
+    cache_key  = data.get("cacheKey", "")
+    org_id     = data.get("orgId", "")
+    client_uid = data.get("clientUid", "")
+
+    if not cache_key or not org_id or not client_uid:
+        return jsonify({"error": "cacheKey, orgId, and clientUid required"}), 400
+
+    try:
+        db = admin_firestore.client()
+
+        # Verify the text context cache belongs to this caller
+        cache_doc = db.collection("ai_context_cache").document(cache_key).get()
+        if not cache_doc.exists or cache_doc.to_dict().get("callerUid") != caller_uid:
+            return jsonify({"error": "Invalid or expired context — reload context first"}), 400
+
+        # Return cached classification if fresh (< 1 hour old and same photo count)
+        cls_ref = db.collection("ai_photo_classifications").document(cache_key)
+        cls_doc = cls_ref.get()
+        if cls_doc.exists:
+            cls = cls_doc.to_dict()
+            if cls.get("callerUid") == caller_uid:
+                classified_at = cls.get("classifiedAt")
+                if classified_at:
+                    age_s = (datetime.now(timezone.utc) - classified_at).total_seconds()
+                    pb_check = db.collection("ai_photo_blocks").document(cache_key).get()
+                    cached_count = pb_check.to_dict().get("processedCount", 0) if pb_check.exists else 0
+                    if age_s < 3600 and cls.get("photoCount", 0) == cached_count and cached_count > 0:
+                        return jsonify({
+                            "categories": cls.get("categories", {}),
+                            "total":      cls.get("photoCount", 0),
+                            "cached":     True,
+                        })
+
+        # Fetch client's CompanyCam project
+        user_doc = db.collection("users").document(client_uid).get()
+        if not user_doc.exists:
+            return jsonify({"error": "Client not found"}), 404
+        ud = user_doc.to_dict()
+        cc_project_id = ud.get("companyCamProjectId", "")
+        if not cc_project_id:
+            return jsonify({"error": "No CompanyCam project linked to this client"}), 404
+
+        org_doc = db.collection("organization_data").document(org_id).get()
+        cc_key  = org_doc.to_dict().get("companyCamAPI", "") if org_doc.exists else ""
+        if not cc_key:
+            return jsonify({"error": "No CompanyCam API key configured"}), 404
+
+        # Fetch all photos from CompanyCam
+        all_raw: list[dict] = []
+        page = 1
+        while True:
+            resp = requests.get(
+                f"https://api.companycam.com/v2/projects/{cc_project_id}/photos",
+                headers={"Authorization": f"Bearer {cc_key}"},
+                params={"per_page": 50, "page": page},
+                timeout=15,
+            )
+            if not resp.ok:
+                return jsonify({"error": f"CompanyCam API error {resp.status_code}"}), 502
+            batch = resp.json()
+            if isinstance(batch, dict):
+                batch = batch.get("data", [])
+            all_raw.extend(batch)
+            if len(batch) < 50:
+                break
+            page += 1
+
+        photo_infos: list[dict] = []
+        for ph in all_raw:
+            full_url, thumb_url = _best_ccam_url(ph.get("uris", []))
+            if full_url:
+                photo_infos.append({
+                    "id":         ph.get("id"),
+                    "fullUrl":    full_url,
+                    "thumbUrl":   thumb_url,
+                    "capturedAt": ph.get("captured_at"),
+                })
+
+        if not photo_infos:
+            return jsonify({"categories": {}, "total": 0}), 200
+
+        # Process photos (resize, blur-filter, dedup) → stored in ai_photo_blocks
+        expires_at = cache_doc.to_dict().get("expiresAt",
+            (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+        n = _process_and_cache_photos(db, cache_key, photo_infos, caller_uid, expires_at)
+        if n == 0:
+            return jsonify({"error": "Photo processing failed — no usable images"}), 500
+
+        pb_data      = db.collection("ai_photo_blocks").document(cache_key).get().to_dict()
+        image_blocks = pb_data.get("imageBlocks", [])
+        photo_meta   = pb_data.get("photoMeta", [])
+
+        # Classify with Claude Haiku in batches of 20
+        api_key      = os.environ.get("ANTHROPIC_API_KEY", "")
+        claude_client = anthropic.Anthropic(api_key=api_key)
+        classifications: dict[int, str] = {}
+        cats_str = ", ".join(PHOTO_CATEGORIES)
+        BATCH = 20
+
+        for batch_start in range(0, len(image_blocks), BATCH):
+            batch_blocks = image_blocks[batch_start:batch_start + BATCH]
+            content: list[dict] = []
+            for i, blk in enumerate(batch_blocks):
+                content.append(blk)
+                content.append({"type": "text", "text": f"[Photo #{batch_start + i}]"})
+            content.append({
+                "type": "text",
+                "text": (
+                    f"Classify each numbered photo for a water damage restoration company. "
+                    f"Assign ONE category from: {cats_str}.\n\n"
+                    f"Return ONLY a JSON array, no other text:\n"
+                    f'[{{"idx": 0, "category": "Water Damage"}}, ...]'
+                ),
+            })
+            resp = claude_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=600,
+                messages=[{"role": "user", "content": content}],
+            )
+            raw_text = resp.content[0].text.strip()
+            match = re.search(r'\[.*?\]', raw_text, re.DOTALL)
+            if match:
+                try:
+                    for item in json.loads(match.group()):
+                        idx = item.get("idx")
+                        cat = item.get("category", "Other")
+                        if isinstance(idx, int):
+                            classifications[idx] = cat if cat in PHOTO_CATEGORIES else "Other"
+                except Exception as parse_err:
+                    print(f"[ai/classify-photos] parse error: {parse_err}")
+
+        # Build per-category lists
+        categories: dict[str, list] = {}
+        for i in range(len(image_blocks)):
+            cat  = classifications.get(i, "Other")
+            meta = photo_meta[i] if i < len(photo_meta) else {}
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append({
+                "idx":      i,
+                "url":      meta.get("url", ""),
+                "thumbUrl": meta.get("thumbUrl", meta.get("url", "")),
+            })
+
+        # Persist classifications
+        cls_ref.set({
+            "callerUid":    caller_uid,
+            "clientUid":    client_uid,
+            "orgId":        org_id,
+            "classifiedAt": admin_firestore.SERVER_TIMESTAMP,
+            "photoCount":   len(image_blocks),
+            "categories":   categories,
+        })
+        print(f"[ai/classify-photos] classified {len(image_blocks)} photos into {len(categories)} categories for {cache_key}")
+
+        return jsonify({"categories": categories, "total": len(image_blocks)})
+
+    except Exception as e:
+        print(f"[ai/classify-photos] unhandled error: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @ai_analysis_app.route("/chat", methods=["POST"])
@@ -561,7 +676,7 @@ def chat():
     data           = request.json or {}
     messages       = data.get("messages", [])
     cache_key      = data.get("cacheKey", "")
-    include_photos = data.get("includePhotos", False)
+    photo_category = data.get("photoCategory", "")
     model          = data.get("model", CLAUDE_MODEL)
     if model not in ALLOWED_MODELS:
         model = CLAUDE_MODEL
@@ -598,23 +713,29 @@ def chat():
     context_string = cache_data.get("contextString", "")
 
     # ── Load pre-processed photo blocks ──────────────────────────────────────
-    # Photos are processed during /context (not here) to avoid request timeout.
-    # ai_photo_blocks keeps blobs out of the 1 MB main cache document.
     image_blocks: list[dict] = []
-    if include_photos:
+    if photo_category:
         try:
             pb_doc = db.collection("ai_photo_blocks").document(cache_key).get()
-            if pb_doc.exists:
-                pb = pb_doc.to_dict()
-                if pb.get("callerUid") == caller_uid:
-                    image_blocks = pb.get("imageBlocks", [])
-                    print(f"[ai/chat] loaded {len(image_blocks)} pre-cached photos")
+            if pb_doc.exists and pb_doc.to_dict().get("callerUid") == caller_uid:
+                all_blocks = pb_doc.to_dict().get("imageBlocks", [])
+                if photo_category == "__all__":
+                    image_blocks = all_blocks
+                    print(f"[ai/chat] using all {len(image_blocks)} photos")
                 else:
-                    print("[ai/chat] photo blocks exist but wrong caller — skipping")
+                    cls_doc = db.collection("ai_photo_classifications").document(cache_key).get()
+                    if cls_doc.exists and cls_doc.to_dict().get("callerUid") == caller_uid:
+                        cat_photos = cls_doc.to_dict().get("categories", {}).get(photo_category, [])
+                        indices = {p["idx"] for p in cat_photos}
+                        image_blocks = [b for i, b in enumerate(all_blocks) if i in indices]
+                        print(f"[ai/chat] filtered to {len(image_blocks)} '{photo_category}' photos")
+                    else:
+                        image_blocks = all_blocks
+                        print(f"[ai/chat] no classification found — using all {len(all_blocks)} photos")
             else:
-                print("[ai/chat] no pre-cached photos found — proceeding without")
+                print("[ai/chat] no pre-cached photo blocks found — proceeding without")
         except Exception as e:
-            print(f"[ai/chat] photo block read failed: {e} — proceeding without photos")
+            print(f"[ai/chat] photo load failed: {e} — proceeding without")
 
     # ── Build Claude messages ─────────────────────────────────────────────────
     claude_messages: list[dict] = []
@@ -628,6 +749,8 @@ def chat():
                     "cache_control": {"type": "ephemeral"},
                 }
             ]
+            if photo_category and image_blocks:
+                content[0]["text"] += f"\n\n[Note: Only {photo_category} photos are attached for this response.]"
             # Append preprocessed image blocks (already quality-filtered + resized)
             content.extend(image_blocks)
             claude_messages.append({"role": "user", "content": content})

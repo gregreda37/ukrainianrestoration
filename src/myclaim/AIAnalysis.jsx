@@ -50,12 +50,11 @@ const QUICK_PROMPTS = [
 
 const DEFAULT_FLAGS = {
   claimInfo: true, todos: true, documents: true,
-  selections: true, budget: true, photos: true, activity: true,
+  selections: true, budget: true, activity: true,
 }
 const FLAG_LABELS = {
   claimInfo: 'Claim Info', todos: 'Tasks & Todos', documents: 'Documents',
-  selections: 'Selections', budget: 'Budget',
-  photos: 'CompanyCam Photos', activity: 'Activity Log',
+  selections: 'Selections', budget: 'Budget', activity: 'Activity Log',
 }
 
 // ── Markdown renderer ─────────────────────────────────────────────────────────
@@ -116,10 +115,10 @@ const THINKING_PHRASES = [
   'Preparing your response…',
 ]
 const PHOTO_THINKING_PHRASES = [
-  'Reading claim documents…',
-  'Loading CompanyCam photos…',
-  'Analyzing site damage imagery…',
-  'Cross-referencing documents…',
+  'Loading selected photos…',
+  'Analyzing site imagery…',
+  'Cross-referencing with documents…',
+  'Identifying damage patterns…',
   'Preparing your response…',
 ]
 
@@ -231,8 +230,9 @@ export default function AIAnalysis() {
   const [contextLoading, setContextLoading] = useState(false)
   const [contextLoaded, setContextLoaded] = useState(false)
   const [clientContext, setClientContext] = useState(null)
-  const [photosStatus, setPhotosStatus] = useState('none')      // 'none'|'processing'|'ready'|'error'
-  const [photosProcessed, setPhotosProcessed] = useState(0)
+  const [photoClassifications, setPhotoClassifications] = useState(null)
+  const [classifyStatus, setClassifyStatus] = useState('idle')  // idle|loading|ready|error
+  const [selectedPhotoCategory, setSelectedPhotoCategory] = useState(null)
 
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -320,7 +320,9 @@ export default function AIAnalysis() {
     setClientContext(null)
     setMessages([])
     setStreamError('')
-    setPhotosStatus('none')
+    setPhotoClassifications(null)
+    setClassifyStatus('idle')
+    setSelectedPhotoCategory(null)
     collapseNav?.()
   }, [collapseNav])
 
@@ -333,7 +335,9 @@ export default function AIAnalysis() {
     setClientContext(null)
     setMessages([])
     setStreamError('')
-    setPhotosStatus('none')
+    setPhotoClassifications(null)
+    setClassifyStatus('idle')
+    setSelectedPhotoCategory(null)
     setFilter('')
   }, [])
 
@@ -344,7 +348,6 @@ export default function AIAnalysis() {
     setContextLoaded(false)
     setMessages([])
     setStreamError('')
-    setPhotosStatus('none')
     try {
       const idToken = await auth.currentUser.getIdToken()
       const res = await fetch(`${API}/ai/context`, {
@@ -364,14 +367,44 @@ export default function AIAnalysis() {
       if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
       setClientContext(data)
       setContextLoaded(true)
-      setPhotosStatus(data.photosStatus || 'none')
-      setPhotosProcessed(data.photosProcessed || 0)
     } catch (err) {
       setStreamError(`Failed to load context: ${err.message}`)
     } finally {
       setContextLoading(false)
     }
   }, [selectedClient, orgId, contextFlags])
+
+  // Auto-load context whenever a new client (with uid) is selected
+  useEffect(() => {
+    if (!selectedClient?.uid || !orgId) return
+    handleLoadContext()
+  }, [selectedClient?.uid, orgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleClassifyPhotos = useCallback(async () => {
+    if (!selectedClient || !orgId || !clientContext) return
+    setClassifyStatus('loading')
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(`${API}/ai/classify-photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idToken,
+          cacheKey: clientContext.cacheKey,
+          orgId,
+          clientUid: selectedClient.uid,
+        }),
+      })
+      let data
+      try { data = await res.json() } catch { throw new Error(`HTTP ${res.status}`) }
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
+      setPhotoClassifications({ categories: data.categories || {}, total: data.total || 0 })
+      setClassifyStatus('ready')
+    } catch (err) {
+      setClassifyStatus('error')
+      setStreamError(`Photo classification failed: ${err.message}`)
+    }
+  }, [selectedClient, orgId, clientContext])
 
   // ── Stop streaming ────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
@@ -415,7 +448,9 @@ export default function AIAnalysis() {
         body: JSON.stringify({
           messages: apiMessages,
           cacheKey: clientContext.cacheKey,
-          includePhotos: (opts.forcePhotos || contextFlags.photos) && photosStatus === 'ready',
+          photoCategory: opts.forcePhotos && classifyStatus === 'ready'
+            ? (selectedPhotoCategory || '__all__')
+            : (selectedPhotoCategory || ''),
           model: selectedModel,
           idToken,
         }),
@@ -499,7 +534,7 @@ export default function AIAnalysis() {
       setStreaming(false)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [input, messages, streaming, contextLoaded, clientContext, contextFlags, photosStatus, selectedModel])
+  }, [input, messages, streaming, contextLoaded, clientContext, contextFlags, selectedPhotoCategory, classifyStatus, selectedModel])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -526,14 +561,6 @@ export default function AIAnalysis() {
   const mitLabel = summary ? (MITIGATION_LABELS[summary.mitigationStep] || 'Not started') : null
   const conLabel = summary ? (CONSTRUCTION_LABELS[summary.constructionStep] || 'Not started') : null
   const [avatarBg, avatarFg] = avatarColor(summary?.name || selectedClient?.name || '')
-
-  const photosBadge = photosStatus === 'ready'
-    ? { label: `${photosProcessed} photos ready`, cls: 'aa-photos-badge aa-photos-badge--ready' }
-    : photosStatus === 'processing'
-    ? { label: 'Processing photos…', cls: 'aa-photos-badge aa-photos-badge--working' }
-    : photosStatus === 'error'
-    ? { label: 'Photo processing failed', cls: 'aa-photos-badge aa-photos-badge--error' }
-    : null
 
   const userInitial = (user?.displayName || user?.email || 'U')[0].toUpperCase()
 
@@ -629,13 +656,10 @@ export default function AIAnalysis() {
                 onClick={handleLoadContext}
                 disabled={contextLoading || !selectedClient.uid}
               >
-                {contextLoading ? (
-                  <><span className="aa-btn-spinner" /> {contextFlags.photos ? 'Loading + processing photos…' : 'Loading context…'}</>
-                ) : contextLoaded ? '↺ Reload Context' : 'Load Context'}
+                {contextLoading
+                  ? <><span className="aa-btn-spinner" /> Loading context…</>
+                  : '↺ Reload Context'}
               </button>
-              {contextLoading && contextFlags.photos && (
-                <p className="aa-load-hint">Photos are processed during load — this may take up to 30s for large projects.</p>
-              )}
             </div>
 
             {contextLoaded && stats && summary && (
@@ -666,10 +690,8 @@ export default function AIAnalysis() {
                   <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.pendingTodos ?? 0}</div><div className="aa-stat-chip-lbl">Tasks</div></div>
                   <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.documentCount ?? 0}</div><div className="aa-stat-chip-lbl">Documents</div></div>
                   <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.selectionCount ?? 0}</div><div className="aa-stat-chip-lbl">Selections</div></div>
-                  <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.photoCount ?? 0}</div><div className="aa-stat-chip-lbl">Photos</div></div>
+                  <div className="aa-stat-chip"><div className="aa-stat-chip-val">{photoClassifications?.total ?? stats.photoCount ?? 0}</div><div className="aa-stat-chip-lbl">Photos</div></div>
                 </div>
-
-                {photosBadge && <div className={photosBadge.cls}>{photosBadge.label}</div>}
 
                 {stats.budgetTotal > 0 && (
                   <div className="aa-budget-total">
@@ -683,6 +705,60 @@ export default function AIAnalysis() {
                     <div className="aa-section-label" style={{ marginBottom: 4 }}>Adjuster</div>
                     <div className="aa-adjuster-name">{summary.adjuster.name}</div>
                     {summary.adjuster.company && <div className="aa-adjuster-detail">{summary.adjuster.company}</div>}
+                  </div>
+                )}
+
+                {stats.hasPhotos && (
+                  <div className="aa-photos-section">
+                    <div className="aa-section-label" style={{ marginTop: 12 }}>CompanyCam Photos</div>
+                    {classifyStatus === 'idle' && (
+                      <button className="aa-load-btn" onClick={handleClassifyPhotos}>
+                        Analyze &amp; Classify Photos
+                      </button>
+                    )}
+                    {classifyStatus === 'loading' && (
+                      <div className="aa-classify-loading">
+                        <span className="aa-btn-spinner" /> Classifying photos…
+                      </div>
+                    )}
+                    {classifyStatus === 'ready' && photoClassifications && (
+                      <>
+                        <div className="aa-photos-summary">
+                          {photoClassifications.total} photos · {Object.keys(photoClassifications.categories).length} categories
+                        </div>
+                        <div className="aa-photo-cats">
+                          {Object.entries(photoClassifications.categories)
+                            .sort((a, b) => b[1].length - a[1].length)
+                            .map(([cat, photos]) => (
+                              <button
+                                key={cat}
+                                className={`aa-cat-chip${selectedPhotoCategory === cat ? ' aa-cat-chip--active' : ''}`}
+                                onClick={() => setSelectedPhotoCategory(prev => prev === cat ? null : cat)}
+                              >
+                                {cat}
+                                <span className="aa-cat-count">{photos.length}</span>
+                              </button>
+                            ))}
+                        </div>
+                        {selectedPhotoCategory && (
+                          <button className="aa-clear-cat-btn" onClick={() => setSelectedPhotoCategory(null)}>
+                            ✕ Clear photo filter
+                          </button>
+                        )}
+                        <button
+                          className="aa-load-btn"
+                          style={{ marginTop: 8 }}
+                          onClick={handleClassifyPhotos}
+                        >
+                          ↺ Re-classify
+                        </button>
+                      </>
+                    )}
+                    {classifyStatus === 'error' && (
+                      <button className="aa-load-btn" onClick={handleClassifyPhotos}>
+                        ↺ Retry Classification
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -719,10 +795,7 @@ export default function AIAnalysis() {
           <div className="aa-empty-state">
             <div className="aa-empty-icon">📂</div>
             <h2 className="aa-empty-title">{selectedClient.name || 'Client selected'}</h2>
-            <p className="aa-empty-desc">
-              Click <strong>Load Context</strong> in the sidebar to gather this client's full
-              case file — claim info, tasks, documents, budget, and photos.
-            </p>
+            <p className="aa-empty-desc">Loading claim context…</p>
           </div>
         )}
 
@@ -730,9 +803,9 @@ export default function AIAnalysis() {
           <div className="aa-empty-state aa-empty-state--loading">
             <div className="aa-loading-ring" />
             <p className="aa-loading-label">
-              {contextFlags.photos ? 'Loading context & processing photos…' : 'Loading claim context…'}
+              Loading claim context…
             </p>
-            <LoadingSteps includePhotos={!!contextFlags.photos} />
+            <LoadingSteps includePhotos={false} />
           </div>
         )}
 
@@ -743,8 +816,12 @@ export default function AIAnalysis() {
               <span className="aa-welcome-icon">✓</span>
               <span>Context loaded for <strong>{summary?.name}</strong></span>
             </div>
-            {photosStatus === 'ready' && photosProcessed > 0 && (
-              <div className="aa-welcome-photos">📸 {photosProcessed} photos preprocessed and ready</div>
+            {classifyStatus === 'ready' && photoClassifications?.total > 0 && (
+              <div className="aa-welcome-photos">
+                📸 {photoClassifications.total} photos classified · {selectedPhotoCategory
+                  ? `filtering by "${selectedPhotoCategory}"`
+                  : 'select a category in the sidebar to include photos'}
+              </div>
             )}
             <p className="aa-welcome-hint">Ask anything or pick a quick prompt:</p>
             <div className="aa-quick-prompts">
@@ -752,7 +829,7 @@ export default function AIAnalysis() {
                 <button key={q.label} className="aa-quick-btn" onClick={() => handleQuickPrompt(q)}>
                   <span className="aa-quick-icon">{q.icon}</span>
                   <span>{q.label}</span>
-                  {q.requiresPhotos && photosStatus === 'ready' && <span className="aa-quick-photo-badge">📷</span>}
+                  {q.requiresPhotos && classifyStatus === 'ready' && <span className="aa-quick-photo-badge">📷</span>}
                 </button>
               ))}
             </div>
@@ -781,7 +858,7 @@ export default function AIAnalysis() {
                       {msg.content ? <MarkdownMessage text={msg.content} /> : null}
                       {msg.streaming && !msg.content && (
                         <TypewriterStatus
-                          phrases={photosStatus === 'ready' ? PHOTO_THINKING_PHRASES : THINKING_PHRASES}
+                          phrases={selectedPhotoCategory ? PHOTO_THINKING_PHRASES : THINKING_PHRASES}
                         />
                       )}
                       {msg.streaming && msg.content && <span className="aa-cursor">▋</span>}
@@ -880,8 +957,8 @@ export default function AIAnalysis() {
 
             <div className="aa-input-footer">
               <span className="aa-input-hint">Enter to send · Shift+Enter for new line</span>
-              {photosStatus === 'ready' && (
-                <span className="aa-photo-hint">📸 {photosProcessed} photos</span>
+              {selectedPhotoCategory && (
+                <span className="aa-photo-hint">📸 {selectedPhotoCategory}</span>
               )}
               {isAdmin && (
                 <select className="aa-model-select" value={selectedModel}

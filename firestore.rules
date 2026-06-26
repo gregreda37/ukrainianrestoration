@@ -69,6 +69,9 @@ service cloud.firestore {
     match /ai_photo_blocks/{cacheKey} {
       allow read, write: if false;
     }
+    match /ai_photo_classifications/{cacheKey} {
+      allow read, write: if false;
+    }
 
     // ── SMS opt-in consent records ────────────────────────────────────────────
     // Written before auth completes (when user clicks "Send Code"), so writes

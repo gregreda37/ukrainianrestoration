@@ -301,31 +301,36 @@ def _process_and_cache_photos(db, cache_key: str, photo_infos: list[dict],
 # ── Context builder ───────────────────────────────────────────────────────────
 
 def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
-    """Build context string + supporting data from Firestore + CompanyCam."""
+    """
+    Build context string + supporting data from Firestore.
+    Subcollection reads (todos, documents, selections, budget, activity) run in
+    parallel via ThreadPoolExecutor — one Firestore round-trip instead of five.
+    """
     lines = []
     stats = {}
 
+    # Serial: user doc must come first (everything else depends on it)
     user_doc = db.collection("users").document(client_uid).get()
     if not user_doc.exists:
         return None, None, [], {}
 
-    ud = user_doc.to_dict()
-    mit_step = ud.get("mitigationStep", -1)
-    con_step = ud.get("constructionStep", -1)
-    adj = ud.get("adjuster") or {}
+    ud           = user_doc.to_dict()
+    mit_step     = ud.get("mitigationStep", -1)
+    con_step     = ud.get("constructionStep", -1)
+    adj          = ud.get("adjuster") or {}
     display_name = ud.get("displayName") or client_name_hint or "Unknown"
 
     client_summary = {
-        "name": display_name,
-        "email": ud.get("email", ""),
-        "phone": ud.get("phoneNumber", ""),
-        "address": ud.get("address", ""),
-        "claimNumbers": ud.get("claimNumbers", []),
-        "policyNumber": ud.get("policyNumber", ""),
-        "mitigationStep": mit_step,
-        "constructionStep": con_step,
-        "adjuster": adj,
-        "companyCamProjectId": ud.get("companyCamProjectId", ""),
+        "name":                 display_name,
+        "email":                ud.get("email", ""),
+        "phone":                ud.get("phoneNumber", ""),
+        "address":              ud.get("address", ""),
+        "claimNumbers":         ud.get("claimNumbers", []),
+        "policyNumber":         ud.get("policyNumber", ""),
+        "mitigationStep":       mit_step,
+        "constructionStep":     con_step,
+        "adjuster":             adj,
+        "companyCamProjectId":  ud.get("companyCamProjectId", ""),
     }
 
     lines.append("## CLIENT INFORMATION")
@@ -349,9 +354,47 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
             if v:
                 lines.append(f"{k.replace('_', ' ').title()}: {v}")
 
+    # Parallel subcollection reads — all fire simultaneously
+    user_ref = db.collection("users").document(client_uid)
+
+    def _fetch_todos():
+        return list(user_ref.collection("todos").get())
+
+    def _fetch_docs():
+        return list(user_ref.collection("documents").get())
+
+    def _fetch_sels():
+        return list(user_ref.collection("selections").get())
+
+    def _fetch_budget():
+        return list(user_ref.collection("budget").get())
+
+    def _fetch_activity():
+        if not context_flags.get("activity", True):
+            return []
+        return list(
+            user_ref.collection("activity")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(30)
+            .stream()
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        f_todos, f_docs, f_sels, f_budget, f_activity = (
+            pool.submit(_fetch_todos),
+            pool.submit(_fetch_docs),
+            pool.submit(_fetch_sels),
+            pool.submit(_fetch_budget),
+            pool.submit(_fetch_activity),
+        )
+        todos_snaps    = f_todos.result()
+        docs_snaps     = f_docs.result()
+        sels_snaps     = f_sels.result()
+        budget_snaps   = f_budget.result()
+        activity_snaps = f_activity.result()
+
     # Todos
-    todos_snap = db.collection("users").document(client_uid).collection("todos").get()
-    todos = [t.to_dict() | {"id": t.id} for t in todos_snap]
+    todos     = [t.to_dict() | {"id": t.id} for t in todos_snaps]
     pending   = [t for t in todos if not t.get("completed")]
     completed = [t for t in todos if t.get("completed")]
     stats["pendingTodos"]   = len(pending)
@@ -369,8 +412,7 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                 lines.append(f"  - {t.get('label', 'Unnamed')}")
 
     # Documents
-    docs_snap = db.collection("users").document(client_uid).collection("documents").get()
-    docs = [d.to_dict() | {"id": d.id} for d in docs_snap]
+    docs = [d.to_dict() | {"id": d.id} for d in docs_snaps]
     stats["documentCount"] = len(docs)
 
     if context_flags.get("documents", True):
@@ -383,10 +425,9 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                     lines.append(f"  - {d.get('name', 'Unnamed')} (uploaded {_ts_str(d.get('uploadedAt'))})")
 
     # Selections
-    sels_snap = db.collection("users").document(client_uid).collection("selections").get()
-    sels = [s.to_dict() | {"id": s.id} for s in sels_snap]
-    stats["selectionCount"]     = len(sels)
-    stats["pendingSelections"]  = len([s for s in sels if s.get("status") == "needs_approval"])
+    sels = [s.to_dict() | {"id": s.id} for s in sels_snaps]
+    stats["selectionCount"]    = len(sels)
+    stats["pendingSelections"] = len([s for s in sels if s.get("status") == "needs_approval"])
 
     if context_flags.get("selections", True):
         lines.append(f"\n## MATERIAL SELECTIONS ({len(sels)} items)")
@@ -398,8 +439,7 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                 lines.append(f"      Notes: {s['notes']}")
 
     # Budget
-    budget_snap  = db.collection("users").document(client_uid).collection("budget").get()
-    budget_items = [b.to_dict() | {"id": b.id} for b in budget_snap]
+    budget_items = [b.to_dict() | {"id": b.id} for b in budget_snaps]
     budget_total = sum(b.get("total", 0) for b in budget_items)
     stats["budgetTotal"]     = budget_total
     stats["budgetItemCount"] = len(budget_items)
@@ -411,32 +451,24 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
             lines.append(f"  - {b.get('label', 'Item')}{qty_str}: ${b.get('total', 0):,.2f}")
 
     # Activity
-    if context_flags.get("activity", True):
-        acts_ref = (
-            db.collection("users").document(client_uid)
-            .collection("activity")
-            .order_by("timestamp", direction="DESCENDING")
-            .limit(30)
-            .stream()
-        )
-        acts = []
-        for a in acts_ref:
-            ad = a.to_dict()
-            acts.append({
-                "type":    ad.get("type", "?"),
-                "details": ad.get("details", ""),
-                "ts":      _ts_str(ad.get("timestamp")),
-                "actor":   ad.get("actor", "?"),
-            })
-        stats["recentActivityCount"] = len(acts)
-        if acts:
-            lines.append(f"\n## RECENT ACTIVITY (last {len(acts)} events)")
-            for a in acts:
-                detail = f" — {a['details']}" if a.get("details") else ""
-                lines.append(f"  [{a['ts']}] {a['actor']}: {a['type']}{detail}")
+    acts = []
+    for a in activity_snaps:
+        ad = a.to_dict()
+        acts.append({
+            "type":    ad.get("type", "?"),
+            "details": ad.get("details", ""),
+            "ts":      _ts_str(ad.get("timestamp")),
+            "actor":   ad.get("actor", "?"),
+        })
+    stats["recentActivityCount"] = len(acts)
+    if acts and context_flags.get("activity", True):
+        lines.append(f"\n## RECENT ACTIVITY (last {len(acts)} events)")
+        for a in acts:
+            detail = f" — {a['details']}" if a.get("details") else ""
+            lines.append(f"  [{a['ts']}] {a['actor']}: {a['type']}{detail}")
 
-    # ── CompanyCam photos ─────────────────────────────────────────────────────
-    ccam_project_id = ud.get("companyCamProjectId", "")
+    # CompanyCam presence (no API call here — photos handled by /classify-photos)
+    ccam_project_id    = ud.get("companyCamProjectId", "")
     photos: list[dict] = []
     stats["hasPhotos"]  = bool(ccam_project_id)
     stats["photoCount"] = 0
@@ -463,7 +495,28 @@ def get_context():
         return jsonify({"error": "orgId and clientUid are required"}), 400
 
     try:
-        db = admin_firestore.client()
+        db        = admin_firestore.client()
+        cache_key = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
+
+        # Fast path: return cached context if still fresh and same caller
+        cached = db.collection("ai_context_cache").document(cache_key).get()
+        if cached.exists:
+            cd = cached.to_dict()
+            if cd.get("callerUid") == caller_uid:
+                exp = cd.get("expiresAt", "")
+                try:
+                    if exp and datetime.now(timezone.utc) < datetime.fromisoformat(exp):
+                        print(f"[ai/context] cache hit for {cache_key}")
+                        return jsonify({
+                            "cacheKey":      cache_key,
+                            "clientSummary": cd.get("clientSummary"),
+                            "stats":         cd.get("stats"),
+                            "expiresAt":     exp,
+                        })
+                except ValueError:
+                    pass
+
+        # Cache miss — build from Firestore (subcollections read in parallel)
         context_string, client_summary, photos, stats = _build_context(
             db, org_id, client_uid, context_flags, client_name_hint
         )
@@ -471,14 +524,12 @@ def get_context():
         if context_string is None:
             return jsonify({"error": "Client not found"}), 404
 
-        cache_key  = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
 
-        # Store metadata only — processed image blocks go in ai_photo_blocks
-        # to keep this document well under Firestore's 1 MB limit.
         db.collection("ai_context_cache").document(cache_key).set({
             "contextString": context_string,
-            "photoInfos":    photos,
+            "clientSummary": client_summary,
+            "stats":         stats,
             "orgId":         org_id,
             "clientUid":     client_uid,
             "callerUid":     caller_uid,

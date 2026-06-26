@@ -5,11 +5,8 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   getAuth,
-  sendSignInLinkToEmail,
-  isSignInWithEmailLink,
-  signInWithEmailLink,
   signInWithEmailAndPassword,
-  updatePassword,
+  createUserWithEmailAndPassword,
   fetchSignInMethodsForEmail,
 } from 'firebase/auth'
 import { useNavigate, Navigate, Link } from 'react-router-dom'
@@ -55,7 +52,6 @@ export default function Login() {
   const [emailPassword, setEmailPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPass, setShowPass] = useState(false)
-  const [pendingPasswordCreation, setPendingPasswordCreation] = useState(false)
 
   useEffect(() => {
     const t = requestAnimationFrame(() => setEntered(true))
@@ -64,37 +60,8 @@ export default function Login() {
 
   useEffect(() => { return () => {} }, [])
 
-  // Detect return from email sign-in link
-  useEffect(() => {
-    if (!isSignInWithEmailLink(auth, window.location.href)) return
-    const savedEmail = window.localStorage.getItem('emailForSignIn')
-    if (!savedEmail) {
-      setStep('email')
-      setError('Enter your email address to complete sign-in.')
-      return
-    }
-    setPendingPasswordCreation(true)
-    signInWithEmailLink(auth, savedEmail, window.location.href)
-      .then((result) => {
-        window.localStorage.removeItem('emailForSignIn')
-        window.history.replaceState({}, '', window.location.pathname)
-        const hasPassword = result.user.providerData.some(p => p.providerId === 'password')
-        if (!hasPassword) {
-          setEmail(savedEmail)
-          setStep('create-password')
-        } else {
-          setPendingPasswordCreation(false)
-        }
-      })
-      .catch(err => {
-        setPendingPasswordCreation(false)
-        setError(friendlyEmailError(err.code))
-        setStep('email')
-      })
-  }, [])
-
   if (loading) return <div className="mc-splash"><div className="mc-spinner" /></div>
-  if (user && step !== 'loading' && !pendingPasswordCreation) return <Navigate to={user.phoneNumber ? '/myclaim/portal' : '/myclaim'} replace />
+  if (user && step !== 'loading') return <Navigate to={user.phoneNumber ? '/myclaim/portal' : '/myclaim'} replace />
 
   async function handleSendCode(e) {
     e.preventDefault()
@@ -196,19 +163,10 @@ export default function Login() {
       const trimmed = email.trim().toLowerCase()
       const methods = await fetchSignInMethodsForEmail(auth, trimmed)
       if (methods.includes('google.com') && !methods.includes('password')) {
-        setError('This email uses Google sign-in. Use the Admin (Google) option below.')
+        setError('This email uses Google sign-in. Use "Continue with Google" below.')
         return
       }
-      if (methods.includes('password')) {
-        setStep('email-password')
-        return
-      }
-      await sendSignInLinkToEmail(auth, trimmed, {
-        url: window.location.origin + '/myclaim/login',
-        handleCodeInApp: true,
-      })
-      window.localStorage.setItem('emailForSignIn', trimmed)
-      setStep('email-sent')
+      setStep(methods.includes('password') ? 'email-password' : 'create-password')
     } catch (err) {
       setError(friendlyEmailError(err.code))
     } finally {
@@ -224,7 +182,7 @@ export default function Login() {
       await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), emailPassword)
       setMsgIndex(0)
       setStep('loading')
-      setTimeout(() => navigate('/myclaim/portal'), 2500)
+      setTimeout(() => navigate('/myclaim'), 2500)
     } catch (err) {
       setError(friendlyEmailError(err.code))
     } finally {
@@ -239,14 +197,28 @@ export default function Login() {
     setError('')
     setSubmitting(true)
     try {
-      await updatePassword(auth.currentUser, emailPassword)
-      setPendingPasswordCreation(false)
-      setMsgIndex(0)
-      setStep('loading')
-      setTimeout(() => navigate('/myclaim/portal'), 2500)
+      const result = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), emailPassword)
+      const { uid, email: userEmail } = result.user
+      const userRef = doc(db, 'users', uid)
+      const snap = await getDoc(userRef)
+      const existingOrgId = snap.data()?.organizationId
+      const encodedEmail = userEmail.toLowerCase().replace(/\./g, '__dot__').replace(/@/g, '__at__')
+      const inviteSnap = await getDoc(doc(db, 'user_invites', encodedEmail))
+      if (inviteSnap.exists() && (!existingOrgId || existingOrgId === uid)) {
+        const { orgId: inviteOrgId, role: inviteRole } = inviteSnap.data()
+        await setDoc(userRef, { email: userEmail, organizationId: inviteOrgId, role: 'contractor', createdAt: serverTimestamp() }, { merge: true })
+        await setDoc(doc(db, 'organization_data', inviteOrgId, 'contractors', uid), { email: userEmail, role: inviteRole || 'project_manager', joinedAt: serverTimestamp() }, { merge: true })
+        await deleteDoc(doc(db, 'user_invites', encodedEmail)).catch(() => {})
+        const orgInvites = await getDocs(query(collection(db, 'organization_data', inviteOrgId, 'invites'), where('email', '==', userEmail.toLowerCase()))).catch(() => ({ docs: [] }))
+        for (const d of orgInvites.docs) await deleteDoc(d.ref).catch(() => {})
+      } else if (!snap.exists() || !existingOrgId) {
+        const orgId = existingOrgId || uid
+        await setDoc(userRef, { email: userEmail, organizationId: orgId, role: 'contractor', createdAt: serverTimestamp() }, { merge: true })
+        await setDoc(doc(db, 'organization_data', orgId), { createdAt: serverTimestamp() }, { merge: true })
+      }
+      navigate('/myclaim')
     } catch (err) {
       setError(friendlyEmailError(err.code))
-    } finally {
       setSubmitting(false)
     }
   }
@@ -530,30 +502,6 @@ export default function Login() {
             </>
           )}
 
-          {/* Email link sent */}
-          {step === 'email-sent' && (
-            <>
-              <button className="mc-login__back" type="button" onClick={() => { setStep('admin'); setError('') }}>
-                ← Back
-              </button>
-              <div className="mc-login__email-sent-icon">✉️</div>
-              <h1 className="mc-login__title">Check your email.</h1>
-              <p className="mc-login__sub">
-                We sent a sign-in link to <strong>{email}</strong>. Click the link to continue — no password needed.
-              </p>
-              <p className="mc-login__sub" style={{ marginTop: 8, fontSize: '0.8rem', color: '#9CA3AF' }}>
-                Didn't get it? Check your spam folder or{' '}
-                <button
-                  className="mc-login__consent-link"
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 'inherit' }}
-                  onClick={() => { setStep('admin'); setError('') }}
-                >
-                  try again
-                </button>.
-              </p>
-            </>
-          )}
-
           {/* Email + password sign-in (returning user) */}
           {step === 'email-password' && (
             <>
@@ -588,11 +536,14 @@ export default function Login() {
             </>
           )}
 
-          {/* Create password (new user after email link) */}
+          {/* Create account (new staff user) */}
           {step === 'create-password' && (
             <>
-              <h1 className="mc-login__title">Create a password.</h1>
-              <p className="mc-login__sub">You're in. Set a password so you can sign in directly next time.</p>
+              <button className="mc-login__back" type="button" onClick={() => { setStep('admin'); setError(''); setEmailPassword(''); setConfirmPassword('') }}>
+                ← Back
+              </button>
+              <h1 className="mc-login__title">Create your account.</h1>
+              <p className="mc-login__sub">Set a password for <strong>{email}</strong>.</p>
               <form className="mc-login__form" onSubmit={handleCreatePassword} noValidate>
                 <div className="mc-field-group">
                   <label className="mc-field-label">NEW PASSWORD</label>
@@ -630,7 +581,7 @@ export default function Login() {
             </>
           )}
 
-          {step !== 'admin' && step !== 'email' && step !== 'email-sent' && step !== 'email-password' && step !== 'create-password' && (
+          {step !== 'admin' && step !== 'email' && step !== 'email-password' && step !== 'create-password' && (
             <button className="mc-login__admin-link" type="button" onClick={() => { setStep('admin'); setError('') }}>
               Admin login
             </button>

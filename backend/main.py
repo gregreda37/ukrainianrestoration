@@ -52,6 +52,20 @@ CORS(app, origins=_cors_origins, supports_credentials=True,
 CORS_HEADERS = "Content-Type, Authorization, X-Firebase-ID-Token, X-Requested-With"
 CORS_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 
+@app.errorhandler(Exception)
+def _handle_any_exception(e):
+    import traceback
+    traceback.print_exc()
+    return jsonify({"error": "Internal server error", "detail": str(e)}), 500
+
+@app.errorhandler(404)
+def _handle_404(_):
+    return jsonify({"error": "Not found"}), 404
+
+@app.errorhandler(405)
+def _handle_405(_):
+    return jsonify({"error": "Method not allowed"}), 405
+
 @app.after_request
 def _cors_safety_net(response):
     """Explicit fallback: add CORS headers if flask-cors didn't (e.g. on 4xx/5xx)."""

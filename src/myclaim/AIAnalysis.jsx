@@ -313,8 +313,10 @@ export default function AIAnalysis() {
           idToken,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load context");
+      let data;
+      try { data = await res.json(); }
+      catch { throw new Error(`Server returned an error (HTTP ${res.status}) — please try again`); }
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
       // cacheKey stored server-side; contextString never touches the client
       setClientContext(data);
       setContextLoaded(true);

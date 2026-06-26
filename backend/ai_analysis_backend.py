@@ -480,36 +480,40 @@ def get_context():
     if not org_id or not client_uid:
         return jsonify({"error": "orgId and clientUid are required"}), 400
 
-    db = admin_firestore.client()
-    context_string, client_summary, photos, stats = _build_context(
-        db, org_id, client_uid, context_flags, client_name_hint
-    )
+    try:
+        db = admin_firestore.client()
+        context_string, client_summary, photos, stats = _build_context(
+            db, org_id, client_uid, context_flags, client_name_hint
+        )
 
-    if context_string is None:
-        return jsonify({"error": "Client not found"}), 404
+        if context_string is None:
+            return jsonify({"error": "Client not found"}), 404
 
-    cache_key  = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
-    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
+        cache_key  = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
 
-    # Store full-quality URLs (not thumbs) for the LLM pipeline
-    db.collection("ai_context_cache").document(cache_key).set({
-        "contextString":  context_string,
-        "photoInfos":     photos,                  # full objects with fullUrl + thumbUrl
-        "photoUrls":      [p["fullUrl"] for p in photos if p.get("fullUrl")],  # legacy compat
-        "orgId":          org_id,
-        "clientUid":      client_uid,
-        "callerUid":      caller_uid,
-        "expiresAt":      expires_at,
-        "createdAt":      admin_firestore.SERVER_TIMESTAMP,
-    })
+        # Store full-quality URLs (not thumbs) for the LLM pipeline
+        db.collection("ai_context_cache").document(cache_key).set({
+            "contextString":  context_string,
+            "photoInfos":     photos,                  # full objects with fullUrl + thumbUrl
+            "photoUrls":      [p["fullUrl"] for p in photos if p.get("fullUrl")],  # legacy compat
+            "orgId":          org_id,
+            "clientUid":      client_uid,
+            "callerUid":      caller_uid,
+            "expiresAt":      expires_at,
+            "createdAt":      admin_firestore.SERVER_TIMESTAMP,
+        })
 
-    return jsonify({
-        "cacheKey":      cache_key,
-        "clientSummary": client_summary,
-        "photos":        photos[:30],   # first 30 thumbs for sidebar preview
-        "stats":         stats,
-        "expiresAt":     expires_at,
-    })
+        return jsonify({
+            "cacheKey":      cache_key,
+            "clientSummary": client_summary,
+            "photos":        photos[:30],   # first 30 thumbs for sidebar preview
+            "stats":         stats,
+            "expiresAt":     expires_at,
+        })
+    except Exception as e:
+        print(f"[ai/context] unhandled error: {e}")
+        return jsonify({"error": f"Context build failed: {str(e)}"}), 500
 
 
 @ai_analysis_app.route("/chat", methods=["POST"])

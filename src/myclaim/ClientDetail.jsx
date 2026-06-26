@@ -137,6 +137,8 @@ export default function ClientDetail() {
 
   // Org / client identity
   const [orgId,       setOrgId]       = useState(null);
+  const [pmRole,      setPmRole]      = useState(null); // 'admin' | 'project_manager'
+  const [accessDenied,setAccessDenied]= useState(false);
   const [client,      setClient]      = useState(null);
   const [clientDocId, setClientDocId] = useState(null);
   const [clientUid,   setClientUid]   = useState(null);
@@ -281,13 +283,34 @@ export default function ClientDetail() {
   const [confirmDelete,  setConfirmDelete]  = useState(false);
   const [deletingClient, setDeletingClient] = useState(false);
 
-  // ── Load contractor's org id ─────────────────────────────────────────
+  // ── Load contractor's org id and check access ──────────────────────
   useEffect(() => {
     if (!user) return;
-    getDoc(doc(db, "users", user.uid))
-      .then(snap => { if (snap.exists()) setOrgId(snap.data().organizationId || null); })
-      .catch(err => console.error("ClientDetail orgId error:", err));
-  }, [user]);
+    (async () => {
+      try {
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        const oid = userSnap.data()?.organizationId || null;
+        if (!oid) return;
+
+        // Project managers can only open clients assigned to them
+        const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid));
+        const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
+        setPmRole(contractorRole);
+        if (contractorRole === "project_manager") {
+          const assignedPhones = contractorSnap.data()?.assignedClients || [];
+          if (!assignedPhones.includes(phone)) {
+            setAccessDenied(true);
+            setLoading(false);
+            return;
+          }
+        }
+
+        setOrgId(oid);
+      } catch (err) {
+        console.error("ClientDetail orgId error:", err);
+      }
+    })();
+  }, [user, phone]);
 
   // ── Load client data when orgId resolves ─────────────────────────────
   useEffect(() => {
@@ -1043,6 +1066,14 @@ export default function ClientDetail() {
 
   // ── Render guards ─────────────────────────────────────────────────────
   if (loading) return <div className="cd-loading"><div className="cd-spinner" /></div>;
+  if (accessDenied) return (
+    <div className="cd-loading">
+      <p style={{ color: "#64748b", textAlign: "center" }}>
+        You don't have access to this client.{" "}
+        <button className="cd-back-btn" onClick={() => navigate("/myclaim/clients")}>← Back to Clients</button>
+      </p>
+    </div>
+  );
   if (!client) return (
     <div className="cd-loading">
       <p style={{ color: "#64748b", textAlign:"center" }}>
@@ -1188,12 +1219,14 @@ export default function ClientDetail() {
             >
               {(client?.claimStatus || "open") === "open" ? "Claim Open" : "Claim Closed"}
             </button>
-            <button
-              className={`cd-docs-nav-btn${showDocsDrawer ? " active" : ""}`}
-              onClick={() => setShowDocsDrawer(v => !v)}>
-              <DocIcon /> Documents
-              {docs.length > 0 && <span className="cd-docs-nav-count">{docs.length}</span>}
-            </button>
+            {pmRole !== "project_manager" && (
+              <button
+                className={`cd-docs-nav-btn${showDocsDrawer ? " active" : ""}`}
+                onClick={() => setShowDocsDrawer(v => !v)}>
+                <DocIcon /> Documents
+                {docs.length > 0 && <span className="cd-docs-nav-count">{docs.length}</span>}
+              </button>
+            )}
             {phone && (
               <Link
                 to={`/myclaim/opt-in-policy?phone=${encodeURIComponent(phone)}`}
@@ -1570,11 +1603,11 @@ export default function ClientDetail() {
                   </div>
                   <div className="cd-todo-type-row">
                     {[
-                      { type:"upload_file",   icon:"📄", label:"Upload File"    },
-                      { type:"add_selection", icon:"🎨", label:"Make Selection" },
-                      { type:"sign_forms",    icon:"✍️", label:"Sign Document"  },
-                      { type:"general",       icon:"✓",  label:"General Task"   },
-                    ].map(opt => (
+                      { type:"upload_file",   icon:"📄", label:"Upload File",    pmAllowed: false },
+                      { type:"add_selection", icon:"🎨", label:"Make Selection", pmAllowed: true  },
+                      { type:"sign_forms",    icon:"✍️", label:"Sign Document",  pmAllowed: false },
+                      { type:"general",       icon:"✓",  label:"General Task",   pmAllowed: true  },
+                    ].filter(opt => pmRole !== "project_manager" || opt.pmAllowed).map(opt => (
                       <button key={opt.type} type="button"
                         className={`cd-todo-type-btn${todoType === opt.type ? " active" : ""}`}
                         onClick={() => {

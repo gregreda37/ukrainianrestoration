@@ -1,0 +1,240 @@
+/* ── Settings page ─────────────────────────────────────────────────────────── */
+
+.st-root {
+  min-height: 100vh;
+  background: #f8fafc;
+  padding: 32px 24px 80px;
+}
+
+.st-main {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── Page header ── */
+.st-page-header {
+  margin-bottom: 4px;
+}
+
+.st-title {
+  margin: 0 0 4px;
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.st-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+}
+
+/* ── Card ── */
+.st-card {
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.st-card-header {
+  padding: 22px 28px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.st-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.st-card-icon--blue   { background: #eff6ff; color: #2563eb; }
+.st-card-icon--green  { background: #f0fdf4; color: #16a34a; }
+.st-card-icon--purple { background: #f5f3ff; color: #7c3aed; }
+.st-card-icon--amber  { background: #fffbeb; color: #d97706; }
+.st-card-icon--slate  { background: #f1f5f9; color: #475569; }
+
+.st-card-title {
+  margin: 0 0 2px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.st-card-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.st-card-body {
+  padding: 24px 28px;
+}
+
+/* ── Form elements ── */
+.st-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.st-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.st-input {
+  width: 100%;
+  padding: 10px 13px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14.5px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.st-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.st-input::placeholder {
+  color: #94a3b8;
+}
+
+.st-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: -6px 0 0;
+}
+
+/* ── Footer row (actions + message) ── */
+.st-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.st-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+  white-space: nowrap;
+}
+.st-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.st-btn:not(:disabled):active { transform: scale(0.97); }
+
+.st-btn--primary {
+  background: #2563eb;
+  color: #fff;
+}
+.st-btn--primary:hover:not(:disabled) { background: #1d4ed8; }
+
+.st-btn--danger {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1.5px solid #fca5a5;
+}
+.st-btn--danger:hover:not(:disabled) { background: #fee2e2; }
+
+.st-msg {
+  font-size: 13px;
+  font-weight: 500;
+}
+.st-msg--ok  { color: #16a34a; }
+.st-msg--err { color: #dc2626; }
+
+/* ── Read-only info row ── */
+.st-info-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14.5px;
+}
+.st-info-row:last-child { border-bottom: none; }
+
+.st-info-label {
+  width: 130px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+/* ── Drive status badge ── */
+.st-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.st-status-dot--on  { background: #16a34a; }
+.st-status-dot--off { background: #d1d5db; }
+
+.st-drive-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.st-drive-folder {
+  font-size: 12.5px;
+  color: #64748b;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-top: 8px;
+  display: inline-block;
+}
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+  .st-root {
+    padding: 16px 14px 80px;
+  }
+
+  .st-card-header,
+  .st-card-body {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .st-title {
+    font-size: 22px;
+  }
+}

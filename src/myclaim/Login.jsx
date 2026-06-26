@@ -7,7 +7,6 @@ import {
   getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  fetchSignInMethodsForEmail,
 } from 'firebase/auth'
 import { useNavigate, Navigate, Link } from 'react-router-dom'
 import { auth, db } from '../firebase'
@@ -155,23 +154,13 @@ export default function Login() {
     }
   }
 
-  async function handleEmailContinue(e) {
+  function handleEmailContinue(e) {
     e.preventDefault()
     setError('')
-    setSubmitting(true)
-    try {
-      const trimmed = email.trim().toLowerCase()
-      const methods = await fetchSignInMethodsForEmail(auth, trimmed)
-      if (methods.includes('google.com') && !methods.includes('password')) {
-        setError('This email uses Google sign-in. Use "Continue with Google" below.')
-        return
-      }
-      setStep(methods.includes('password') ? 'email-password' : 'create-password')
-    } catch (err) {
-      setError(friendlyEmailError(err.code))
-    } finally {
-      setSubmitting(false)
-    }
+    // Always go to the sign-in step. fetchSignInMethodsForEmail is deprecated
+    // and returns [] (empty) for all users in modern Firebase SDKs. New users
+    // can switch to "Create account" from the sign-in step if needed.
+    setStep('email-password')
   }
 
   async function handleEmailSignIn(e) {
@@ -206,15 +195,14 @@ export default function Login() {
       const inviteSnap = await getDoc(doc(db, 'user_invites', encodedEmail))
       if (inviteSnap.exists() && (!existingOrgId || existingOrgId === uid)) {
         const { orgId: inviteOrgId, role: inviteRole } = inviteSnap.data()
-        await setDoc(userRef, { email: userEmail, organizationId: inviteOrgId, role: 'contractor', createdAt: serverTimestamp() }, { merge: true })
+        await setDoc(userRef, { email: userEmail, organizationId: inviteOrgId, pending: false, role: 'contractor', createdAt: serverTimestamp() }, { merge: true })
         await setDoc(doc(db, 'organization_data', inviteOrgId, 'contractors', uid), { email: userEmail, role: inviteRole || 'project_manager', joinedAt: serverTimestamp() }, { merge: true })
         await deleteDoc(doc(db, 'user_invites', encodedEmail)).catch(() => {})
         const orgInvites = await getDocs(query(collection(db, 'organization_data', inviteOrgId, 'invites'), where('email', '==', userEmail.toLowerCase()))).catch(() => ({ docs: [] }))
         for (const d of orgInvites.docs) await deleteDoc(d.ref).catch(() => {})
       } else if (!snap.exists() || !existingOrgId) {
-        const orgId = existingOrgId || uid
-        await setDoc(userRef, { email: userEmail, organizationId: orgId, role: 'contractor', createdAt: serverTimestamp() }, { merge: true })
-        await setDoc(doc(db, 'organization_data', orgId), { createdAt: serverTimestamp() }, { merge: true })
+        // No invite — save as pending. Org is only created once a contractor adds this email.
+        await setDoc(userRef, { email: userEmail, pending: true, createdAt: serverTimestamp() }, { merge: true })
       }
       navigate('/myclaim')
     } catch (err) {
@@ -245,6 +233,7 @@ export default function Login() {
           email: email || '',
           photoURL: photoURL || '',
           organizationId: inviteOrgId,
+          pending: false,
           role: 'contractor',
           createdAt: serverTimestamp(),
         }, { merge: true })
@@ -264,17 +253,12 @@ export default function Login() {
           await deleteDoc(d.ref).catch(() => {})
         }
       } else if (!snap.exists() || !existingOrgId) {
-        // Normal first login — bootstrap their own org
-        const orgId = existingOrgId || uid
+        // No invite — save as pending. Org is only created once a contractor adds this email.
         await setDoc(userRef, {
           displayName: displayName || '',
           email: email || '',
           photoURL: photoURL || '',
-          organizationId: orgId,
-          role: 'contractor',
-          createdAt: serverTimestamp(),
-        }, { merge: true })
-        await setDoc(doc(db, 'organization_data', orgId), {
+          pending: true,
           createdAt: serverTimestamp(),
         }, { merge: true })
       }
@@ -533,6 +517,16 @@ export default function Login() {
                   {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Signing in…</> : 'Sign In'}
                 </button>
               </form>
+              <p className="mc-login__alt-methods" style={{ marginTop: 16, textAlign: 'center', fontSize: 13, color: '#64748b' }}>
+                New here?{' '}
+                <button
+                  type="button"
+                  className="mc-login__email-link"
+                  onClick={() => { setError(''); setEmailPassword(''); setStep('create-password') }}
+                >
+                  Create account instead
+                </button>
+              </p>
             </>
           )}
 

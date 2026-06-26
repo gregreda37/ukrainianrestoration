@@ -32,6 +32,7 @@ export default function TeamSettings() {
 
   const [assignModal,  setAssignModal]  = useState(null);
   const [assignDraft,  setAssignDraft]  = useState([]);
+  const [assignSearch, setAssignSearch] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
 
   // Invite state
@@ -77,10 +78,8 @@ export default function TeamSettings() {
             collection(db, "organization_data", oid, "contractors"),
             orderBy("lastLogin", "desc")
           )),
-          getDocs(query(
-            collection(db, "client_phones"),
-            where("orgId", "==", oid)
-          )),
+          // Load from org clients subcollection — has richer data (claimStatus, claimNumbers, address)
+          getDocs(collection(db, "organization_data", oid, "clients")),
           getDoc(doc(db, "organization_data", oid)),
           getDocs(query(
             collection(db, "organization_data", oid, "invites"),
@@ -93,8 +92,10 @@ export default function TeamSettings() {
         const role = contractorSnap.data()?.role || "admin";
         setUserRole(role);
         setMembers(membersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        const cl = clientsSnap.docs.map(d => ({ phone: d.id, ...d.data() }));
-        cl.sort((a, b) => (a.name || a.phone).localeCompare(b.name || b.phone));
+        const cl = clientsSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(c => c.phone) // must have a phone to be assignable
+          .sort((a, b) => (a.name || a.phone || "").localeCompare(b.name || b.phone || ""));
         setClients(cl);
         setCcApiKey(orgSnap.data()?.companyCamAPI || '');
         setInvites(invitesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -190,10 +191,12 @@ export default function TeamSettings() {
   };
 
   const removeMember = async (member) => {
-    if (!window.confirm(`Remove ${member.displayName || member.email} from the team? They will lose access on next login.`)) return;
+    if (!window.confirm(`Remove ${member.displayName || member.email} from the team? They will lose access on next refresh.`)) return;
     setRemovingId(member.id);
     try {
       await deleteDoc(doc(db, "organization_data", orgId, "contractors", member.id));
+      // Clear their org mapping so they land on the pending screen on next session
+      await setDoc(doc(db, "users", member.id), { organizationId: null, pending: true }, { merge: true }).catch(() => {});
       setMembers(prev => prev.filter(m => m.id !== member.id));
     } finally {
       setRemovingId(null);
@@ -202,6 +205,7 @@ export default function TeamSettings() {
 
   const openAssignModal = (member) => {
     setAssignDraft(member.assignedClients || []);
+    setAssignSearch("");
     setAssignModal(member);
   };
 
@@ -685,67 +689,119 @@ export default function TeamSettings() {
       )}
 
       {/* ── Assign Clients Modal ── */}
-      {assignModal && (
-        <>
-          <div className="ts-overlay" onClick={() => setAssignModal(null)} />
-          <div className="ts-modal">
-            <div className="ts-modal-header">
-              <h2>Assign Clients</h2>
-              <p className="ts-modal-sub">
-                Select which clients <strong>{assignModal.displayName || assignModal.email}</strong> can access
-              </p>
-            </div>
+      {assignModal && (() => {
+        const q = assignSearch.toLowerCase();
+        const visibleClients = clients.filter(c =>
+          (c.name || "").toLowerCase().includes(q) ||
+          (c.phone || "").includes(q) ||
+          (c.address || "").toLowerCase().includes(q)
+        );
+        const allVisibleSelected = visibleClients.length > 0 && visibleClients.every(c => assignDraft.includes(c.phone));
+        return (
+          <>
+            <div className="ts-overlay" onClick={() => setAssignModal(null)} />
+            <div className="ts-modal ts-assign-modal">
+              <div className="ts-modal-header">
+                <h2>Manage Client Access</h2>
+                <p className="ts-modal-sub">
+                  <strong>{assignModal.displayName || assignModal.email}</strong> — select which clients they can view
+                </p>
+              </div>
 
-            <div className="ts-modal-search-row">
-              <span className="ts-assign-count">
-                {assignDraft.length} of {clients.length} selected
-              </span>
-              <button
-                className="ts-select-all-btn"
-                onClick={() => setAssignDraft(
-                  assignDraft.length === clients.length ? [] : clients.map(c => c.phone)
+              {/* Search + bulk toggle */}
+              <div className="ts-assign-toolbar">
+                <div className="ts-assign-search-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input
+                    className="ts-assign-search"
+                    type="text"
+                    placeholder="Search clients…"
+                    value={assignSearch}
+                    onChange={e => setAssignSearch(e.target.value)}
+                    autoFocus
+                  />
+                  {assignSearch && (
+                    <button className="ts-assign-search-clear" onClick={() => setAssignSearch("")}>✕</button>
+                  )}
+                </div>
+                <button
+                  className="ts-select-all-btn"
+                  onClick={() => {
+                    if (allVisibleSelected) {
+                      setAssignDraft(prev => prev.filter(p => !visibleClients.some(c => c.phone === p)));
+                    } else {
+                      const toAdd = visibleClients.map(c => c.phone).filter(p => !assignDraft.includes(p));
+                      setAssignDraft(prev => [...prev, ...toAdd]);
+                    }
+                  }}
+                >
+                  {allVisibleSelected ? "Deselect All" : "Select All"}
+                </button>
+              </div>
+
+              <div className="ts-assign-summary">
+                <span className="ts-assign-count">
+                  {assignDraft.length} client{assignDraft.length !== 1 ? "s" : ""} selected
+                </span>
+                {assignSearch && (
+                  <span className="ts-assign-filter-hint">
+                    Showing {visibleClients.length} of {clients.length}
+                  </span>
                 )}
-              >
-                {assignDraft.length === clients.length ? "Deselect All" : "Select All"}
-              </button>
-            </div>
+              </div>
 
-            <div className="ts-client-list">
-              {clients.map(client => {
-                const checked = assignDraft.includes(client.phone);
-                return (
-                  <label key={client.phone} className={`ts-client-row${checked ? " ts-client-checked" : ""}`}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleAssign(client.phone)}
-                      className="ts-client-checkbox"
-                    />
-                    <div className="ts-client-avatar">
-                      {(client.name || client.phone || "?").charAt(0).toUpperCase()}
-                    </div>
-                    <div className="ts-client-label">
-                      <span className="ts-client-name">{client.name || <span className="ts-muted">No name</span>}</span>
-                      <span className="ts-client-phone">{formatPhone(client.phone)}</span>
-                    </div>
-                    {checked && <CheckIcon />}
-                  </label>
-                );
-              })}
-              {clients.length === 0 && (
-                <p className="ts-empty">No clients in this organization yet.</p>
-              )}
-            </div>
+              <div className="ts-client-list">
+                {visibleClients.map(client => {
+                  const checked = assignDraft.includes(client.phone);
+                  const isClosed = client.claimStatus === "closed";
+                  const label = client.name || client.phone || "?";
+                  return (
+                    <label key={client.phone} className={`ts-client-row${checked ? " ts-client-checked" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAssign(client.phone)}
+                        className="ts-client-checkbox"
+                      />
+                      <div className="ts-client-avatar">
+                        {label.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="ts-client-label">
+                        <div className="ts-client-name-row">
+                          <span className="ts-client-name">{client.name || <span className="ts-muted">No name</span>}</span>
+                          <span className={`ts-client-status-badge ts-client-status-badge--${isClosed ? "closed" : "open"}`}>
+                            {isClosed ? "Closed" : "Open"}
+                          </span>
+                        </div>
+                        <span className="ts-client-phone">{formatPhone(client.phone)}</span>
+                        {client.address && (
+                          <span className="ts-client-address">{client.address}</span>
+                        )}
+                        {client.claimNumbers?.length > 0 && (
+                          <span className="ts-client-claim">Claim: {client.claimNumbers.join(", ")}</span>
+                        )}
+                      </div>
+                      {checked && <CheckIcon />}
+                    </label>
+                  );
+                })}
+                {visibleClients.length === 0 && (
+                  <p className="ts-empty">
+                    {clients.length === 0 ? "No clients in this organization yet." : "No clients match your search."}
+                  </p>
+                )}
+              </div>
 
-            <div className="ts-modal-actions">
-              <button className="ts-btn-secondary" onClick={() => setAssignModal(null)}>Cancel</button>
-              <button className="ts-btn-primary" onClick={saveAssignments} disabled={assignSaving}>
-                {assignSaving ? "Saving…" : "Save Assignments"}
-              </button>
+              <div className="ts-modal-actions">
+                <button className="ts-btn-secondary" onClick={() => setAssignModal(null)}>Cancel</button>
+                <button className="ts-btn-primary" onClick={saveAssignments} disabled={assignSaving}>
+                  {assignSaving ? "Saving…" : `Save (${assignDraft.length} selected)`}
+                </button>
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
 
       {/* ── Invite Member Modal ── */}
       {showInviteModal && (

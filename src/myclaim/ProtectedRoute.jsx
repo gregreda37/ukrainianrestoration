@@ -5,12 +5,14 @@ function Splash() {
   return <div className="mc-splash"><div className="mc-spinner" /></div>
 }
 
-// Staff only — phone users are redirected to the client portal
+// Staff only — phone users are redirected to the client portal.
+// Pending users (no org or removed) are redirected to the waiting screen.
 export default function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth()
+  const { user, loading, pending } = useAuth()
   if (loading) return <Splash />
   if (!user) return <Navigate to="/myclaim/login" replace />
   if (user.phoneNumber) return <Navigate to="/myclaim/portal" replace />
+  if (pending) return <Navigate to="/myclaim/pending" replace />
   return children
 }
 

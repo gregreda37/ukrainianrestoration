@@ -42,8 +42,8 @@ export default function Dashboard() {
   const { user } = useAuth();
 
   const FEATURES = [
-    { icon: <ChatBubbleIcon />, label: "Company Chat",  desc: "AI-powered answers about your jobs and estimates.", path: "/myclaim/chatbot",      bg: "#eff6ff", color: "#2563eb" },
-    { icon: <IntegIcon />,      label: "Integrations",  desc: "Manage CompanyCam and other connected tools.",      path: "/myclaim/integrations", bg: "#f5f3ff", color: "#7c3aed" },
+    { icon: <ChatBubbleIcon />, label: "Company Chat",  desc: "AI-powered answers about your jobs and estimates.", path: "/myclaim/chatbot",      bg: "#eff6ff", color: "#2563eb", adminOnly: true },
+    { icon: <IntegIcon />,      label: "Integrations",  desc: "Manage CompanyCam and other connected tools.",      path: "/myclaim/integrations", bg: "#f5f3ff", color: "#7c3aed", adminOnly: false },
   ];
 
   const [organizationName, setOrganizationName] = useState("");
@@ -54,6 +54,7 @@ export default function Dashboard() {
   const [editingOrg,       setEditingOrg]       = useState(false);
   const [savingOrg,        setSavingOrg]        = useState(false);
   const [saveOrgError,     setSaveOrgError]     = useState("");
+  const [role,             setRole]             = useState(null);
   const [recentClients,    setRecentClients]    = useState([]);
   const [recentLoading,    setRecentLoading]    = useState(true);
   const [showModal,        setShowModal]        = useState(false);
@@ -81,9 +82,10 @@ export default function Dashboard() {
         const oid = userSnap.data()?.organizationId;
         if (!oid) return;
         setOrganizationName(oid);
-        const [orgSnap, clientsSnap] = await Promise.all([
+        const [orgSnap, clientsSnap, contractorSnap] = await Promise.all([
           getDoc(doc(db, "organization_data", oid)),
           getDocs(collection(db, "organization_data", oid, "clients")),
+          getDoc(doc(db, "organization_data", oid, "contractors", user.uid)),
         ]);
         if (cancelled) return;
         if (orgSnap.exists()) {
@@ -92,7 +94,12 @@ export default function Dashboard() {
           setOrgInfo(info); setOrgEdit(info);
           if (info.companyName) setCompanyName(info.companyName);
         }
-        const all = clientsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
+        setRole(contractorRole);
+        const assignedPhones = contractorRole === "project_manager" ? (contractorSnap.data()?.assignedClients || []) : null;
+        const all = clientsSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(c => assignedPhones === null || assignedPhones.includes(c.phone));
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
         setRecentClients(all.slice(0, 6));
       } catch (err) {
@@ -243,7 +250,7 @@ export default function Dashboard() {
                 <BuildingIcon />
                 <h2>Company Info</h2>
               </div>
-              {!editingOrg && (
+              {!editingOrg && role !== "project_manager" && (
                 <button className="cw-edit-btn" onClick={() => { setOrgEdit({ ...orgInfo }); setEditingOrg(true); }}>
                   {orgInfo.companyName ? "Edit" : <><PlusIcon /> Set Up</>}
                 </button>
@@ -350,7 +357,7 @@ export default function Dashboard() {
         {/* Feature grid */}
         <div className="cw-section-label">Quick Access</div>
         <div className="cw-features">
-          {FEATURES.map(f => (
+          {FEATURES.filter(f => !f.adminOnly || role !== 'project_manager').map(f => (
             <button key={f.path} className="cw-feature-card" onClick={() => navigate(f.path)}
               style={{ "--icon-bg": f.bg, "--accent": f.color }}>
               <div className="cw-feature-icon">{f.icon}</div>

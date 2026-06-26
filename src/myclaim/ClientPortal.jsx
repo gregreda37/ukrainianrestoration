@@ -222,7 +222,17 @@ export default function ClientPortal() {
             }
           } catch {}
         }
-        const ctors = []; ctorSnap.forEach(d => ctors.push({ uid:d.id, ...d.data() })); setContractors(ctors);
+        // Only show contractors relevant to this client:
+        // admins (org owner or role=admin) are always visible;
+        // project managers appear only if this client is in their assignedClients list.
+        const ctors = [];
+        ctorSnap.forEach(d => {
+          const data = { uid: d.id, ...d.data() };
+          const isAdminRole = data.role === 'admin' || !data.role || d.id === oid;
+          const isAssigned  = (data.assignedClients || []).includes(phone);
+          if (isAdminRole || isAssigned) ctors.push(data);
+        });
+        setContractors(ctors);
         if (budgetSnap) setBudgetItems(budgetSnap.docs.map(d => ({ id:d.id, ...d.data() })));
       } catch (err) { console.error("Error loading claim data:", err); }
     })();
@@ -674,27 +684,36 @@ export default function ClientPortal() {
                       <hr className="cp-contractor-divider" />
                       <p className="cp-team-label">Team</p>
                       <div className="cp-contractor-links">
-                        {contractors.map(c => (
-                          <div key={c.uid} className="cp-team-member">
-                            <div className="cp-team-avatar">
-                              {(c.displayName || c.email || "?")[0].toUpperCase()}
-                            </div>
-                            <div className="cp-team-info">
-                              <span className="cp-team-name">
-                                {c.displayName || c.email}
-                                {c.role === "project_manager" && (
-                                  <span className="cp-team-role">Project Manager</span>
+                        {contractors.map(c => {
+                          // Prefer profile fields saved in Settings over auth defaults
+                          const displayName  = c.displayName || c.email || "Team Member";
+                          const shownEmail   = c.contactEmail || c.email || null;
+                          const shownPhone   = c.phone || null;
+                          const roleLabel    = c.role === "project_manager" ? "Project Manager" : "Admin";
+                          return (
+                            <div key={c.uid} className="cp-team-member">
+                              <div className="cp-team-avatar">
+                                {displayName[0].toUpperCase()}
+                              </div>
+                              <div className="cp-team-info">
+                                <span className="cp-team-name">
+                                  {displayName}
+                                  <span className="cp-team-role">{roleLabel}</span>
+                                </span>
+                                {shownEmail && (
+                                  <a href={`mailto:${shownEmail}`} className="cp-team-email">
+                                    <EmailIcon size={11} /> {shownEmail}
+                                  </a>
                                 )}
-                              </span>
-                              {c.email && (
-                                <a href={`mailto:${c.email}`} className="cp-team-email">{c.email}</a>
-                              )}
-                              {c.phone && (
-                                <a href={`tel:${c.phone}`} className="cp-team-email">{formatPhone(c.phone)}</a>
-                              )}
+                                {shownPhone && (
+                                  <a href={`tel:${shownPhone}`} className="cp-team-email">
+                                    <PhoneIcon size={11} /> {formatPhone(shownPhone)}
+                                  </a>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </>
                   )}

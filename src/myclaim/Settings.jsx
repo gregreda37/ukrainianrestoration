@@ -1,43 +1,89 @@
 import { useState, useEffect } from 'react'
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
-import { auth, db } from '../firebase'
+import { db } from '../firebase'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { useAuth } from './useAuth'
+import './Settings.css'
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5000' : '/api/backend')
 
+const BuildingIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
+  </svg>
+)
+const PersonIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+  </svg>
+)
+const LockIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  </svg>
+)
+const DriveIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.9 19.79 19.79 0 0 1 1.6 5.27 2 2 0 0 1 3.6 3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 10.6a16 16 0 0 0 6 6l.96-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+  </svg>
+)
+
 export default function Settings() {
   const { user } = useAuth()
-  const [currentPw, setCurrentPw] = useState('')
-  const [newPw, setNewPw] = useState('')
-  const [confirmPw, setConfirmPw] = useState('')
-  const [msg, setMsg] = useState('')
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
 
+  const [role,           setRole]           = useState(null)
   const [orgId,          setOrgId]          = useState('')
+
+  // Company
   const [companyName,    setCompanyName]    = useState('')
   const [companyAddress, setCompanyAddress] = useState('')
   const [savingCompany,  setSavingCompany]  = useState(false)
   const [companyMsg,     setCompanyMsg]     = useState('')
-  const [driveConnected, setDriveConnected] = useState(false)
-  const [driveFolderName, setDriveFolderName] = useState('')
-  const [driveLoading,   setDriveLoading]   = useState(false)
-  const [driveError,     setDriveError]     = useState('')
 
-  // Load orgId then drive status
+  // My Profile
+  const [techName,      setTechName]      = useState('')
+  const [techPhone,     setTechPhone]     = useState('')
+  const [contactEmail,  setContactEmail]  = useState('')
+  const [savingTech,    setSavingTech]    = useState(false)
+  const [techMsg,       setTechMsg]       = useState('')
+
+  // Password
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw,     setNewPw]     = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [pwMsg,     setPwMsg]     = useState('')
+  const [pwErr,     setPwErr]     = useState('')
+  const [savingPw,  setSavingPw]  = useState(false)
+
+  // Google Drive
+  const [driveConnected,  setDriveConnected]  = useState(false)
+  const [driveFolderName, setDriveFolderName] = useState('')
+  const [driveLoading,    setDriveLoading]    = useState(false)
+  const [driveError,      setDriveError]      = useState('')
+
   useEffect(() => {
     if (!user) return
-    getDoc(doc(db, 'users', user.uid)).then(snap => {
+    getDoc(doc(db, 'users', user.uid)).then(async snap => {
       const oid = snap.data()?.organizationId
       if (!oid) return
       setOrgId(oid)
-      getDoc(doc(db, 'organization_data', oid)).then(oSnap => {
-        if (oSnap.exists()) {
-          setCompanyName(oSnap.data().companyName || '')
-          setCompanyAddress(oSnap.data().companyAddress || '')
-        }
-      })
+
+      const [orgSnap, contractorSnap] = await Promise.all([
+        getDoc(doc(db, 'organization_data', oid)),
+        getDoc(doc(db, 'organization_data', oid, 'contractors', user.uid)),
+      ])
+
+      if (orgSnap.exists()) {
+        setCompanyName(orgSnap.data().companyName || '')
+        setCompanyAddress(orgSnap.data().companyAddress || '')
+      }
+
+      const cd = contractorSnap.exists() ? contractorSnap.data() : {}
+      setRole(cd.role || 'admin')
+      setTechName(cd.displayName || user.displayName || '')
+      setTechPhone(cd.phone || '')
+      setContactEmail(cd.contactEmail || '')
+
       fetch(`${API}/integrations/google-drive/status?orgId=${encodeURIComponent(oid)}`)
         .then(r => r.json())
         .then(d => { setDriveConnected(!!d.connected); setDriveFolderName(d.folderName || '') })
@@ -45,17 +91,11 @@ export default function Settings() {
     })
   }, [user])
 
-  // Listen for the OAuth popup closing and reporting back
   useEffect(() => {
     const handler = (e) => {
       if (!e.data || typeof e.data !== 'object') return
-      if (e.data.success) {
-        setDriveConnected(true)
-        setDriveFolderName(e.data.folderName || '')
-        setDriveError('')
-      } else if (e.data.message) {
-        setDriveError(e.data.message)
-      }
+      if (e.data.success) { setDriveConnected(true); setDriveFolderName(e.data.folderName || ''); setDriveError('') }
+      else if (e.data.message) setDriveError(e.data.message)
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
@@ -63,11 +103,7 @@ export default function Settings() {
 
   const connectDrive = () => {
     if (!orgId) return
-    const w = window.open(
-      `${API}/integrations/google-drive/auth?orgId=${encodeURIComponent(orgId)}`,
-      'google-drive-auth',
-      'width=600,height=700,left=200,top=100'
-    )
+    const w = window.open(`${API}/integrations/google-drive/auth?orgId=${encodeURIComponent(orgId)}`, 'google-drive-auth', 'width=600,height=700,left=200,top=100')
     if (!w) setDriveError('Popup blocked — allow popups for this page.')
   }
 
@@ -85,173 +121,227 @@ export default function Settings() {
     finally { setDriveLoading(false) }
   }
 
-  async function handleSaveCompany(e) {
+  const saveCompany = async (e) => {
     e.preventDefault()
     if (!orgId) return
     setSavingCompany(true); setCompanyMsg('')
     try {
-      await setDoc(doc(db, 'organization_data', orgId), {
-        companyName: companyName.trim(),
-        companyAddress: companyAddress.trim(),
-      }, { merge: true })
-      setCompanyMsg('Saved.')
-      setTimeout(() => setCompanyMsg(''), 3000)
-    } catch {
-      setCompanyMsg('Could not save. Try again.')
-    } finally {
-      setSavingCompany(false)
-    }
+      await setDoc(doc(db, 'organization_data', orgId), { companyName: companyName.trim(), companyAddress: companyAddress.trim() }, { merge: true })
+      setCompanyMsg('ok')
+    } catch { setCompanyMsg('err') }
+    finally { setSavingCompany(false); setTimeout(() => setCompanyMsg(''), 3000) }
   }
 
-  async function handlePasswordChange(e) {
+  const saveTech = async (e) => {
     e.preventDefault()
-    setMsg('')
-    setError('')
-    if (newPw !== confirmPw) { setError('New passwords do not match.'); return }
-    if (newPw.length < 8) { setError('Password must be at least 8 characters.'); return }
-    setSaving(true)
+    if (!orgId) return
+    setSavingTech(true); setTechMsg('')
     try {
-      const credential = EmailAuthProvider.credential(user.email, currentPw)
-      await reauthenticateWithCredential(user, credential)
-      await updatePassword(user, newPw)
-      setMsg('Password updated successfully.')
-      setCurrentPw('')
-      setNewPw('')
-      setConfirmPw('')
-    } catch (err) {
-      setError(err.code === 'auth/wrong-password' ? 'Current password is incorrect.' : err.message)
-    } finally {
-      setSaving(false)
-    }
+      await setDoc(doc(db, 'organization_data', orgId, 'contractors', user.uid), { displayName: techName.trim(), phone: techPhone.trim(), contactEmail: contactEmail.trim() }, { merge: true })
+      setTechMsg('ok')
+    } catch { setTechMsg('err') }
+    finally { setSavingTech(false); setTimeout(() => setTechMsg(''), 3000) }
   }
+
+  const savePassword = async (e) => {
+    e.preventDefault()
+    setPwMsg(''); setPwErr('')
+    if (newPw !== confirmPw) { setPwErr('New passwords do not match.'); return }
+    if (newPw.length < 8)   { setPwErr('Password must be at least 8 characters.'); return }
+    setSavingPw(true)
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPw))
+      await updatePassword(user, newPw)
+      setPwMsg('ok'); setCurrentPw(''); setNewPw(''); setConfirmPw('')
+    } catch (err) {
+      setPwErr(err.code === 'auth/wrong-password' ? 'Current password is incorrect.' : err.message)
+    } finally { setSavingPw(false) }
+  }
+
+  const isAdmin = role === null || role === 'admin'
 
   return (
-    <div className="mc-page">
-      <div className="mc-page__hd">
-        <h1>Settings</h1>
-      </div>
+    <div className="st-root">
+      <div className="st-main">
 
-      <div className="mc-section">
-        <h2 className="mc-section__title">Company</h2>
-        <form className="mc-form" onSubmit={handleSaveCompany}>
-          <label className="mc-field">
-            <span>Company Name</span>
-            <input
-              type="text"
-              value={companyName}
-              onChange={e => setCompanyName(e.target.value)}
-              placeholder="e.g. Ukrainian Restoration LLC"
-              required
-            />
-          </label>
-          <label className="mc-field">
-            <span>Company Address</span>
-            <input
-              type="text"
-              value={companyAddress}
-              onChange={e => setCompanyAddress(e.target.value)}
-              placeholder="e.g. 123 Main St, Newark, NJ 07101"
-            />
-          </label>
-          <p className="mc-muted" style={{ fontSize: '0.8125rem', marginTop: -4 }}>
-            Shown on the client portal team card.
-          </p>
-          {companyMsg && (
-            <p className={companyMsg === 'Saved.' ? 'mc-success' : 'mc-error'}>{companyMsg}</p>
-          )}
-          <button className="mc-btn mc-btn--primary" type="submit" disabled={savingCompany || !orgId}>
-            {savingCompany ? 'Saving…' : 'Save'}
-          </button>
-        </form>
-      </div>
-
-      <div className="mc-section">
-        <h2 className="mc-section__title">Account</h2>
-        <div className="mc-setting-row">
-          <span className="mc-setting-row__label">Email</span>
-          <span>{user?.email}</span>
+        {/* Page header */}
+        <div className="st-page-header">
+          <h1 className="st-title">Settings</h1>
+          <p className="st-subtitle">Manage your profile, company info, and integrations.</p>
         </div>
 
-      </div>
-
-      <div className="mc-section">
-        <h2 className="mc-section__title">Change Password</h2>
-        <form className="mc-form" onSubmit={handlePasswordChange}>
-          <label className="mc-field">
-            <span>Current Password</span>
-            <input
-              type="password"
-              value={currentPw}
-              onChange={e => setCurrentPw(e.target.value)}
-              required
-            />
-          </label>
-          <label className="mc-field">
-            <span>New Password</span>
-            <input
-              type="password"
-              value={newPw}
-              onChange={e => setNewPw(e.target.value)}
-              minLength={8}
-              required
-            />
-          </label>
-          <label className="mc-field">
-            <span>Confirm New Password</span>
-            <input
-              type="password"
-              value={confirmPw}
-              onChange={e => setConfirmPw(e.target.value)}
-              required
-            />
-          </label>
-          {error && <p className="mc-error">{error}</p>}
-          {msg && <p className="mc-success">{msg}</p>}
-          <button className="mc-btn mc-btn--primary" type="submit" disabled={saving}>
-            {saving ? 'Updating…' : 'Update Password'}
-          </button>
-        </form>
-      </div>
-
-      <div className="mc-section">
-        <h2 className="mc-section__title">Google Drive</h2>
-        <div className="mc-setting-row">
-          <span className="mc-setting-row__label">Status</span>
-          <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{
-              width:8, height:8, borderRadius:'50%', display:'inline-block',
-              background: driveConnected ? '#16a34a' : '#d1d5db'
-            }} />
-            {driveConnected ? 'Connected' : 'Not connected'}
-          </span>
-        </div>
-        {driveConnected && driveFolderName && (
-          <div className="mc-setting-row">
-            <span className="mc-setting-row__label">Root folder</span>
-            <span className="mc-muted mc-mono">{driveFolderName}</span>
+        {/* ── Company (admins only) ── */}
+        {isAdmin && (
+          <div className="st-card">
+            <div className="st-card-header">
+              <div className="st-card-icon st-card-icon--blue"><BuildingIcon /></div>
+              <div>
+                <p className="st-card-title">Company</p>
+                <p className="st-card-hint">Displayed on the client portal team card.</p>
+              </div>
+            </div>
+            <div className="st-card-body">
+              <form className="st-form" onSubmit={saveCompany}>
+                <div className="st-field">
+                  <label className="st-label">Company Name</label>
+                  <input className="st-input" type="text" value={companyName}
+                    onChange={e => setCompanyName(e.target.value)}
+                    placeholder="e.g. Ukrainian Restoration LLC" required />
+                </div>
+                <div className="st-field">
+                  <label className="st-label">Company Address</label>
+                  <input className="st-input" type="text" value={companyAddress}
+                    onChange={e => setCompanyAddress(e.target.value)}
+                    placeholder="e.g. 123 Main St, Newark, NJ 07101" />
+                </div>
+                <div className="st-actions">
+                  <button className="st-btn st-btn--primary" type="submit" disabled={savingCompany || !orgId}>
+                    {savingCompany ? 'Saving…' : 'Save'}
+                  </button>
+                  {companyMsg === 'ok'  && <span className="st-msg st-msg--ok">Saved.</span>}
+                  {companyMsg === 'err' && <span className="st-msg st-msg--err">Could not save. Try again.</span>}
+                </div>
+              </form>
+            </div>
           </div>
         )}
-        {driveError && <p className="mc-error" style={{ marginTop:8 }}>{driveError}</p>}
-        <div style={{ marginTop:12, display:'flex', gap:8 }}>
-          {!driveConnected ? (
-            <button className="mc-btn mc-btn--primary" onClick={connectDrive} disabled={!orgId}>
-              Connect Google Drive
-            </button>
-          ) : (
-            <button className="mc-btn" onClick={disconnectDrive} disabled={driveLoading}
-              style={{ background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }}>
-              {driveLoading ? 'Disconnecting…' : 'Disconnect'}
-            </button>
-          )}
-        </div>
-      </div>
 
-      <div className="mc-section">
-        <h2 className="mc-section__title">Backend</h2>
-        <div className="mc-setting-row">
-          <span className="mc-setting-row__label">API URL</span>
-          <span className="mc-muted mc-mono">{import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000'}</span>
+        {/* ── My Profile (all users) ── */}
+        <div className="st-card">
+          <div className="st-card-header">
+            <div className="st-card-icon st-card-icon--purple"><PersonIcon /></div>
+            <div>
+              <p className="st-card-title">My Profile</p>
+              <p className="st-card-hint">Your contact details shown to clients on the project portal.</p>
+            </div>
+          </div>
+          <div className="st-card-body">
+            <form className="st-form" onSubmit={saveTech}>
+              <div className="st-field">
+                <label className="st-label">Display Name</label>
+                <input className="st-input" type="text" value={techName}
+                  onChange={e => setTechName(e.target.value)} placeholder="e.g. John Smith" />
+              </div>
+              <div className="st-field">
+                <label className="st-label">Contact Phone</label>
+                <input className="st-input" type="tel" value={techPhone}
+                  onChange={e => setTechPhone(e.target.value)} placeholder="(555) 000-0000" />
+              </div>
+              <div className="st-field">
+                <label className="st-label">Contact Email</label>
+                <input className="st-input" type="email" value={contactEmail}
+                  onChange={e => setContactEmail(e.target.value)} placeholder="you@example.com" />
+                <span className="st-hint">Optional — if different from your login email.</span>
+              </div>
+              <div className="st-actions">
+                <button className="st-btn st-btn--primary" type="submit" disabled={savingTech || !orgId}>
+                  {savingTech ? 'Saving…' : 'Save Profile'}
+                </button>
+                {techMsg === 'ok'  && <span className="st-msg st-msg--ok">Saved.</span>}
+                {techMsg === 'err' && <span className="st-msg st-msg--err">Could not save. Try again.</span>}
+              </div>
+            </form>
+          </div>
         </div>
+
+        {/* ── Account ── */}
+        <div className="st-card">
+          <div className="st-card-header">
+            <div className="st-card-icon st-card-icon--slate">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </div>
+            <div>
+              <p className="st-card-title">Account</p>
+              <p className="st-card-hint">Your login information.</p>
+            </div>
+          </div>
+          <div className="st-card-body">
+            <div className="st-info-row">
+              <span className="st-info-label">Email</span>
+              <span>{user?.email}</span>
+            </div>
+            <div className="st-info-row">
+              <span className="st-info-label">Role</span>
+              <span style={{ textTransform: 'capitalize' }}>{(role || 'admin').replace('_', ' ')}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Change Password ── */}
+        {user?.email && (
+          <div className="st-card">
+            <div className="st-card-header">
+              <div className="st-card-icon st-card-icon--amber"><LockIcon /></div>
+              <div>
+                <p className="st-card-title">Change Password</p>
+                <p className="st-card-hint">Must be at least 8 characters.</p>
+              </div>
+            </div>
+            <div className="st-card-body">
+              <form className="st-form" onSubmit={savePassword}>
+                <div className="st-field">
+                  <label className="st-label">Current Password</label>
+                  <input className="st-input" type="password" value={currentPw}
+                    onChange={e => setCurrentPw(e.target.value)} required />
+                </div>
+                <div className="st-field">
+                  <label className="st-label">New Password</label>
+                  <input className="st-input" type="password" value={newPw}
+                    onChange={e => setNewPw(e.target.value)} minLength={8} required />
+                </div>
+                <div className="st-field">
+                  <label className="st-label">Confirm New Password</label>
+                  <input className="st-input" type="password" value={confirmPw}
+                    onChange={e => setConfirmPw(e.target.value)} required />
+                </div>
+                <div className="st-actions">
+                  <button className="st-btn st-btn--primary" type="submit" disabled={savingPw}>
+                    {savingPw ? 'Updating…' : 'Update Password'}
+                  </button>
+                  {pwMsg === 'ok'  && <span className="st-msg st-msg--ok">Password updated.</span>}
+                  {pwErr           && <span className="st-msg st-msg--err">{pwErr}</span>}
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── Google Drive (admin only) ── */}
+        {isAdmin && (
+          <div className="st-card">
+            <div className="st-card-header">
+              <div className="st-card-icon st-card-icon--green"><DriveIcon /></div>
+              <div>
+                <p className="st-card-title">Google Drive</p>
+                <p className="st-card-hint">Auto-create folders for each client job.</p>
+              </div>
+            </div>
+            <div className="st-card-body">
+              <div className="st-drive-status">
+                <span className={`st-status-dot ${driveConnected ? 'st-status-dot--on' : 'st-status-dot--off'}`} />
+                <span>{driveConnected ? 'Connected' : 'Not connected'}</span>
+              </div>
+              {driveConnected && driveFolderName && (
+                <div className="st-drive-folder">{driveFolderName}</div>
+              )}
+              {driveError && <p className="st-msg st-msg--err" style={{ marginTop: 10 }}>{driveError}</p>}
+              <div className="st-actions" style={{ marginTop: 16 }}>
+                {!driveConnected ? (
+                  <button className="st-btn st-btn--primary" onClick={connectDrive} disabled={!orgId}>
+                    Connect Google Drive
+                  </button>
+                ) : (
+                  <button className="st-btn st-btn--danger" onClick={disconnectDrive} disabled={driveLoading}>
+                    {driveLoading ? 'Disconnecting…' : 'Disconnect'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   )

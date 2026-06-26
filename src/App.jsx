@@ -1,4 +1,4 @@
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, lazy, Suspense } from 'react'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -31,6 +31,15 @@ function NotFound() {
 }
 
 import './myclaim/myclaim.css'
+import { useAuth } from './myclaim/useAuth'
+
+// Redirects project managers away from admin-only pages
+function AdminRoute({ children }) {
+  const { role, loading } = useAuth()
+  if (loading) return null
+  if (role === 'project_manager') return <Navigate to="/myclaim" replace />
+  return children
+}
 
 const Login          = lazy(() => import('./myclaim/Login'))
 const ClientPortal   = lazy(() => import('./myclaim/ClientPortal'))
@@ -46,7 +55,8 @@ const Chatbot      = lazy(() => import('./myclaim/Chatbot'))
 const AIAnalysis   = lazy(() => import('./myclaim/AIAnalysis'))
 const Settings     = lazy(() => import('./myclaim/Settings'))
 const TeamSettings = lazy(() => import('./myclaim/TeamSettings'))
-const OptInPolicy  = lazy(() => import('./myclaim/OptInPolicy'))
+const OptInPolicy      = lazy(() => import('./myclaim/OptInPolicy'))
+const PendingApproval  = lazy(() => import('./myclaim/PendingApproval'))
 
 function PortalFallback() {
   return (
@@ -133,6 +143,11 @@ export default function App() {
           <Suspense fallback={<PortalFallback />}><OptInPolicy /></Suspense>
         } />
 
+        {/* ── Pending approval (no org yet, or removed from org) ── */}
+        <Route path="/myclaim/pending" element={
+          <Suspense fallback={<PortalFallback />}><PendingApproval /></Suspense>
+        } />
+
         {/* ── Client portal (phone users) ── */}
         <Route path="/myclaim/portal" element={
           <Suspense fallback={<PortalFallback />}>
@@ -156,8 +171,8 @@ export default function App() {
           <Route index element={<Suspense fallback={<PortalFallback />}><Dashboard /></Suspense>} />
           <Route path="clients" element={<Suspense fallback={<PortalFallback />}><Clients /></Suspense>} />
           <Route path="clients/:id" element={<Suspense fallback={<PortalFallback />}><ClientDetail /></Suspense>} />
-          <Route path="chatbot" element={<Suspense fallback={<PortalFallback />}><Chatbot /></Suspense>} />
-          <Route path="ai" element={<Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense>} />
+          <Route path="chatbot" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Chatbot /></Suspense></AdminRoute>} />
+          <Route path="ai" element={<AdminRoute><Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense></AdminRoute>} />
           <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />
           <Route path="team" element={<Suspense fallback={<PortalFallback />}><TeamSettings /></Suspense>} />
         </Route>

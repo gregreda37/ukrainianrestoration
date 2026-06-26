@@ -230,19 +230,33 @@ export default function AIAnalysis() {
 
   // ── Load client list ─────────────────────────────────────────────
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId || !user) return;
+    let cancelled = false;
     setClientsLoading(true);
-    getDocs(collection(db, "organization_data", orgId, "clients"))
-      .then((snap) => {
-        const list = snap.docs.map((d) => ({ docId: d.id, ...d.data() }));
+    (async () => {
+      try {
+        const [snap, contractorSnap] = await Promise.all([
+          getDocs(collection(db, "organization_data", orgId, "clients")),
+          getDoc(doc(db, "organization_data", orgId, "contractors", user.uid)),
+        ]);
+        if (cancelled) return;
+        const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
+        const assignedPhones = contractorRole === "project_manager" ? (contractorSnap.data()?.assignedClients || []) : null;
+
+        const list = snap.docs
+          .map((d) => ({ docId: d.id, ...d.data() }))
+          .filter((c) => assignedPhones === null || assignedPhones.includes(c.phone));
         list.sort((a, b) => {
           if (a.claimStatus === b.claimStatus) return (a.name || "").localeCompare(b.name || "");
           return a.claimStatus === "open" ? -1 : 1;
         });
-        setClients(list);
-      })
-      .finally(() => setClientsLoading(false));
-  }, [orgId]);
+        if (!cancelled) setClients(list);
+      } finally {
+        if (!cancelled) setClientsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [orgId, user]);
 
   // ── Auto-scroll chat ─────────────────────────────────────────────
   useEffect(() => {

@@ -43,6 +43,7 @@ export default function Clients() {
 
   const [organizationName, setOrganizationName] = useState("");
   const [userDetails,      setUserDetails]      = useState(null);
+  const [userRole,         setUserRole]         = useState("admin");
   const [clients,          setClients]          = useState([]);
   const [loading,          setLoading]          = useState(true);
   const [error,            setError]            = useState("");
@@ -75,11 +76,20 @@ export default function Clients() {
         if (!oid) { setError("No organization found. Please sign out and back in."); return; }
         setOrganizationName(oid);
 
+        // Read contractor doc fresh to get the latest role and assignedClients
+        const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid));
+        if (cancelled) return;
+        const contractorRole    = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
+        const assignedPhones    = contractorRole === "project_manager" ? (contractorSnap.data()?.assignedClients || []) : null;
+        setUserRole(contractorRole);
+
         const snap = await getDocs(collection(db, "organization_data", oid, "clients"));
         if (cancelled) return;
 
         const base = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
+          // Project managers only see explicitly assigned clients
+          .filter(c => assignedPhones === null || assignedPhones.includes(c.phone))
           .sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
 
         // Enrich with live user doc data where available
@@ -141,8 +151,13 @@ export default function Clients() {
   const closeModal = () => { setShowModal(false); setClientName(""); setClientPhone(""); setSaved(false); setSaveError(""); };
 
   const refreshClients = async (oid) => {
+    const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid)).catch(() => null);
+    const contractorRole = contractorSnap?.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
+    const assignedPhones = contractorRole === "project_manager" ? (contractorSnap?.data()?.assignedClients || []) : null;
+
     const snap = await getDocs(collection(db, "organization_data", oid, "clients"));
     const base = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(c => assignedPhones === null || assignedPhones.includes(c.phone))
       .sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
     const enriched = await Promise.all(base.map(async (client) => {
       try {
@@ -226,9 +241,11 @@ export default function Clients() {
               {loading ? "Loading…" : `${clients.length} client${clients.length !== 1 ? "s" : ""}`}
             </p>
           </div>
-          <button className="cl-add-btn" onClick={openModal}>
-            <PlusIcon /> Add New Client
-          </button>
+          {userRole !== "project_manager" && (
+            <button className="cl-add-btn" onClick={openModal}>
+              <PlusIcon /> Add New Client
+            </button>
+          )}
         </div>
 
         <div className="cl-search-wrap">

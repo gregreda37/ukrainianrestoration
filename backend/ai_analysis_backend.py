@@ -6,7 +6,7 @@ import hashlib
 import requests
 import numpy as np
 from PIL import Image
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait as _fut_wait, FIRST_COMPLETED
 import anthropic
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, Response, stream_with_context
@@ -255,6 +255,31 @@ def _select_best_photos(photo_infos: list[dict], max_count: int = MAX_PHOTOS_LLM
     return kept
 
 
+def _process_and_cache_photos(db, cache_key: str, photo_infos: list[dict],
+                               caller_uid: str, expires_at: str) -> int:
+    """
+    Pre-process CompanyCam photos during /context so /chat never does inline
+    image fetching. Stores image blocks in ai_photo_blocks/{cache_key} to keep
+    the main cache document under Firestore's 1 MB limit.
+    Returns the number of photos successfully processed and cached.
+    """
+    try:
+        selected = _select_best_photos(photo_infos, MAX_PHOTOS_LLM)
+        image_blocks = [r["block"] for r in selected]
+        db.collection("ai_photo_blocks").document(cache_key).set({
+            "imageBlocks":    image_blocks,
+            "processedCount": len(image_blocks),
+            "callerUid":      caller_uid,
+            "expiresAt":      expires_at,
+            "processedAt":    admin_firestore.SERVER_TIMESTAMP,
+        })
+        print(f"[ai/photos] cached {len(image_blocks)} photo blocks for {cache_key}")
+        return len(image_blocks)
+    except Exception as e:
+        print(f"[ai/photos] caching failed for {cache_key}: {e}")
+        return 0
+
+
 # ── Context builder ───────────────────────────────────────────────────────────
 
 def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
@@ -492,24 +517,35 @@ def get_context():
         cache_key  = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
 
-        # Store full-quality URLs (not thumbs) for the LLM pipeline
+        # Store metadata only — processed image blocks go in ai_photo_blocks
+        # to keep this document well under Firestore's 1 MB limit.
         db.collection("ai_context_cache").document(cache_key).set({
-            "contextString":  context_string,
-            "photoInfos":     photos,                  # full objects with fullUrl + thumbUrl
-            "photoUrls":      [p["fullUrl"] for p in photos if p.get("fullUrl")],  # legacy compat
-            "orgId":          org_id,
-            "clientUid":      client_uid,
-            "callerUid":      caller_uid,
-            "expiresAt":      expires_at,
-            "createdAt":      admin_firestore.SERVER_TIMESTAMP,
+            "contextString": context_string,
+            "photoInfos":    photos,
+            "orgId":         org_id,
+            "clientUid":     client_uid,
+            "callerUid":     caller_uid,
+            "expiresAt":     expires_at,
+            "createdAt":     admin_firestore.SERVER_TIMESTAMP,
         })
 
+        # Pre-process photos here so /chat never does inline image fetching.
+        # Storing in ai_photo_blocks keeps blobs out of the main cache doc.
+        photos_processed = 0
+        photos_status    = "none"
+        if photos and context_flags.get("photos", True):
+            print(f"[ai/context] pre-processing {len(photos)} photos for {cache_key}")
+            photos_processed = _process_and_cache_photos(db, cache_key, photos, caller_uid, expires_at)
+            photos_status    = "ready" if photos_processed > 0 else "error"
+
         return jsonify({
-            "cacheKey":      cache_key,
-            "clientSummary": client_summary,
-            "photos":        photos[:30],   # first 30 thumbs for sidebar preview
-            "stats":         stats,
-            "expiresAt":     expires_at,
+            "cacheKey":        cache_key,
+            "clientSummary":   client_summary,
+            "photos":          photos[:30],   # sidebar thumbnails (metadata only)
+            "stats":           stats,
+            "expiresAt":       expires_at,
+            "photosStatus":    photos_status,
+            "photosProcessed": photos_processed,
         })
     except Exception as e:
         print(f"[ai/context] unhandled error: {e}")
@@ -561,22 +597,24 @@ def chat():
 
     context_string = cache_data.get("contextString", "")
 
-    # ── Preprocess photos ─────────────────────────────────────────────────────
+    # ── Load pre-processed photo blocks ──────────────────────────────────────
+    # Photos are processed during /context (not here) to avoid request timeout.
+    # ai_photo_blocks keeps blobs out of the 1 MB main cache document.
     image_blocks: list[dict] = []
     if include_photos:
-        # Prefer the richer photoInfos stored by the new /context endpoint;
-        # fall back to plain photoUrls if this cache entry was created by old code.
-        photo_infos = cache_data.get("photoInfos")
-        if photo_infos:
-            # photoInfos is a list of {fullUrl, thumbUrl, capturedAt, ...}
-            selected = _select_best_photos(photo_infos, MAX_PHOTOS_LLM)
-        else:
-            # Legacy: plain URL list — wrap into the same format
-            legacy_urls = cache_data.get("photoUrls", [])
-            legacy_infos = [{"fullUrl": u} for u in legacy_urls]
-            selected = _select_best_photos(legacy_infos, MAX_PHOTOS_LLM)
-
-        image_blocks = [r["block"] for r in selected]
+        try:
+            pb_doc = db.collection("ai_photo_blocks").document(cache_key).get()
+            if pb_doc.exists:
+                pb = pb_doc.to_dict()
+                if pb.get("callerUid") == caller_uid:
+                    image_blocks = pb.get("imageBlocks", [])
+                    print(f"[ai/chat] loaded {len(image_blocks)} pre-cached photos")
+                else:
+                    print("[ai/chat] photo blocks exist but wrong caller — skipping")
+            else:
+                print("[ai/chat] no pre-cached photos found — proceeding without")
+        except Exception as e:
+            print(f"[ai/chat] photo block read failed: {e} — proceeding without photos")
 
     # ── Build Claude messages ─────────────────────────────────────────────────
     claude_messages: list[dict] = []

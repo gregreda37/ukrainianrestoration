@@ -383,15 +383,17 @@ export default function ClientDetail() {
               setCcProjectName(u.companyCamProjectName || "");
               if (u.selectedPhotoIds) setSelectedPhotoIds(new Set(u.selectedPhotoIds));
               setCcPhotoLoad(true);
-              fetch(`${API}/photos/companycam`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ projectId: projId, orgId }),
-              })
-                .then(r => r.json())
-                .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
-                .catch(() => {})
-                .finally(() => { if (!cancelled) setCcPhotoLoad(false); });
+              user.getIdToken().then(token =>
+                fetch(`${API}/photos/companycam`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                  body: JSON.stringify({ projectId: projId, orgId }),
+                })
+                  .then(r => r.json())
+                  .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
+                  .catch(() => {})
+                  .finally(() => { if (!cancelled) setCcPhotoLoad(false); })
+              ).catch(() => { if (!cancelled) setCcPhotoLoad(false); });
             }
             if (u.claimNumbers?.[0]) setClaimNumber(u.claimNumbers[0]);
             const fields = {
@@ -925,9 +927,10 @@ export default function ClientDetail() {
     if (!projectId || !orgId) return;
     setCcPhotoLoad(true);
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${API}/photos/companycam`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ projectId, orgId }),
       });
       const data = await res.json();
@@ -944,9 +947,10 @@ export default function ClientDetail() {
     setCcProjLoad(true);
     setCcError("");
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${API}/companycam/projects`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ orgId }),
       });
       const data = await res.json();
@@ -989,9 +993,10 @@ export default function ClientDetail() {
     if (!addr) { setCcError("Add a client address first."); return; }
     setCcCreating(true); setCcError("");
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${API}/companycam/projects/create`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ orgId, address: addr }),
       });
       const data = await res.json();
@@ -1030,9 +1035,10 @@ export default function ClientDetail() {
     if (!ccProjectId || !orgId) return;
     setClassifying(true); setClassifyError(""); setClassifyResults(null);
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${API}/companycam/classify`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ projectId: ccProjectId, orgId }),
       });
       const data = await res.json();

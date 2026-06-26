@@ -9,6 +9,8 @@ load_dotenv()
 import firebase_init
 firebase_init.init()
 
+from firebase_admin import auth as admin_auth
+
 from landing_page_model import landing_page_app
 from company_chatbot_backend import company_chatbot_app
 from claim_chatbot_backend import claim_chatbot_app
@@ -215,6 +217,8 @@ def link_preview():
 
 @app.route("/photos/companycam", methods=["POST"])
 def get_companycam_photos():
+    if not _verify_firebase_token():
+        return jsonify({"error": "Unauthorized"}), 401
     data = request.json or {}
     project_id = data.get("projectId")
     org_id = data.get("orgId")
@@ -249,6 +253,8 @@ def get_companycam_photos():
 
 @app.route("/companycam/projects", methods=["POST"])
 def list_companycam_projects():
+    if not _verify_firebase_token():
+        return jsonify({"error": "Unauthorized"}), 401
     data = request.json or {}
     org_id = data.get("orgId")
     if not org_id:
@@ -279,6 +285,8 @@ def list_companycam_projects():
 
 @app.route("/companycam/projects/create", methods=["POST"])
 def create_companycam_project():
+    if not _verify_firebase_token():
+        return jsonify({"error": "Unauthorized"}), 401
     data = request.json or {}
     org_id = data.get("orgId")
     address = data.get("address")
@@ -308,6 +316,8 @@ def create_companycam_project():
 
 @app.route("/companycam/classify", methods=["POST"])
 def companycam_classify_route():
+    if not _verify_firebase_token():
+        return jsonify({"error": "Unauthorized"}), 401
     data = request.json or {}
     org_id = data.get("orgId")
     project_id = data.get("projectId")
@@ -341,6 +351,26 @@ def companycam_classify_route():
         return jsonify({"results": results})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _verify_firebase_token():
+    """
+    Verify Firebase ID token from either:
+    - X-Firebase-ID-Token header (set by App Engine proxy in production)
+    - Authorization: Bearer header (local dev, no proxy)
+    Returns the decoded token dict, or None if missing/invalid.
+    """
+    raw = (
+        request.headers.get("X-Firebase-ID-Token", "")
+        or request.headers.get("Authorization", "")
+    )
+    token = raw[7:] if raw.startswith("Bearer ") else raw
+    if not token:
+        return None
+    try:
+        return admin_auth.verify_id_token(token)
+    except Exception:
+        return None
 
 
 @app.route("/health")

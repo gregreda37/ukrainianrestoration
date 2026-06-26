@@ -424,8 +424,50 @@
 
 @keyframes aa-spin { to { transform: rotate(360deg); } }
 
-.aa-loading-label { font-size: 15px; font-weight: 600; color: #0f172a; margin: 0 0 6px; }
-.aa-loading-sub   { font-size: 12px; color: #94a3b8; max-width: 320px; line-height: 1.5; margin: 0; }
+.aa-loading-label { font-size: 15px; font-weight: 600; color: #0f172a; margin: 0 0 16px; }
+
+/* ── Context loading steps ───────────────────────────────────────────────────── */
+
+.aa-load-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 300px;
+  width: 100%;
+}
+
+.aa-load-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  animation: aa-step-in 0.35s ease forwards;
+}
+
+@keyframes aa-step-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.aa-load-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  flex-shrink: 0;
+  animation: aa-dot-fill 0.25s ease forwards;
+  animation-delay: inherit;
+}
+
+@keyframes aa-dot-fill {
+  from { background: #e2e8f0; }
+  to   { background: #2563eb; }
+}
+
+.aa-load-step-text {
+  font-size: 13px;
+  color: #475569;
+}
 
 /* ── Welcome panel ───────────────────────────────────────────────────────── */
 
@@ -593,36 +635,37 @@
   margin-top: 2px;
 }
 
-/* Streaming / thinking */
-.aa-thinking {
+/* ── Typewriter status ───────────────────────────────────────────────────────── */
+
+.aa-typewriter {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #64748b;
+  gap: 6px;
+  color: #475569;
   font-size: 13px;
+  min-height: 22px;
+  font-style: italic;
 }
 
-.aa-thinking-label { font-style: italic; }
-
-.aa-thinking-dots {
-  display: flex;
-  gap: 4px;
+.aa-typewriter-icon {
+  color: #2563eb;
+  font-style: normal;
+  font-size: 12px;
 }
 
-.aa-thinking-dots span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #94a3b8;
-  animation: aa-dot-bounce .9s infinite;
+.aa-typewriter-text {
+  letter-spacing: 0.01em;
 }
 
-.aa-thinking-dots span:nth-child(2) { animation-delay: .15s; }
-.aa-thinking-dots span:nth-child(3) { animation-delay: .30s; }
-
-@keyframes aa-dot-bounce {
-  0%, 80%, 100% { transform: scale(1); opacity: .4; }
-  40%           { transform: scale(1.2); opacity: 1; }
+.aa-typewriter-cur {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: #2563eb;
+  border-radius: 1px;
+  animation: aa-blink .8s step-end infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .aa-cursor {

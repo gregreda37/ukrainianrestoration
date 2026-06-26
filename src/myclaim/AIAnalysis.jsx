@@ -106,6 +106,83 @@ function MarkdownMessage({ text }) {
   return <div className="aa-md">{parts}</div>
 }
 
+// ── Thinking phrases ─────────────────────────────────────────────────────────
+
+const THINKING_PHRASES = [
+  'Reading claim documents…',
+  'Reviewing tasks and todos…',
+  'Checking budget entries…',
+  'Scanning document history…',
+  'Preparing your response…',
+]
+const PHOTO_THINKING_PHRASES = [
+  'Reading claim documents…',
+  'Loading CompanyCam photos…',
+  'Analyzing site damage imagery…',
+  'Cross-referencing documents…',
+  'Preparing your response…',
+]
+
+// ── Typewriter component ──────────────────────────────────────────────────────
+
+function TypewriterStatus({ phrases }) {
+  const [phraseIdx, setPhraseIdx] = useState(0)
+  const [displayed, setDisplayed] = useState('')
+  const [ready, setReady] = useState(false)
+
+  // Small delay so it doesn't flash if first token arrives immediately
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 200)
+    return () => clearTimeout(t)
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    const current = phrases[phraseIdx % phrases.length]
+    if (displayed.length < current.length) {
+      const t = setTimeout(() => setDisplayed(current.slice(0, displayed.length + 1)), 40)
+      return () => clearTimeout(t)
+    }
+    // Phrase fully typed — pause then advance
+    const t = setTimeout(() => {
+      setPhraseIdx(i => i + 1)
+      setDisplayed('')
+    }, 1100)
+    return () => clearTimeout(t)
+  }, [displayed, phraseIdx, phrases, ready])
+
+  if (!ready) return null
+  return (
+    <div className="aa-typewriter">
+      <span className="aa-typewriter-icon">▸</span>
+      <span className="aa-typewriter-text">{displayed || ' '}</span>
+      <span className="aa-typewriter-cur" />
+    </div>
+  )
+}
+
+// ── Context loading steps ─────────────────────────────────────────────────────
+
+function LoadingSteps({ includePhotos }) {
+  const steps = [
+    'Connecting to case file',
+    'Loading claim information',
+    'Reviewing todos & documents',
+    ...(includePhotos ? ['Processing CompanyCam photos', 'Quality-checking imagery'] : []),
+    'Building AI context',
+  ]
+  return (
+    <div className="aa-load-steps">
+      {steps.map((s, i) => (
+        <div key={i} className="aa-load-step" style={{ animationDelay: `${i * 0.55}s` }}>
+          <span className="aa-load-step-dot" style={{ animationDelay: `${i * 0.55 + 0.35}s` }} />
+          <span className="aa-load-step-text">{s}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const fmtPhone = (p = '') => {
@@ -650,14 +727,12 @@ export default function AIAnalysis() {
         )}
 
         {contextLoading && (
-          <div className="aa-empty-state">
+          <div className="aa-empty-state aa-empty-state--loading">
             <div className="aa-loading-ring" />
             <p className="aa-loading-label">
-              {contextFlags.photos ? 'Fetching claim data & processing photos…' : 'Fetching claim data…'}
+              {contextFlags.photos ? 'Loading context & processing photos…' : 'Loading claim context…'}
             </p>
-            <p className="aa-loading-sub">
-              {contextFlags.photos ? 'Photos are quality-checked and preprocessed here so chat responses are instant.' : 'This usually takes a few seconds.'}
-            </p>
+            <LoadingSteps includePhotos={!!contextFlags.photos} />
           </div>
         )}
 
@@ -705,10 +780,9 @@ export default function AIAnalysis() {
                     <div className="aa-message-bubble">
                       {msg.content ? <MarkdownMessage text={msg.content} /> : null}
                       {msg.streaming && !msg.content && (
-                        <div className="aa-thinking">
-                          <span className="aa-thinking-label">Analyzing</span>
-                          <span className="aa-thinking-dots"><span /><span /><span /></span>
-                        </div>
+                        <TypewriterStatus
+                          phrases={photosStatus === 'ready' ? PHOTO_THINKING_PHRASES : THINKING_PHRASES}
+                        />
                       )}
                       {msg.streaming && msg.content && <span className="aa-cursor">▋</span>}
                       {msg.stopped && <span className="aa-stopped-badge">— stopped</span>}

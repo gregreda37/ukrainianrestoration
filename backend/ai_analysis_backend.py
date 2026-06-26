@@ -3,7 +3,7 @@ import json
 import base64
 import hashlib
 import requests
-# redeploy: secret version now exists, CORS safety-net in main.py
+from concurrent.futures import ThreadPoolExecutor
 import anthropic
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, Response, stream_with_context
@@ -222,7 +222,7 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                 detail = f" — {a['details']}" if a.get("details") else ""
                 lines.append(f"  [{a['ts']}] {a['actor']}: {a['type']}{detail}")
 
-    # CompanyCam photos
+    # CompanyCam photos — paginate all pages, thumb URLs only (16x fewer tokens than medium)
     ccam_project_id = ud.get("companyCamProjectId", "")
     photos = []
     stats["hasPhotos"] = bool(ccam_project_id)
@@ -233,26 +233,53 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
         ccam_key = org_doc.to_dict().get("companyCamAPI", "") if org_doc.exists else ""
         if ccam_key:
             try:
-                resp = requests.get(
-                    f"https://api.companycam.com/v2/projects/{ccam_project_id}/photos",
-                    headers={"Authorization": f"Bearer {ccam_key}"},
-                    params={"per_page": 50},
-                    timeout=10,
-                )
-                if resp.ok:
-                    raw = resp.json()
-                    stats["photoCount"] = len(raw)
-                    client_summary["photoCount"] = len(raw)
-                    for ph in raw:
-                        uris = ph.get("uris", [])
-                        medium = next((u["uri"] for u in uris if u.get("type") == "medium"), None)
-                        thumb = next((u["uri"] for u in uris if u.get("type") == "thumb"), None)
-                        if medium or thumb:
-                            photos.append({"id": ph.get("id"), "thumbUrl": thumb or medium, "mediumUrl": medium or thumb})
-                    if photos:
-                        lines.append(f"\n## COMPANYCAM PHOTOS")
-                        lines.append(f"Total photos on file: {stats['photoCount']}")
-                        lines.append("(Photo thumbnails will be provided as images in this conversation)")
+                all_raw = []
+                page = 1
+                while True:
+                    resp = requests.get(
+                        f"https://api.companycam.com/v2/projects/{ccam_project_id}/photos",
+                        headers={"Authorization": f"Bearer {ccam_key}"},
+                        params={"per_page": 50, "page": page},
+                        timeout=15,
+                    )
+                    if not resp.ok:
+                        break
+                    batch = resp.json()
+                    if isinstance(batch, dict):
+                        batch = batch.get("data", [])
+                    all_raw.extend(batch)
+                    if len(batch) < 50:
+                        break
+                    page += 1
+
+                stats["photoCount"] = len(all_raw)
+                client_summary["photoCount"] = len(all_raw)
+
+                for ph in all_raw:
+                    uris = ph.get("uris", [])
+                    thumb = next((u["uri"] for u in uris if u.get("type") == "thumb"), None)
+                    medium = next((u["uri"] for u in uris if u.get("type") == "medium"), None)
+                    url = thumb or medium
+                    captured_at = ph.get("captured_at")  # Unix timestamp
+                    if url:
+                        photos.append({
+                            "id": ph.get("id"),
+                            "thumbUrl": url,
+                            "capturedAt": captured_at,
+                        })
+
+                if photos:
+                    lines.append(f"\n## COMPANYCAM PHOTOS")
+                    lines.append(f"Total photos on file: {stats['photoCount']}")
+                    lines.append("(Thumbnails will be provided as images in this conversation)")
+                    # Include timestamps as text — Claude reads these for labor log analysis
+                    sorted_photos = sorted(photos, key=lambda x: x.get("capturedAt") or 0)
+                    lines.append("\nPhoto timestamps (chronological):")
+                    for i, ph in enumerate(sorted_photos, 1):
+                        ts = ph.get("capturedAt")
+                        if ts:
+                            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                            lines.append(f"  Photo {i}: {dt.strftime('%Y-%m-%d %H:%M UTC')}")
             except Exception as e:
                 print(f"[ai/context] CompanyCam error: {e}")
 
@@ -291,7 +318,7 @@ def get_context():
 
     db.collection("ai_context_cache").document(cache_key).set({
         "contextString": context_string,
-        "photoUrls": [p.get("mediumUrl") or p.get("thumbUrl") for p in photos[:15]],
+        "photoUrls": [p["thumbUrl"] for p in photos if p.get("thumbUrl")],
         "orgId": org_id,
         "clientUid": client_uid,
         "callerUid": caller_uid,
@@ -303,7 +330,7 @@ def get_context():
     return jsonify({
         "cacheKey": cache_key,
         "clientSummary": client_summary,
-        "photos": photos[:30],  # thumb URLs for sidebar preview only
+        "photos": photos[:30],  # first 30 for sidebar preview only
         "stats": stats,
         "expiresAt": expires_at,
     })
@@ -370,26 +397,36 @@ def chat():
                     "cache_control": {"type": "ephemeral"},
                 }
             ]
-            # Attach photos after the cached text block
+            # Parallel-fetch up to 100 thumbnails (thumbs ~40 tok each vs ~640 for mediums)
             if photo_urls:
-                fetched = 0
-                for url in photo_urls[:15]:
+                urls_to_fetch = photo_urls[:100]
+
+                def _fetch_image(url):
                     try:
                         r = requests.get(url, timeout=8)
                         if r.ok:
                             media = r.headers.get("content-type", "image/jpeg").split(";")[0]
-                            content.append({
+                            return {
                                 "type": "image",
                                 "source": {
                                     "type": "base64",
                                     "media_type": media,
                                     "data": base64.standard_b64encode(r.content).decode("utf-8"),
                                 },
-                            })
-                            fetched += 1
+                            }
                     except Exception as e:
                         print(f"[ai/chat] photo fetch failed: {e}")
-                print(f"[ai/chat] attached {fetched} photos from cache")
+                    return None
+
+                with ThreadPoolExecutor(max_workers=10) as pool:
+                    results = list(pool.map(_fetch_image, urls_to_fetch))
+
+                fetched = 0
+                for img in results:
+                    if img:
+                        content.append(img)
+                        fetched += 1
+                print(f"[ai/chat] attached {fetched}/{len(urls_to_fetch)} photos")
 
             claude_messages.append({"role": "user", "content": content})
         else:

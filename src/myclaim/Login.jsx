@@ -75,17 +75,9 @@ export default function Login() {
     }
     setPendingPasswordCreation(true)
     signInWithEmailLink(auth, savedEmail, window.location.href)
-      .then(async (result) => {
+      .then((result) => {
         window.localStorage.removeItem('emailForSignIn')
         window.history.replaceState({}, '', window.location.pathname)
-        const userSnap = await getDoc(doc(db, 'users', result.user.uid))
-        if (!userSnap.exists()) {
-          await auth.signOut()
-          setPendingPasswordCreation(false)
-          setError("This email isn't registered with any active claim. Contact your contractor.")
-          setStep('email')
-          return
-        }
         const hasPassword = result.user.providerData.some(p => p.providerId === 'password')
         if (!hasPassword) {
           setEmail(savedEmail)
@@ -464,7 +456,7 @@ export default function Login() {
             </>
           )}
 
-          {/* Staff Google sign-in */}
+          {/* Staff sign-in */}
           {step === 'admin' && (
             <>
               <button className="mc-login__back" type="button" onClick={() => { setStep('phone'); setError('') }}>
@@ -473,28 +465,46 @@ export default function Login() {
               <h1 className="mc-login__title">Staff sign-in.</h1>
               <p className="mc-login__sub">Contractor &amp; admin access only.</p>
 
-              <div className="mc-login__form">
+              <form className="mc-login__form" onSubmit={handleEmailContinue} noValidate>
+                <div className="mc-field-group">
+                  <label className="mc-field-label">WORK EMAIL</label>
+                  <input
+                    className="mc-input-plain"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    autoFocus
+                    required
+                  />
+                </div>
                 {error && <p className="mc-login__error">{error}</p>}
-                <button
-                  className="mc-btn-google"
-                  type="button"
-                  onClick={handleGoogleSignIn}
-                  disabled={submitting}
-                >
-                  {submitting ? (
-                    <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Signing in…</>
-                  ) : (
-                    <><GoogleIcon /> Continue with Google</>
-                  )}
+                <button className="mc-btn-pill" type="submit" disabled={submitting || !email.trim()}>
+                  {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Checking…</> : 'Continue'}
                 </button>
-              </div>
+              </form>
+
+              <div className="mc-login__divider"><span>or</span></div>
+
+              <button
+                className="mc-btn-google"
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Signing in…</>
+                ) : (
+                  <><GoogleIcon /> Continue with Google</>
+                )}
+              </button>
             </>
           )}
 
           {/* Email entry */}
           {step === 'email' && (
             <>
-              <button className="mc-login__back" type="button" onClick={() => { setStep('phone'); setError('') }}>
+              <button className="mc-login__back" type="button" onClick={() => { setStep('admin'); setError('') }}>
                 ← Back
               </button>
               <h1 className="mc-login__title">Sign in with email.</h1>
@@ -523,7 +533,7 @@ export default function Login() {
           {/* Email link sent */}
           {step === 'email-sent' && (
             <>
-              <button className="mc-login__back" type="button" onClick={() => { setStep('email'); setError('') }}>
+              <button className="mc-login__back" type="button" onClick={() => { setStep('admin'); setError('') }}>
                 ← Back
               </button>
               <div className="mc-login__email-sent-icon">✉️</div>
@@ -536,7 +546,7 @@ export default function Login() {
                 <button
                   className="mc-login__consent-link"
                   style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 'inherit' }}
-                  onClick={() => { setStep('email'); setError('') }}
+                  onClick={() => { setStep('admin'); setError('') }}
                 >
                   try again
                 </button>.
@@ -547,7 +557,7 @@ export default function Login() {
           {/* Email + password sign-in (returning user) */}
           {step === 'email-password' && (
             <>
-              <button className="mc-login__back" type="button" onClick={() => { setStep('email'); setError(''); setEmailPassword('') }}>
+              <button className="mc-login__back" type="button" onClick={() => { setStep('admin'); setError(''); setEmailPassword('') }}>
                 ← Back
               </button>
               <h1 className="mc-login__title">Welcome back.</h1>
@@ -621,14 +631,6 @@ export default function Login() {
           )}
 
           {step !== 'admin' && step !== 'email' && step !== 'email-sent' && step !== 'email-password' && step !== 'create-password' && (
-            <div className="mc-login__alt-methods">
-              <button className="mc-login__email-link" type="button" onClick={() => { setStep('email'); setError('') }}>
-                Sign in with email instead
-              </button>
-            </div>
-          )}
-
-          {step !== 'admin' && (
             <button className="mc-login__admin-link" type="button" onClick={() => { setStep('admin'); setError('') }}>
               Admin login
             </button>

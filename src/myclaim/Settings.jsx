@@ -36,11 +36,12 @@ export default function Settings() {
   const [orgId,          setOrgId]          = useState('')
 
   // Company
-  const [companyName,    setCompanyName]    = useState('')
-  const [companyAddress, setCompanyAddress] = useState('')
-  const [companyPhone,   setCompanyPhone]   = useState('')
-  const [companyLicense, setCompanyLicense] = useState('')
-  const [companyLogoUrl, setCompanyLogoUrl] = useState('')
+  const [companyName,      setCompanyName]      = useState('')
+  const [companyAddress,   setCompanyAddress]   = useState('')
+  const [companyPhone,     setCompanyPhone]     = useState('')
+  const [companyLicense,   setCompanyLicense]   = useState('')
+  const [companyLogoUrl,   setCompanyLogoUrl]   = useState('')
+  const [defaultTaxState,  setDefaultTaxState]  = useState('')
   const [uploadingLogo,  setUploadingLogo]  = useState(false)
   const [savingCompany,  setSavingCompany]  = useState(false)
   const [companyMsg,     setCompanyMsg]     = useState('')
@@ -86,6 +87,7 @@ export default function Settings() {
         setCompanyPhone(od.companyPhone || '')
         setCompanyLicense(od.companyLicense || '')
         setCompanyLogoUrl(od.companyLogoUrl || '')
+        setDefaultTaxState(od.defaultTaxState || '')
       }
 
       const cd = contractorSnap.exists() ? contractorSnap.data() : {}
@@ -135,14 +137,21 @@ export default function Settings() {
     const file = e.target.files?.[0]
     if (!file || !orgId) return
     if (!file.type.startsWith('image/')) { setCompanyMsg('err-logo'); return }
-    setUploadingLogo(true)
+    setUploadingLogo(true); setCompanyMsg('')
     try {
-      const storageRef = ref(storage, `organizations/${orgId}/logo/${file.name}`)
-      await uploadBytes(storageRef, file)
-      const url = await getDownloadURL(storageRef)
+      // Use a stable filename so repeated uploads don't accumulate in storage
+      const ext = file.name.split('.').pop()
+      const logoRef = ref(storage, `organizations/${orgId}/logo/logo.${ext}`)
+      await uploadBytes(logoRef, file, { contentType: file.type })
+      const url = await getDownloadURL(logoRef)
       setCompanyLogoUrl(url)
       await setDoc(doc(db, 'organization_data', orgId), { companyLogoUrl: url }, { merge: true })
-    } catch { setCompanyMsg('err') }
+      setCompanyMsg('ok-logo')
+      setTimeout(() => setCompanyMsg(''), 3000)
+    } catch (err) {
+      console.error('Logo upload failed:', err)
+      setCompanyMsg('err-logo-upload')
+    }
     finally { setUploadingLogo(false) }
   }
 
@@ -152,10 +161,11 @@ export default function Settings() {
     setSavingCompany(true); setCompanyMsg('')
     try {
       await setDoc(doc(db, 'organization_data', orgId), {
-        companyName:    companyName.trim(),
-        companyAddress: companyAddress.trim(),
-        companyPhone:   companyPhone.trim(),
-        companyLicense: companyLicense.trim(),
+        companyName:     companyName.trim(),
+        companyAddress:  companyAddress.trim(),
+        companyPhone:    companyPhone.trim(),
+        companyLicense:  companyLicense.trim(),
+        defaultTaxState: defaultTaxState,
       }, { merge: true })
       setCompanyMsg('ok')
     } catch { setCompanyMsg('err') }
@@ -251,6 +261,17 @@ export default function Settings() {
                     placeholder="e.g. 123 Main St, Newark, NJ 07101" />
                 </div>
                 <div className="st-field">
+                  <label className="st-label">Default Tax State</label>
+                  <select className="st-input" value={defaultTaxState}
+                    onChange={e => setDefaultTaxState(e.target.value)}>
+                    <option value="">— No default tax —</option>
+                    {['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'].map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <span className="st-hint">Auto-fills tax state on new invoices.</span>
+                </div>
+                <div className="st-field">
                   <label className="st-label">Company Phone</label>
                   <input className="st-input" type="tel" value={companyPhone}
                     onChange={e => setCompanyPhone(e.target.value)}
@@ -267,9 +288,11 @@ export default function Settings() {
                   <button className="st-btn st-btn--primary" type="submit" disabled={savingCompany || !orgId}>
                     {savingCompany ? 'Saving…' : 'Save'}
                   </button>
-                  {companyMsg === 'ok'       && <span className="st-msg st-msg--ok">Saved.</span>}
-                  {companyMsg === 'err'      && <span className="st-msg st-msg--err">Could not save. Try again.</span>}
-                  {companyMsg === 'err-logo' && <span className="st-msg st-msg--err">Please upload an image file.</span>}
+                  {companyMsg === 'ok'            && <span className="st-msg st-msg--ok">Saved.</span>}
+                  {companyMsg === 'ok-logo'       && <span className="st-msg st-msg--ok">Logo uploaded.</span>}
+                  {companyMsg === 'err'           && <span className="st-msg st-msg--err">Could not save. Try again.</span>}
+                  {companyMsg === 'err-logo'      && <span className="st-msg st-msg--err">Please upload an image file.</span>}
+                  {companyMsg === 'err-logo-upload' && <span className="st-msg st-msg--err">Upload failed — check console for details.</span>}
                 </div>
               </form>
             </div>

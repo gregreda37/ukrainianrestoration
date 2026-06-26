@@ -58,9 +58,10 @@ async function generatePDF(inv, logoUrl) {
   if (logoUrl) {
     try {
       const imgData = await loadImageAsBase64(logoUrl)
-      doc.addImage(imgData, 'PNG', margin, 14, 60, 60)
+      const fmt = /data:image\/jpe?g/i.test(imgData) ? 'JPEG' : 'PNG'
+      doc.addImage(imgData, fmt, margin, 14, 60, 60)
       headerTextX = margin + 72
-    } catch { /* fall through to text */ }
+    } catch (e) { console.warn('Logo load failed, skipping:', e) }
   }
 
   doc.setFont('helvetica', 'bold')
@@ -256,26 +257,31 @@ function fmtDate(str) {
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
-function loadImageAsBase64(url) {
+async function loadImageAsBase64(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`)
+  const blob = await res.blob()
   return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
-      canvas.getContext('2d').drawImage(img, 0, 0)
-      resolve(canvas.toDataURL('image/png'))
-    }
-    img.onerror = reject
-    img.src = url
+    const reader = new FileReader()
+    reader.onload  = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
   })
 }
 
-// Extract 2-letter US state abbreviation from an address string like "123 Main St, Chicago, IL 60601"
+// Extract 2-letter US state abbreviation from an address string
 function extractState(address) {
   if (!address) return ''
-  const m = address.match(/[,\s]+([A-Z]{2})\s+\d{5}/)
-  return m ? m[1] : ''
+  // Try "City, IL 60601" or "City, IL 60601-1234"
+  let m = address.match(/,\s*([A-Z]{2})\s+\d{5}/)
+  if (m) return m[1]
+  // Try "City, IL" at end (no ZIP)
+  m = address.match(/,\s*([A-Z]{2})\s*$/)
+  if (m) return m[1]
+  // Try "City IL 60601" (no comma)
+  m = address.match(/\s([A-Z]{2})\s+\d{5}/)
+  if (m) return m[1]
+  return ''
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -409,9 +415,9 @@ export default function InvoiceEditor() {
         setCompanyLicense(od.companyLicense || '')
         setCompanyLogoUrl(od.companyLogoUrl || '')
 
-        // Default tax state from company address (only for new invoices)
+        // Default tax state on new invoices: explicit org setting first, then address fallback
         if (isNew) {
-          const abbr = extractState(od.companyAddress || '')
+          const abbr = od.defaultTaxState || extractState(od.companyAddress || '')
           if (abbr && STATE_TAXES[abbr]) {
             setTaxState(abbr)
             if (STATE_TAXES[abbr].rate !== null) setTaxRate(String(STATE_TAXES[abbr].rate))

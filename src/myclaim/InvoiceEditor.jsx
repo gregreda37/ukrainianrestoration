@@ -44,24 +44,23 @@ function calcTotals(lineItems, taxRate, discount) {
 
 // ── PDF generation ────────────────────────────────────────────────────────────
 
-async function generatePDF(inv, logoUrl) {
+async function generatePDF(inv, logoBase64) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const pw = doc.internal.pageSize.getWidth()
   const margin = 48
 
   // ── Header band ──
-  doc.setFillColor(15, 23, 42)
+  doc.setFillColor(37, 99, 235)   // blue-600
   doc.rect(0, 0, pw, 88, 'F')
 
-  // Logo or company name
+  // Logo (pre-loaded as base64 — PNG transparency is preserved over the header band)
   let headerTextX = margin
-  if (logoUrl) {
+  if (logoBase64) {
     try {
-      const imgData = await loadImageAsBase64(logoUrl)
-      const fmt = /data:image\/jpe?g/i.test(imgData) ? 'JPEG' : 'PNG'
-      doc.addImage(imgData, fmt, margin, 14, 60, 60)
+      const fmt = /data:image\/jpe?g/i.test(logoBase64) ? 'JPEG' : 'PNG'
+      doc.addImage(logoBase64, fmt, margin, 14, 60, 60, undefined, 'NONE')
       headerTextX = margin + 72
-    } catch (e) { console.warn('Logo load failed, skipping:', e) }
+    } catch (e) { console.warn('Logo render failed:', e) }
   }
 
   doc.setFont('helvetica', 'bold')
@@ -269,18 +268,21 @@ async function loadImageAsBase64(url) {
   })
 }
 
-// Extract 2-letter US state abbreviation from an address string
+const _STATE_ABBRS = Object.keys({AL:1,AK:1,AZ:1,AR:1,CA:1,CO:1,CT:1,DE:1,FL:1,GA:1,HI:1,ID:1,IL:1,IN:1,IA:1,KS:1,KY:1,LA:1,ME:1,MD:1,MA:1,MI:1,MN:1,MS:1,MO:1,MT:1,NE:1,NV:1,NH:1,NJ:1,NM:1,NY:1,NC:1,ND:1,OH:1,OK:1,OR:1,PA:1,RI:1,SC:1,SD:1,TN:1,TX:1,UT:1,VT:1,VA:1,WA:1,WV:1,WI:1,WY:1,DC:1})
+const _STATE_SET   = new Set(_STATE_ABBRS)
+
 function extractState(address) {
   if (!address) return ''
-  // Try "City, IL 60601" or "City, IL 60601-1234"
-  let m = address.match(/,\s*([A-Z]{2})\s+\d{5}/)
-  if (m) return m[1]
-  // Try "City, IL" at end (no ZIP)
-  m = address.match(/,\s*([A-Z]{2})\s*$/)
-  if (m) return m[1]
-  // Try "City IL 60601" (no comma)
-  m = address.match(/\s([A-Z]{2})\s+\d{5}/)
-  if (m) return m[1]
+  const a = address.toUpperCase()
+  let m = a.match(/,\s*([A-Z]{2})\s+\d{5}/)
+  if (m && _STATE_SET.has(m[1])) return m[1]
+  m = a.match(/,\s*([A-Z]{2})\s*$/)
+  if (m && _STATE_SET.has(m[1])) return m[1]
+  m = a.match(/\s([A-Z]{2})\s+\d{5}/)
+  if (m && _STATE_SET.has(m[1])) return m[1]
+  for (const st of _STATE_ABBRS) {
+    if (new RegExp(`\\b${st}\\b`).test(a)) return st
+  }
   return ''
 }
 
@@ -381,6 +383,7 @@ export default function InvoiceEditor() {
   const [companyPhone,   setCompanyPhone]   = useState('')
   const [companyLicense, setCompanyLicense] = useState('')
   const [companyLogoUrl, setCompanyLogoUrl] = useState('')
+  const [logoBase64,     setLogoBase64]     = useState(null)
   const [orgId,          setOrgId]          = useState('')
 
   const [loading,   setLoading]   = useState(true)
@@ -414,6 +417,7 @@ export default function InvoiceEditor() {
         setCompanyPhone(od.companyPhone || '')
         setCompanyLicense(od.companyLicense || '')
         setCompanyLogoUrl(od.companyLogoUrl || '')
+        setLogoBase64(od.companyLogoBase64 || null)
 
         // Default tax state on new invoices: explicit org setting first, then address fallback
         if (isNew) {
@@ -651,7 +655,7 @@ export default function InvoiceEditor() {
     setExporting(true)
     try {
       const inv = buildInvoice()
-      const pdf = await generatePDF(inv, companyLogoUrl || null)
+      const pdf = await generatePDF(inv, logoBase64)
       const filename = `${inv.invoiceNumber || (type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice')}.pdf`
       if (download) pdf.save(filename)
       else pdf.output('dataurlnewwindow')
@@ -667,7 +671,7 @@ export default function InvoiceEditor() {
     setAddingDoc(true)
     try {
       const inv = buildInvoice()
-      const pdf = await generatePDF(inv, companyLogoUrl || null)
+      const pdf = await generatePDF(inv, logoBase64)
       const blob = pdf.output('blob')
       const label = inv.invoiceNumber || (type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice')
       const filename = `${label}-${Date.now()}.pdf`

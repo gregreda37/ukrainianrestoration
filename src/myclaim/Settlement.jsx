@@ -150,7 +150,9 @@ export default function Settlement() {
         const snap = await getDocs(
           query(collection(db, 'users', uid, 'settlements'), orderBy('createdAt', 'desc'))
         )
-        setSettlements(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        setSettlements(loaded)
+        if (loaded.length > 0) setExpanded(loaded[0].id)
       }
     } finally {
       setLoading(false)

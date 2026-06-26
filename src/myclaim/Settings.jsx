@@ -8,6 +8,48 @@ import './Settings.css'
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5000' : '/api/backend')
 
+const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
+const US_STATE_SET = new Set(US_STATES)
+
+function detectStateFromAddress(address) {
+  if (!address) return ''
+  const a = address.toUpperCase()
+  // "City, NJ 07101" or "City, NJ"
+  let m = a.match(/,\s*([A-Z]{2})\s+\d{5}/)
+  if (m && US_STATE_SET.has(m[1])) return m[1]
+  m = a.match(/,\s*([A-Z]{2})\s*$/)
+  if (m && US_STATE_SET.has(m[1])) return m[1]
+  // "City NJ 07101" (no comma)
+  m = a.match(/\s([A-Z]{2})\s+\d{5}/)
+  if (m && US_STATE_SET.has(m[1])) return m[1]
+  // scan for known state abbr as standalone word anywhere in address
+  for (const st of US_STATES) {
+    if (new RegExp(`\\b${st}\\b`).test(a)) return st
+  }
+  return ''
+}
+
+// Resize logo to base64 using a local blob URL — no CORS fetch needed
+function resizeLogoToBase64(file, maxPx = 300) {
+  return new Promise((resolve, reject) => {
+    const blobUrl = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
+      const w = Math.round(img.width  * scale)
+      const h = Math.round(img.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width  = w
+      canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      URL.revokeObjectURL(blobUrl)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('Image load failed')) }
+    img.src = blobUrl
+  })
+}
+
 const BuildingIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
@@ -139,13 +181,17 @@ export default function Settings() {
     if (!file.type.startsWith('image/')) { setCompanyMsg('err-logo'); return }
     setUploadingLogo(true); setCompanyMsg('')
     try {
-      // Use a stable filename so repeated uploads don't accumulate in storage
       const ext = file.name.split('.').pop()
       const logoRef = ref(storage, `organizations/${orgId}/logo/logo.${ext}`)
       await uploadBytes(logoRef, file, { contentType: file.type })
       const url = await getDownloadURL(logoRef)
+      // Read file locally as resized base64 — avoids CORS fetch issues in PDF generation
+      const base64 = await resizeLogoToBase64(file, 300)
       setCompanyLogoUrl(url)
-      await setDoc(doc(db, 'organization_data', orgId), { companyLogoUrl: url }, { merge: true })
+      await setDoc(doc(db, 'organization_data', orgId), {
+        companyLogoUrl:    url,
+        companyLogoBase64: base64,
+      }, { merge: true })
       setCompanyMsg('ok-logo')
       setTimeout(() => setCompanyMsg(''), 3000)
     } catch (err) {
@@ -257,7 +303,13 @@ export default function Settings() {
                 <div className="st-field">
                   <label className="st-label">Company Address</label>
                   <input className="st-input" type="text" value={companyAddress}
-                    onChange={e => setCompanyAddress(e.target.value)}
+                    onChange={e => {
+                      setCompanyAddress(e.target.value)
+                      if (!defaultTaxState) {
+                        const detected = detectStateFromAddress(e.target.value)
+                        if (detected) setDefaultTaxState(detected)
+                      }
+                    }}
                     placeholder="e.g. 123 Main St, Newark, NJ 07101" />
                 </div>
                 <div className="st-field">

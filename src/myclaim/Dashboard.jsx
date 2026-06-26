@@ -42,8 +42,8 @@ export default function Dashboard() {
   const { user } = useAuth();
 
   const FEATURES = [
-    { icon: <ChatBubbleIcon />, label: "Company Chat",  desc: "AI-powered answers about your jobs and estimates.", path: "/myclaim/chatbot",      bg: "#eff6ff", color: "#2563eb", adminOnly: true },
-    { icon: <IntegIcon />,      label: "Integrations",  desc: "Manage CompanyCam and other connected tools.",      path: "/myclaim/integrations", bg: "#f5f3ff", color: "#7c3aed", adminOnly: false },
+    { icon: <ChatBubbleIcon />, label: "Company Chat",  desc: "AI-powered answers about your jobs and estimates.", path: "/myclaim/chatbot",      bg: "#eff6ff", color: "#2563eb", pmBlocked: true  },
+    { icon: <IntegIcon />,      label: "Integrations",  desc: "Manage CompanyCam and other connected tools.",      path: "/myclaim/integrations", bg: "#f5f3ff", color: "#7c3aed", pmBlocked: false },
   ];
 
   const [organizationName, setOrganizationName] = useState("");
@@ -96,10 +96,11 @@ export default function Dashboard() {
         }
         const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
         setRole(contractorRole);
-        const assignedPhones = contractorRole === "project_manager" ? (contractorSnap.data()?.assignedClients || []) : null;
+        const needsFilter = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+        const assignedPhones = needsFilter ? (contractorSnap.data()?.assignedClients || []) : null;
         const all = clientsSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
-          .filter(c => assignedPhones === null || assignedPhones.includes(c.phone));
+          .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
         setRecentClients(all.slice(0, 6));
       } catch (err) {
@@ -250,7 +251,7 @@ export default function Dashboard() {
                 <BuildingIcon />
                 <h2>Company Info</h2>
               </div>
-              {!editingOrg && role !== "project_manager" && (
+              {!editingOrg && role === 'admin' && (
                 <button className="cw-edit-btn" onClick={() => { setOrgEdit({ ...orgInfo }); setEditingOrg(true); }}>
                   {orgInfo.companyName ? "Edit" : <><PlusIcon /> Set Up</>}
                 </button>
@@ -357,7 +358,7 @@ export default function Dashboard() {
         {/* Feature grid */}
         <div className="cw-section-label">Quick Access</div>
         <div className="cw-features">
-          {FEATURES.filter(f => !f.adminOnly || role !== 'project_manager').map(f => (
+          {FEATURES.filter(f => !f.pmBlocked || role !== 'project_manager').map(f => (
             <button key={f.path} className="cw-feature-card" onClick={() => navigate(f.path)}
               style={{ "--icon-bg": f.bg, "--accent": f.color }}>
               <div className="cw-feature-icon">{f.icon}</div>

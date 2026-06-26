@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
-import { db } from '../firebase'
+import { db, storage } from '../firebase'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useAuth } from './useAuth'
 import './Settings.css'
 
@@ -37,8 +38,13 @@ export default function Settings() {
   // Company
   const [companyName,    setCompanyName]    = useState('')
   const [companyAddress, setCompanyAddress] = useState('')
+  const [companyPhone,   setCompanyPhone]   = useState('')
+  const [companyLicense, setCompanyLicense] = useState('')
+  const [companyLogoUrl, setCompanyLogoUrl] = useState('')
+  const [uploadingLogo,  setUploadingLogo]  = useState(false)
   const [savingCompany,  setSavingCompany]  = useState(false)
   const [companyMsg,     setCompanyMsg]     = useState('')
+  const logoInputRef = useRef(null)
 
   // My Profile
   const [techName,      setTechName]      = useState('')
@@ -74,8 +80,12 @@ export default function Settings() {
       ])
 
       if (orgSnap.exists()) {
-        setCompanyName(orgSnap.data().companyName || '')
-        setCompanyAddress(orgSnap.data().companyAddress || '')
+        const od = orgSnap.data()
+        setCompanyName(od.companyName || '')
+        setCompanyAddress(od.companyAddress || '')
+        setCompanyPhone(od.companyPhone || '')
+        setCompanyLicense(od.companyLicense || '')
+        setCompanyLogoUrl(od.companyLogoUrl || '')
       }
 
       const cd = contractorSnap.exists() ? contractorSnap.data() : {}
@@ -121,12 +131,32 @@ export default function Settings() {
     finally { setDriveLoading(false) }
   }
 
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !orgId) return
+    if (!file.type.startsWith('image/')) { setCompanyMsg('err-logo'); return }
+    setUploadingLogo(true)
+    try {
+      const storageRef = ref(storage, `organizations/${orgId}/logo/${file.name}`)
+      await uploadBytes(storageRef, file)
+      const url = await getDownloadURL(storageRef)
+      setCompanyLogoUrl(url)
+      await setDoc(doc(db, 'organization_data', orgId), { companyLogoUrl: url }, { merge: true })
+    } catch { setCompanyMsg('err') }
+    finally { setUploadingLogo(false) }
+  }
+
   const saveCompany = async (e) => {
     e.preventDefault()
     if (!orgId) return
     setSavingCompany(true); setCompanyMsg('')
     try {
-      await setDoc(doc(db, 'organization_data', orgId), { companyName: companyName.trim(), companyAddress: companyAddress.trim() }, { merge: true })
+      await setDoc(doc(db, 'organization_data', orgId), {
+        companyName:    companyName.trim(),
+        companyAddress: companyAddress.trim(),
+        companyPhone:   companyPhone.trim(),
+        companyLicense: companyLicense.trim(),
+      }, { merge: true })
       setCompanyMsg('ok')
     } catch { setCompanyMsg('err') }
     finally { setSavingCompany(false); setTimeout(() => setCompanyMsg(''), 3000) }
@@ -182,6 +212,32 @@ export default function Settings() {
             </div>
             <div className="st-card-body">
               <form className="st-form" onSubmit={saveCompany}>
+                {/* Logo */}
+                <div className="st-field">
+                  <label className="st-label">Company Logo</label>
+                  <div className="st-logo-row">
+                    {companyLogoUrl
+                      ? <img src={companyLogoUrl} alt="Company logo" className="st-logo-preview" />
+                      : <div className="st-logo-placeholder">{companyName ? companyName[0].toUpperCase() : 'L'}</div>
+                    }
+                    <div className="st-logo-actions">
+                      <button type="button" className="st-btn st-btn--secondary"
+                        onClick={() => logoInputRef.current?.click()} disabled={uploadingLogo}>
+                        {uploadingLogo ? 'Uploading…' : companyLogoUrl ? 'Replace Logo' : 'Upload Logo'}
+                      </button>
+                      {companyLogoUrl && (
+                        <button type="button" className="st-btn st-btn--ghost"
+                          onClick={async () => {
+                            setCompanyLogoUrl('')
+                            await setDoc(doc(db, 'organization_data', orgId), { companyLogoUrl: '' }, { merge: true })
+                          }}>Remove</button>
+                      )}
+                    </div>
+                    <input ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoUpload} />
+                  </div>
+                  <span className="st-hint">Used on invoices and estimates. PNG or SVG recommended.</span>
+                </div>
+
                 <div className="st-field">
                   <label className="st-label">Company Name</label>
                   <input className="st-input" type="text" value={companyName}
@@ -194,12 +250,26 @@ export default function Settings() {
                     onChange={e => setCompanyAddress(e.target.value)}
                     placeholder="e.g. 123 Main St, Newark, NJ 07101" />
                 </div>
+                <div className="st-field">
+                  <label className="st-label">Company Phone</label>
+                  <input className="st-input" type="tel" value={companyPhone}
+                    onChange={e => setCompanyPhone(e.target.value)}
+                    placeholder="e.g. (312) 555-0100" />
+                </div>
+                <div className="st-field">
+                  <label className="st-label">License Number</label>
+                  <input className="st-input" type="text" value={companyLicense}
+                    onChange={e => setCompanyLicense(e.target.value)}
+                    placeholder="e.g. IL-GC-123456" />
+                  <span className="st-hint">Displayed on invoices and estimates.</span>
+                </div>
                 <div className="st-actions">
                   <button className="st-btn st-btn--primary" type="submit" disabled={savingCompany || !orgId}>
                     {savingCompany ? 'Saving…' : 'Save'}
                   </button>
-                  {companyMsg === 'ok'  && <span className="st-msg st-msg--ok">Saved.</span>}
-                  {companyMsg === 'err' && <span className="st-msg st-msg--err">Could not save. Try again.</span>}
+                  {companyMsg === 'ok'       && <span className="st-msg st-msg--ok">Saved.</span>}
+                  {companyMsg === 'err'      && <span className="st-msg st-msg--err">Could not save. Try again.</span>}
+                  {companyMsg === 'err-logo' && <span className="st-msg st-msg--err">Please upload an image file.</span>}
                 </div>
               </form>
             </div>

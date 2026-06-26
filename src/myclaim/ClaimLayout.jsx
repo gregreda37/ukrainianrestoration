@@ -7,20 +7,23 @@ import { useAuth } from './useAuth'
 export const NavCollapseContext = createContext(null)
 export const useNavCollapse = () => useContext(NavCollapseContext)
 
-const BASE_NAV = [
-  { to: '/myclaim',              label: 'Dashboard',   icon: '▦',  end: true },
-  { to: '/myclaim/clients',      label: 'Clients',     icon: '👥' },
-  { to: '/myclaim/ai',           label: 'AI Analysis', icon: '🤖', adminOnly: true },
-  { to: '/myclaim/settings',     label: 'Settings',    icon: '⚙️' },
+const ALL_NAV = [
+  { to: '/myclaim',          label: 'Dashboard',   icon: '▦',  end: true },
+  { to: '/myclaim/clients',  label: 'Clients',     icon: '👥' },
+  { to: '/myclaim/invoices', label: 'Invoices',    icon: '🧾' },
+  { to: '/myclaim/ai',       label: 'AI Analysis', icon: '🤖', pmBlocked: true },
+  { to: '/myclaim/team',     label: 'Team',        icon: '👤', adminOnly: true },
+  { to: '/myclaim/settings', label: 'Settings',    icon: '⚙️' },
 ]
-const ADMIN_NAV = { to: '/myclaim/team', label: 'Team', icon: '👤', adminOnly: true }
 
 export default function ClaimLayout() {
   const { user, isAdmin, role } = useAuth()
   const navigate = useNavigate()
-  const isProjectManager = role === 'project_manager'
-  const fullNav = [...BASE_NAV.slice(0, 3), ADMIN_NAV, BASE_NAV[3]]
-  const nav = fullNav.filter(item => !item.adminOnly || isAdmin)
+  const nav = ALL_NAV.filter(item => {
+    if (item.adminOnly) return isAdmin
+    if (item.pmBlocked) return role !== 'project_manager'
+    return true
+  })
 
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('mc-nav-collapsed') === 'true'

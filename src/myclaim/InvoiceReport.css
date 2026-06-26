@@ -1,0 +1,687 @@
+.ir-root {
+  padding: 32px 28px 80px;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.ir-loading {
+  padding: 80px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 15px;
+}
+
+/* ── Header ── */
+.ir-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.ir-title {
+  margin: 0 0 4px;
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.ir-sub {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.ir-header-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.ir-year-select {
+  padding: 8px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fff;
+  cursor: pointer;
+  outline: none;
+}
+
+/* ── Quarter filter ── */
+.ir-qfilter {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.ir-qbtn {
+  padding: 7px 18px;
+  border-radius: 20px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.13s;
+}
+.ir-qbtn:hover { background: #f8fafc; border-color: #cbd5e1; }
+.ir-qbtn--active { background: #0f172a; color: #fff; border-color: #0f172a; }
+
+/* ── Buttons ── */
+.ir-btn {
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.13s;
+  white-space: nowrap;
+}
+.ir-btn--primary { background: #2563eb; color: #fff; }
+.ir-btn--primary:hover { background: #1d4ed8; }
+.ir-btn--outline { background: #fff; color: #334155; border: 1.5px solid #e2e8f0; }
+.ir-btn--outline:hover { background: #f8fafc; }
+
+/* ── KPI Row ── */
+.ir-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.ir-kpi {
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.18);
+  border-radius: 16px;
+  padding: 22px 22px 18px;
+  box-shadow: 0 2px 10px rgba(15,23,42,.04);
+}
+
+.ir-kpi-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.ir-kpi-value {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.ir-kpi-sub {
+  font-size: 12.5px;
+  color: #94a3b8;
+}
+
+/* ── Pipeline pills ── */
+.ir-pipeline {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.ir-pill {
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ir-pill-icon { font-size: 20px; line-height: 1; margin-top: 2px; }
+
+.ir-pill-count {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ir-pill-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.ir-pill-amt {
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+/* ── Sections ── */
+.ir-section {
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.18);
+  border-radius: 18px;
+  padding: 24px 26px;
+  box-shadow: 0 2px 10px rgba(15,23,42,.04);
+  margin-bottom: 18px;
+}
+
+.ir-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 18px;
+}
+
+.ir-section-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.ir-section-sub {
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.ir-empty-section {
+  color: #94a3b8;
+  font-size: 14px;
+  padding: 8px 0;
+}
+
+/* ── Monthly chart ── */
+.ir-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 16px;
+}
+
+.ir-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.ir-chart {
+  overflow-x: auto;
+}
+
+.ir-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 140px;
+  min-width: 520px;
+}
+
+.ir-chart-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.ir-bar-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 100px;
+}
+
+.ir-bar {
+  width: 14px;
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+  transition: height 0.3s;
+}
+
+.ir-bar--billed    { background: #bfdbfe; }
+.ir-bar--collected { background: #2563eb; }
+
+.ir-bar-amt {
+  font-size: 9px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.ir-chart-month {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+/* ── Tables ── */
+.ir-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.ir-table th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+}
+
+.ir-table th.ir-num { text-align: right; }
+.ir-table td.ir-num { text-align: right; }
+
+.ir-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #f8fafc;
+  color: #374151;
+  vertical-align: middle;
+}
+
+.ir-table tbody tr:last-child td { border-bottom: none; }
+
+.ir-qrow:hover { background: #f8fafc; }
+.ir-qrow--active { background: #eff6ff; }
+
+.ir-q-label {
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+
+.ir-rate-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+
+.ir-table--clients tbody tr:hover { background: #f8fafc; }
+
+.ir-client-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ir-client-phone {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.ir-bold { font-weight: 700; color: #0f172a; }
+
+.ir-status-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.ir-total-row td {
+  border-top: 2px solid #e2e8f0;
+  border-bottom: none;
+  font-weight: 600;
+  color: #0f172a;
+  padding-top: 14px;
+  background: #f8fafc;
+}
+
+/* ── Aging ── */
+.ir-aging {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ir-aging-row {
+  display: grid;
+  grid-template-columns: 220px 1fr 50px 110px;
+  align-items: center;
+  gap: 14px;
+}
+
+.ir-aging-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ir-aging-bar-wrap {
+  background: #f1f5f9;
+  border-radius: 4px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.ir-aging-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s;
+}
+
+.ir-aging-count {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.ir-aging-amt {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ── Funnel ── */
+.ir-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ir-funnel-step {}
+
+.ir-funnel-bar-wrap {
+  background: #f1f5f9;
+  border-radius: 6px;
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.ir-funnel-bar {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.4s;
+}
+
+.ir-funnel-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ir-funnel-label {
+  font-size: 13px;
+  color: #475569;
+}
+
+.ir-funnel-value {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ── Insights ── */
+.ir-insights {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ir-insight {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border-left: 3px solid;
+}
+
+.ir-insight-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+.ir-insight-text {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* ── Empty state ── */
+.ir-empty-state {
+  text-align: center;
+  padding: 80px 24px;
+}
+.ir-empty-icon  { font-size: 48px; margin-bottom: 16px; }
+.ir-empty-title { font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 8px; }
+.ir-empty-sub   { font-size: 14px; color: #64748b; margin: 0 0 24px; }
+
+/* ── Print ── */
+.print-only { display: none; }
+
+.ir-print-header {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 20px;
+}
+
+@media print {
+  .print-only  { display: block !important; }
+  .no-print-hide { display: none !important; }
+  .ir-root { padding: 0; }
+  .ir-section, .ir-kpi, .ir-pill { box-shadow: none; break-inside: avoid; }
+  .ir-chart-bars { min-width: unset; }
+  .ir-qfilter { display: none; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 860px) {
+  .ir-root { padding: 16px 14px 80px; }
+  .ir-kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .ir-pipeline { grid-template-columns: repeat(2, 1fr); }
+  .ir-aging-row { grid-template-columns: 160px 1fr 40px 90px; }
+}
+
+@media (max-width: 540px) {
+  .ir-kpi-row { grid-template-columns: 1fr 1fr; }
+  .ir-pipeline { grid-template-columns: 1fr 1fr; }
+  .ir-table--clients th:nth-child(n+3):not(:last-child) { display: none; }
+  .ir-table--clients td:nth-child(n+3):not(:last-child) { display: none; }
+}
+
+/* ── Combined company sales block ── */
+.ir-combined-block {
+  background: #0f172a;
+  border-radius: 16px;
+  padding: 24px 28px;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.ir-combined-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.ir-combined-hero {
+  font-size: 42px;
+  font-weight: 900;
+  color: #fff;
+  line-height: 1.1;
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+}
+
+.ir-combined-sub {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 20px;
+}
+
+/* ── Revenue split bar ── */
+.ir-split-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: #1e293b;
+  margin-bottom: 12px;
+  gap: 2px;
+}
+
+.ir-split-seg {
+  border-radius: 99px;
+  transition: flex 0.4s ease;
+  min-width: 4px;
+}
+
+.ir-split-seg--cash { background: #3b82f6; }
+.ir-split-seg--ins  { background: #22c55e; }
+
+.ir-split-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.ir-split-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.ir-split-item--pending { color: #94a3b8; }
+
+.ir-split-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ir-split-dot--cash    { background: #3b82f6; }
+.ir-split-dot--ins     { background: #22c55e; }
+.ir-split-dot--pending { background: #d97706; }
+
+/* ── Stream section labels ── */
+.ir-stream-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+
+/* ── Insurance settlement section ── */
+.ir-section--settlement {
+  border-top: 3px solid #e2e8f0;
+  padding-top: 4px;
+}
+
+.ir-kpi-row--5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.ir-table--settlement thead th { white-space: nowrap; }
+
+.ir-section-label-sm {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+
+/* ── Recoup buckets ── */
+.ir-recoup-buckets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.ir-recoup-bucket {
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ir-recoup-bucket-label {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.ir-recoup-bucket-count {
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.ir-recoup-bucket-amt {
+  font-size: 18px;
+  font-weight: 800;
+  margin: 4px 0;
+}
+
+.ir-recoup-bar-wrap {
+  height: 5px;
+  background: rgba(0,0,0,.08);
+  border-radius: 99px;
+  overflow: hidden;
+  margin: 6px 0 4px;
+}
+
+.ir-recoup-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s ease;
+  opacity: 0.8;
+}
+
+.ir-recoup-bucket-pct {
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+/* ── Recoup % pill in table ── */
+.ir-recoup-pct-pill {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .ir-kpi-row--5 { grid-template-columns: repeat(3, 1fr); }
+  .ir-recoup-buckets { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 540px) {
+  .ir-kpi-row--5 { grid-template-columns: 1fr 1fr; }
+  .ir-recoup-buckets { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,831 @@
+import { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { db } from '../firebase'
+import {
+  doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc,
+  collection, getDocs, serverTimestamp, orderBy, query
+} from 'firebase/firestore'
+import { useAuth } from './useAuth'
+import './Settlement.css'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const CATEGORIES = [
+  { key: 'dryClean',       label: 'Dry Cleaning / Contents' },
+  { key: 'mitigation',     label: 'Mitigation'               },
+  { key: 'reconstruction', label: 'Reconstruction'           },
+]
+
+const COL_FIELDS = [
+  { key: 'Estimate',    label: 'Our Estimate',      hint: 'Amount on your scope of work',        color: '#0f172a' },
+  { key: 'ACV',         label: 'Insurance ACV',     hint: 'Actual Cash Value (depreciated)',     color: '#d97706' },
+  { key: 'RCV',         label: 'Insurance RCV',     hint: 'Replacement Cost Value (full)',       color: '#7c3aed' },
+  { key: 'Supplement',  label: 'Supplement',        hint: 'Additional amounts negotiated',       color: '#0891b2' },
+  { key: 'Settled',     label: 'Final Settlement',  hint: 'Total amount actually paid out',      color: '#16a34a' },
+]
+
+const STATUS_META = {
+  estimating:    { label: 'Estimating',    color: '#64748b', bg: '#f1f5f9' },
+  submitted:     { label: 'Submitted',     color: '#2563eb', bg: '#eff6ff' },
+  negotiating:   { label: 'Negotiating',   color: '#d97706', bg: '#fffbeb' },
+  supplementing: { label: 'Supplementing', color: '#7c3aed', bg: '#f5f3ff' },
+  settled:       { label: 'Settled ✓',     color: '#15803d', bg: '#dcfce7' },
+}
+
+const LOG_TYPES = [
+  { value: 'estimate_submitted',  label: 'Estimate Submitted',  icon: '📤', color: '#2563eb' },
+  { value: 'insurance_response',  label: 'Insurance Response',  icon: '📨', color: '#d97706' },
+  { value: 'supplement_filed',    label: 'Supplement Filed',    icon: '📝', color: '#7c3aed' },
+  { value: 'supplement_approved', label: 'Supplement Approved', icon: '✅', color: '#16a34a' },
+  { value: 'counter_offer',       label: 'Counter Offer',       icon: '🤝', color: '#0891b2' },
+  { value: 'final_settlement',    label: 'Final Settlement',    icon: '🏁', color: '#15803d' },
+  { value: 'note',                label: 'Internal Note',       icon: '📌', color: '#64748b' },
+]
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const n = v => parseFloat(v) || 0
+
+function computeTotals(form) {
+  const totals = {}
+  for (const col of COL_FIELDS) {
+    totals[col.key] = CATEGORIES.reduce((s, cat) => s + n(form[`${cat.key}${col.key}`]), 0)
+  }
+  totals.gap          = Math.max(0, totals.Estimate - totals.Settled)
+  totals.recoveryRate = totals.Estimate > 0 ? totals.Settled / totals.Estimate * 100 : 0
+  return totals
+}
+
+function fmtMoney(v) {
+  const num = parseFloat(v) || 0
+  return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+}
+
+function fmtDate(str) {
+  if (!str) return '—'
+  return new Date(str + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function todayStr() { return new Date().toISOString().slice(0, 10) }
+
+const EMPTY_FORM = () => ({
+  claimNumber: '', dateOfLoss: '', settlementDate: '', insuranceCompany: '', adjusterName: '',
+  adjusterPhone: '', adjusterEmail: '', status: 'estimating', deductible: '',
+  recoupPercent: 100, notes: '',
+  ...CATEGORIES.flatMap(c => COL_FIELDS.map(f => [`${c.key}${f.key}`, ''])).reduce((o, [k, v]) => ({ ...o, [k]: v }), {}),
+})
+
+function buildSummaryDoc(id, data, totals, clientUid, clientName) {
+  return {
+    settlementId:           id,
+    clientUid,
+    clientName:             clientName || '',
+    claimNumber:            data.claimNumber            || '',
+    insuranceCompany:       data.insuranceCompany       || '',
+    status:                 data.status                 || 'estimating',
+    dateOfLoss:             data.dateOfLoss             || '',
+    settlementDate:         data.settlementDate         || '',
+    dryCleanEstimate:       n(data.dryCleanEstimate),
+    mitigationEstimate:     n(data.mitigationEstimate),
+    reconstructionEstimate: n(data.reconstructionEstimate),
+    dryCleanSettled:        n(data.dryCleanSettled),
+    mitigationSettled:      n(data.mitigationSettled),
+    reconstructionSettled:  n(data.reconstructionSettled),
+    totalEstimate:          totals.Estimate,
+    totalSettled:           totals.Settled,
+    recoveryRate:           totals.recoveryRate,
+    gap:                    totals.gap,
+    recoupPercent:          n(data.recoupPercent) || 100,
+    companyRecoup:          totals.Settled * (n(data.recoupPercent) || 100) / 100,
+    updatedAt:              serverTimestamp(),
+  }
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function Settlement() {
+  const { id: phone } = useParams()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+
+  const [loading,      setLoading]      = useState(true)
+  const [clientUid,    setClientUid]    = useState(null)
+  const [clientName,   setClientName]   = useState('')
+  const [orgId,        setOrgId]        = useState(null)
+  const [claimNumbers, setClaimNumbers] = useState([])
+  const [settlements,  setSettlements]  = useState([])
+  const [expanded,     setExpanded]     = useState(null)
+  const [editingId,    setEditingId]    = useState(null)
+  const [showNew,      setShowNew]      = useState(false)
+  const [newForm,      setNewForm]      = useState(EMPTY_FORM())
+  const [savingNew,    setSavingNew]    = useState(false)
+
+  useEffect(() => { if (user) load() }, [user, phone])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const userSnap = await getDoc(doc(db, 'users', user.uid))
+      const oid = userSnap.data()?.organizationId
+      if (!oid) return
+      setOrgId(oid)
+
+      const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
+      const clientDoc = clientsSnap.docs.find(d => {
+        const p = d.data().phone || ''
+        return p === phone || p.replace(/\D/g,'') === phone.replace(/\D/g,'')
+      })
+      if (!clientDoc) return
+
+      const uid = clientDoc.data().uid
+      setClientUid(uid)
+
+      if (uid) {
+        const uSnap = await getDoc(doc(db, 'users', uid))
+        if (uSnap.exists()) {
+          const ud = uSnap.data()
+          setClientName(ud.displayName || clientDoc.data().name || '')
+          setClaimNumbers(ud.claimNumbers || [])
+        }
+        const snap = await getDocs(
+          query(collection(db, 'users', uid, 'settlements'), orderBy('createdAt', 'desc'))
+        )
+        setSettlements(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function saveNew() {
+    if (!clientUid) return
+    setSavingNew(true)
+    try {
+      const totals = computeTotals(newForm)
+      const data = {
+        ...newForm,
+        totalEstimate:   totals.Estimate,
+        totalSettled:    totals.Settled,
+        recoveryRate:    totals.recoveryRate,
+        gap:             totals.gap,
+        createdAt:       serverTimestamp(),
+        updatedAt:       serverTimestamp(),
+        createdBy:       user.uid,
+      }
+      const ref = await addDoc(collection(db, 'users', clientUid, 'settlements'), data)
+      if (orgId) {
+        await setDoc(
+          doc(db, 'organization_data', orgId, 'settlement_summary', ref.id),
+          buildSummaryDoc(ref.id, data, totals, clientUid, clientName)
+        )
+      }
+      setSettlements(prev => [{ id: ref.id, ...data }, ...prev])
+      setShowNew(false)
+      setNewForm(EMPTY_FORM())
+      setExpanded(ref.id)
+    } finally {
+      setSavingNew(false)
+    }
+  }
+
+  if (loading) return <div className="sl-loading">Loading…</div>
+
+  const backPath = `/myclaim/clients/${encodeURIComponent(phone)}`
+
+  return (
+    <div className="sl-root">
+      <div className="sl-header">
+        <div>
+          <button className="sl-back" onClick={() => navigate(backPath)}>← Back to Client</button>
+          <h2 className="sl-title">Insurance Settlement Tracker</h2>
+          {clientName && <p className="sl-sub">{clientName}</p>}
+        </div>
+        <button className="sl-btn sl-btn--primary" onClick={() => { setShowNew(true); setExpanded(null) }}>
+          + Track New Claim
+        </button>
+      </div>
+
+      {/* ── New settlement form ── */}
+      {showNew && (
+        <div className="sl-card sl-card--new">
+          <div className="sl-card-title-row">
+            <span className="sl-section-label">New Claim</span>
+            <button className="sl-ghost-btn" onClick={() => setShowNew(false)}>✕</button>
+          </div>
+          <SettlementForm
+            form={newForm}
+            onChange={setNewForm}
+            claimNumbers={claimNumbers}
+            onSave={saveNew}
+            onCancel={() => setShowNew(false)}
+            saving={savingNew}
+            isNew
+          />
+        </div>
+      )}
+
+      {/* ── Settlement list ── */}
+      {settlements.length === 0 && !showNew ? (
+        <div className="sl-empty">
+          <div className="sl-empty-icon">🏛️</div>
+          <p className="sl-empty-title">No settlements tracked yet</p>
+          <p className="sl-empty-sub">Start tracking insurance negotiations for this client.</p>
+          <button className="sl-btn sl-btn--primary" onClick={() => setShowNew(true)}>
+            Track New Claim
+          </button>
+        </div>
+      ) : (
+        settlements.map(s => (
+          <SettlementRecord
+            key={s.id}
+            settlement={s}
+            clientUid={clientUid}
+            clientName={clientName}
+            orgId={orgId}
+            phone={phone}
+            userId={user.uid}
+            userEmail={user.email}
+            expanded={expanded === s.id}
+            editing={editingId === s.id}
+            onToggle={() => { setExpanded(prev => prev === s.id ? null : s.id); setEditingId(null) }}
+            onEdit={() => { setEditingId(s.id); setExpanded(s.id) }}
+            onCancelEdit={() => setEditingId(null)}
+            onSaved={updated => {
+              setSettlements(prev => prev.map(x => x.id === s.id ? { ...x, ...updated } : x))
+              setEditingId(null)
+            }}
+            onDelete={() => setSettlements(prev => prev.filter(x => x.id !== s.id))}
+          />
+        ))
+      )}
+    </div>
+  )
+}
+
+// ── Settlement record (summary + expandable detail) ───────────────────────────
+
+function SettlementRecord({ settlement: s, clientUid, clientName, orgId, phone, userId, userEmail, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete }) {
+  const navigate = useNavigate()
+  const totals = computeTotals(s)
+  const sm = STATUS_META[s.status] || STATUS_META.estimating
+  const [editForm, setEditForm] = useState(null)
+  const [saving, setSaving]     = useState(false)
+  const [log, setLog]           = useState(null)
+  const [loadingLog, setLoadingLog] = useState(false)
+  const [showLogForm, setShowLogForm] = useState(false)
+  const [confirmDel, setConfirmDel]  = useState(false)
+  const [deleting, setDeleting]      = useState(false)
+
+  useEffect(() => {
+    if (editing && !editForm) setEditForm({ ...s })
+  }, [editing])
+
+  useEffect(() => {
+    if (expanded && !log) loadLog()
+  }, [expanded])
+
+  async function loadLog() {
+    setLoadingLog(true)
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'users', clientUid, 'settlements', s.id, 'log'), orderBy('date', 'asc'))
+      )
+      setLog(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    } finally {
+      setLoadingLog(false)
+    }
+  }
+
+  async function doSave() {
+    if (!editForm) return
+    setSaving(true)
+    try {
+      const totals = computeTotals(editForm)
+      const updates = {
+        ...editForm,
+        totalEstimate: totals.Estimate,
+        totalSettled:  totals.Settled,
+        recoveryRate:  totals.recoveryRate,
+        gap:           totals.gap,
+        updatedAt:     serverTimestamp(),
+      }
+      await updateDoc(doc(db, 'users', clientUid, 'settlements', s.id), updates)
+      if (orgId) {
+        await setDoc(
+          doc(db, 'organization_data', orgId, 'settlement_summary', s.id),
+          buildSummaryDoc(s.id, updates, totals, clientUid, clientName)
+        )
+      }
+      onSaved(updates)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function doDelete() {
+    setDeleting(true)
+    try {
+      await deleteDoc(doc(db, 'users', clientUid, 'settlements', s.id))
+      if (orgId) {
+        await deleteDoc(doc(db, 'organization_data', orgId, 'settlement_summary', s.id))
+      }
+      onDelete()
+    } finally {
+      setDeleting(false); setConfirmDel(false)
+    }
+  }
+
+  const displayTotals = editing && editForm ? computeTotals(editForm) : totals
+  const recovPct = Math.min(100, displayTotals.recoveryRate)
+
+  return (
+    <div className={`sl-card${expanded ? ' sl-card--expanded' : ''}`}>
+      {/* ── Summary row ── */}
+      <div className="sl-summary-row" onClick={onToggle}>
+        <div className="sl-summary-left">
+          <span className="sl-claim-num">{s.claimNumber || 'No claim #'}</span>
+          <span className="sl-insurer">{s.insuranceCompany || 'Insurance TBD'}</span>
+          <span className="sl-loss-date">{s.dateOfLoss ? `Loss: ${fmtDate(s.dateOfLoss)}` : ''}</span>
+        </div>
+        <div className="sl-summary-metrics">
+          <div className="sl-metric">
+            <span className="sl-metric-label">Estimated</span>
+            <span className="sl-metric-val">{fmtMoney(displayTotals.Estimate)}</span>
+          </div>
+          <div className="sl-metric">
+            <span className="sl-metric-label">Settled</span>
+            <span className="sl-metric-val" style={{ color: '#16a34a' }}>{fmtMoney(displayTotals.Settled)}</span>
+          </div>
+          <div className="sl-metric">
+            <span className="sl-metric-label">Gap</span>
+            <span className="sl-metric-val" style={{ color: displayTotals.gap > 0 ? '#dc2626' : '#94a3b8' }}>
+              {displayTotals.gap > 0 ? `– ${fmtMoney(displayTotals.gap)}` : '—'}
+            </span>
+          </div>
+          <div className="sl-metric">
+            <span className="sl-metric-label">Recovery</span>
+            <span className="sl-metric-val" style={{
+              color: displayTotals.recoveryRate >= 90 ? '#15803d' : displayTotals.recoveryRate >= 75 ? '#d97706' : displayTotals.recoveryRate > 0 ? '#dc2626' : '#94a3b8'
+            }}>
+              {displayTotals.Estimate > 0 ? `${displayTotals.recoveryRate.toFixed(1)}%` : '—'}
+            </span>
+          </div>
+        </div>
+        <div className="sl-summary-right">
+          <span className="sl-badge" style={{ color: sm.color, background: sm.bg }}>{sm.label}</span>
+          <span className="sl-chevron">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+
+      {/* ── Recovery bar (visible when not editing) ── */}
+      {!editing && displayTotals.Estimate > 0 && (
+        <div className="sl-recovery-bar-wrap">
+          <div className="sl-recovery-bar">
+            <div className="sl-recovery-fill sl-recovery-fill--settled"
+              style={{ width: `${Math.min(100, displayTotals.Settled / displayTotals.Estimate * 100)}%` }} />
+            {displayTotals.ACV > 0 && (
+              <div className="sl-recovery-fill sl-recovery-fill--acv"
+                style={{ width: `${Math.min(100, displayTotals.ACV / displayTotals.Estimate * 100)}%` }} />
+            )}
+          </div>
+          <span className="sl-recovery-pct">{recovPct.toFixed(1)}% recovered</span>
+        </div>
+      )}
+
+      {/* ── Expanded detail ── */}
+      {expanded && (
+        <div className="sl-detail">
+          {editing && editForm ? (
+            <>
+              <SettlementForm
+                form={editForm}
+                onChange={setEditForm}
+                claimNumbers={[]}
+                onSave={doSave}
+                onCancel={onCancelEdit}
+                saving={saving}
+              />
+            </>
+          ) : (
+            <>
+              {/* Adjuster info */}
+              {(s.adjusterName || s.insuranceCompany || s.adjusterEmail) && (
+                <div className="sl-adjuster-row">
+                  {s.adjusterName    && <span>👤 {s.adjusterName}</span>}
+                  {s.adjusterPhone   && <span>📞 {s.adjusterPhone}</span>}
+                  {s.adjusterEmail   && <span>✉️ {s.adjusterEmail}</span>}
+                  {s.deductible > 0  && <span>🧾 Deductible: {fmtMoney(s.deductible)}</span>}
+                </div>
+              )}
+
+              {/* Category breakdown table */}
+              <div className="sl-table-wrap">
+                <table className="sl-table">
+                  <thead>
+                    <tr>
+                      <th className="sl-th-cat">Category</th>
+                      {COL_FIELDS.map(f => (
+                        <th key={f.key} className="sl-th-num" style={{ color: f.color }} title={f.hint}>{f.label}</th>
+                      ))}
+                      <th className="sl-th-num sl-gap-col">Gap</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {CATEGORIES.map(cat => {
+                      const gap = Math.max(0, n(s[`${cat.key}Estimate`]) - n(s[`${cat.key}Settled`]))
+                      return (
+                        <tr key={cat.key} className="sl-data-row">
+                          <td className="sl-td-cat">{cat.label}</td>
+                          {COL_FIELDS.map(f => {
+                            const val = n(s[`${cat.key}${f.key}`])
+                            return (
+                              <td key={f.key} className="sl-td-num">
+                                {val > 0 ? <span style={{ color: f.color }}>{fmtMoney(val)}</span> : <span className="sl-dash">—</span>}
+                              </td>
+                            )
+                          })}
+                          <td className="sl-td-num sl-gap-col">
+                            {gap > 0 ? <span className="sl-gap-amt">– {fmtMoney(gap)}</span> : <span className="sl-dash">—</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="sl-total-row">
+                      <td>Total</td>
+                      {COL_FIELDS.map(f => (
+                        <td key={f.key} className="sl-td-num">
+                          <strong style={{ color: f.color }}>{fmtMoney(displayTotals[f.key])}</strong>
+                        </td>
+                      ))}
+                      <td className="sl-td-num sl-gap-col">
+                        {displayTotals.gap > 0
+                          ? <strong className="sl-gap-amt">– {fmtMoney(displayTotals.gap)}</strong>
+                          : <span className="sl-dash">—</span>}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Recovery analysis */}
+              {displayTotals.Estimate > 0 && (
+                <div className="sl-analysis">
+                  <RecoveryBar label="Our Estimate"     value={displayTotals.Estimate} max={displayTotals.Estimate} color="#e2e8f0" />
+                  {displayTotals.RCV > 0 && (
+                    <RecoveryBar label="Insurance RCV"    value={displayTotals.RCV}      max={displayTotals.Estimate} color="#c4b5fd" />
+                  )}
+                  {displayTotals.ACV > 0 && (
+                    <RecoveryBar label="Insurance ACV"    value={displayTotals.ACV}      max={displayTotals.Estimate} color="#fde68a" />
+                  )}
+                  {displayTotals.Settled > 0 && (
+                    <RecoveryBar label="Final Settlement" value={displayTotals.Settled}   max={displayTotals.Estimate} color="#86efac" highlight />
+                  )}
+                  {n(s.deductible) > 0 && (
+                    <div className="sl-deductible-note">
+                      Client deductible: {fmtMoney(s.deductible)} — net to company: {fmtMoney(Math.max(0, displayTotals.Settled - n(s.deductible)))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {s.notes && <div className="sl-notes">📝 {s.notes}</div>}
+
+              <div className="sl-detail-actions">
+                <button className="sl-btn sl-btn--outline" onClick={onEdit}>Edit</button>
+                <button className="sl-btn sl-btn--receipt" onClick={() => {
+                  const items = [
+                    n(s.dryCleanSettled)        > 0 && { label: 'Dry Cleaning / Contents', unit: 'total', price: n(s.dryCleanSettled) },
+                    n(s.mitigationSettled)      > 0 && { label: 'Mitigation',               unit: 'total', price: n(s.mitigationSettled) },
+                    n(s.reconstructionSettled)  > 0 && { label: 'Reconstruction',            unit: 'total', price: n(s.reconstructionSettled) },
+                  ].filter(Boolean)
+                  navigate(
+                    `/myclaim/clients/${encodeURIComponent(phone)}/invoices/new`,
+                    { state: {
+                      prefillType:  'receipt',
+                      prefillNotes: `Insurance settlement receipt — Claim ${s.claimNumber || ''}${s.insuranceCompany ? ` (${s.insuranceCompany})` : ''}`,
+                      prefillItems: items,
+                    }}
+                  )
+                }}>
+                  🧾 Generate Receipt
+                </button>
+                <button className="sl-btn sl-btn--danger-outline" onClick={() => setConfirmDel(true)}>Delete</button>
+              </div>
+            </>
+          )}
+
+          {/* ── Negotiation log ── */}
+          <div className="sl-log-section">
+            <div className="sl-log-header">
+              <span className="sl-section-label">Negotiation Log</span>
+              <button className="sl-btn sl-btn--sm" onClick={() => setShowLogForm(v => !v)}>
+                {showLogForm ? 'Cancel' : '+ Add Entry'}
+              </button>
+            </div>
+
+            {showLogForm && (
+              <LogEntryForm
+                clientUid={clientUid}
+                settlementId={s.id}
+                userEmail={userEmail}
+                onAdded={entry => {
+                  setLog(prev => [...(prev || []), entry].sort((a, b) => a.date > b.date ? 1 : -1))
+                  setShowLogForm(false)
+                }}
+              />
+            )}
+
+            {loadingLog ? (
+              <div className="sl-log-loading">Loading log…</div>
+            ) : log?.length > 0 ? (
+              <div className="sl-timeline">
+                {log.map((entry, i) => {
+                  const lt = LOG_TYPES.find(t => t.value === entry.type) || LOG_TYPES[LOG_TYPES.length - 1]
+                  return (
+                    <div key={entry.id} className="sl-timeline-item">
+                      <div className="sl-timeline-dot" style={{ background: lt.color }}>{lt.icon}</div>
+                      <div className="sl-timeline-line" style={{ opacity: i < log.length - 1 ? 1 : 0 }} />
+                      <div className="sl-timeline-body">
+                        <div className="sl-timeline-header">
+                          <span className="sl-timeline-type" style={{ color: lt.color }}>{lt.label}</span>
+                          <span className="sl-timeline-date">{fmtDate(entry.date)}</span>
+                          {entry.amount > 0 && <span className="sl-timeline-amt">{fmtMoney(entry.amount)}</span>}
+                        </div>
+                        {entry.description && <p className="sl-timeline-desc">{entry.description}</p>}
+                        {entry.category && entry.category !== 'all' && (
+                          <span className="sl-timeline-cat">
+                            {CATEGORIES.find(c => c.key === entry.category)?.label || entry.category}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="sl-log-empty">No log entries yet. Add your first entry to start tracking negotiations.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {confirmDel && (
+        <div className="sl-overlay" onClick={() => setConfirmDel(false)}>
+          <div className="sl-modal" onClick={e => e.stopPropagation()}>
+            <p className="sl-modal-title">Delete this settlement record?</p>
+            <p className="sl-modal-body">{s.claimNumber || 'This claim'} and all its log entries will be permanently removed.</p>
+            <div className="sl-modal-actions">
+              <button className="sl-btn sl-btn--outline" onClick={() => setConfirmDel(false)}>Cancel</button>
+              <button className="sl-btn sl-btn--danger" onClick={doDelete} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Settlement form (new + edit) ──────────────────────────────────────────────
+
+function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving, isNew }) {
+  const set = (k, v) => onChange(prev => ({ ...prev, [k]: v }))
+
+  return (
+    <div className="sl-form">
+      {/* Header fields */}
+      <div className="sl-form-grid">
+        <div className="sl-field">
+          <label className="sl-label">Claim Number</label>
+          <input className="sl-input" value={form.claimNumber}
+            onChange={e => set('claimNumber', e.target.value)}
+            placeholder={claimNumbers[0] || 'e.g. ABC-123456'} />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Date of Loss</label>
+          <input className="sl-input" type="date" value={form.dateOfLoss}
+            onChange={e => set('dateOfLoss', e.target.value)} />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Settlement Date</label>
+          <input className="sl-input" type="date" value={form.settlementDate || ''}
+            onChange={e => set('settlementDate', e.target.value)} />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Insurance Company</label>
+          <input className="sl-input" value={form.insuranceCompany}
+            onChange={e => set('insuranceCompany', e.target.value)}
+            placeholder="e.g. State Farm" />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Status</label>
+          <select className="sl-input" value={form.status} onChange={e => set('status', e.target.value)}>
+            {Object.entries(STATUS_META).map(([v, m]) => (
+              <option key={v} value={v}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Adjuster Name</label>
+          <input className="sl-input" value={form.adjusterName}
+            onChange={e => set('adjusterName', e.target.value)} placeholder="Full name" />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Adjuster Phone</label>
+          <input className="sl-input" type="tel" value={form.adjusterPhone}
+            onChange={e => set('adjusterPhone', e.target.value)} placeholder="(555) 000-0000" />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Adjuster Email</label>
+          <input className="sl-input" type="email" value={form.adjusterEmail}
+            onChange={e => set('adjusterEmail', e.target.value)} placeholder="adjuster@insurer.com" />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Client Deductible ($)</label>
+          <input className="sl-input" type="number" min="0" step="0.01" value={form.deductible}
+            onChange={e => set('deductible', e.target.value)} placeholder="0.00" />
+        </div>
+      </div>
+
+      {/* Category amounts table */}
+      <div className="sl-form-table-label">Claim Amounts by Category</div>
+      <div className="sl-form-table-wrap">
+        <table className="sl-form-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              {COL_FIELDS.map(f => (
+                <th key={f.key} title={f.hint} style={{ color: f.color }}>{f.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {CATEGORIES.map(cat => (
+              <tr key={cat.key}>
+                <td className="sl-form-cat-label">{cat.label}</td>
+                {COL_FIELDS.map(f => (
+                  <td key={f.key}>
+                    <input
+                      className="sl-amount-input"
+                      type="number" min="0" step="0.01"
+                      placeholder="—"
+                      value={form[`${cat.key}${f.key}`]}
+                      onChange={e => set(`${cat.key}${f.key}`, e.target.value)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="sl-form-totals">
+              <td>Totals</td>
+              {COL_FIELDS.map(f => {
+                const tot = CATEGORIES.reduce((s, c) => s + n(form[`${c.key}${f.key}`]), 0)
+                return (
+                  <td key={f.key} className="sl-form-total-cell" style={{ color: f.color }}>
+                    {tot > 0 ? fmtMoney(tot) : '—'}
+                  </td>
+                )
+              })}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Profit recoup */}
+      <div className="sl-recoup-block">
+        <div className="sl-recoup-header">
+          <label className="sl-label">Profit Recoup</label>
+          <span className="sl-recoup-pct">{n(form.recoupPercent) || 100}%</span>
+        </div>
+        <input type="range" min="0" max="100" step="5"
+          className="sl-recoup-slider"
+          value={n(form.recoupPercent) || 100}
+          onChange={e => set('recoupPercent', Number(e.target.value))} />
+        <div className="sl-recoup-labels">
+          <span>0% — partner keeps all</span>
+          <span>50% split</span>
+          <span>100% — we keep all</span>
+        </div>
+        {(() => {
+          const t = computeTotals(form)
+          return t.Settled > 0 ? (
+            <p className="sl-recoup-net">
+              Company net on this claim: <strong>{fmtMoney(t.Settled * (n(form.recoupPercent) || 100) / 100)}</strong>
+              {n(form.recoupPercent) < 100 && ` (${100 - n(form.recoupPercent)}% → partner: ${fmtMoney(t.Settled * (100 - n(form.recoupPercent)) / 100)})`}
+            </p>
+          ) : null
+        })()}
+      </div>
+
+      {/* Notes */}
+      <div className="sl-field" style={{ marginTop: 14 }}>
+        <label className="sl-label">Notes</label>
+        <textarea className="sl-textarea" rows={2} value={form.notes}
+          onChange={e => set('notes', e.target.value)}
+          placeholder="Internal notes about this claim…" />
+      </div>
+
+      <div className="sl-form-actions">
+        <button className="sl-btn sl-btn--outline" onClick={onCancel} type="button">Cancel</button>
+        <button className="sl-btn sl-btn--primary" onClick={onSave} disabled={saving} type="button">
+          {saving ? 'Saving…' : isNew ? 'Create Settlement' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Log entry form ────────────────────────────────────────────────────────────
+
+function LogEntryForm({ clientUid, settlementId, userEmail, onAdded }) {
+  const [type,        setType]        = useState('insurance_response')
+  const [date,        setDate]        = useState(todayStr())
+  const [description, setDescription] = useState('')
+  const [amount,      setAmount]      = useState('')
+  const [category,    setCategory]    = useState('all')
+  const [saving,      setSaving]      = useState(false)
+
+  async function doAdd() {
+    setSaving(true)
+    try {
+      const entry = {
+        type, date,
+        description: description.trim(),
+        amount: parseFloat(amount) || 0,
+        category,
+        createdAt: serverTimestamp(),
+        createdBy: userEmail,
+      }
+      const ref = await addDoc(
+        collection(db, 'users', clientUid, 'settlements', settlementId, 'log'),
+        entry
+      )
+      onAdded({ id: ref.id, ...entry })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="sl-log-form">
+      <div className="sl-log-form-row">
+        <div className="sl-field">
+          <label className="sl-label">Type</label>
+          <select className="sl-input" value={type} onChange={e => setType(e.target.value)}>
+            {LOG_TYPES.map(t => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
+          </select>
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Date</label>
+          <input className="sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Amount ($)</label>
+          <input className="sl-input" type="number" min="0" step="0.01"
+            placeholder="Optional" value={amount} onChange={e => setAmount(e.target.value)} />
+        </div>
+        <div className="sl-field">
+          <label className="sl-label">Category</label>
+          <select className="sl-input" value={category} onChange={e => setCategory(e.target.value)}>
+            <option value="all">All Categories</option>
+            {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="sl-field" style={{ marginTop: 10 }}>
+        <label className="sl-label">Description</label>
+        <input className="sl-input" value={description}
+          onChange={e => setDescription(e.target.value)}
+          placeholder="e.g. Adjuster rejected mold remediation line item — resubmitting with photos" />
+      </div>
+      <div className="sl-log-form-actions">
+        <button className="sl-btn sl-btn--primary" onClick={doAdd} disabled={saving || !description.trim()}>
+          {saving ? 'Adding…' : 'Add to Log'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Recovery bar ──────────────────────────────────────────────────────────────
+
+function RecoveryBar({ label, value, max, color, highlight }) {
+  const pct = max > 0 ? Math.min(100, value / max * 100) : 0
+  return (
+    <div className="sl-rec-row">
+      <div className="sl-rec-label">{label}</div>
+      <div className="sl-rec-track">
+        <div className="sl-rec-fill" style={{ width: `${pct}%`, background: color, boxShadow: highlight ? '0 0 0 1px #16a34a44' : 'none' }} />
+      </div>
+      <div className="sl-rec-val" style={{ fontWeight: highlight ? 700 : 400, color: highlight ? '#15803d' : '#374151' }}>
+        {fmtMoney(value)} <span className="sl-rec-pct">({pct.toFixed(1)}%)</span>
+      </div>
+    </div>
+  )
+}

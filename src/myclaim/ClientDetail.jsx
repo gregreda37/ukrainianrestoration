@@ -11,6 +11,7 @@ import { loadGoogleMaps } from "./loadMaps";
 import "./ClientDetail.css";
 import ContractorSignModal from "./ContractorSignModal";
 import TemplateBuilder from "./TemplateBuilder";
+import SettlementOverviewCard from "./SettlementOverviewCard";
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
@@ -296,7 +297,8 @@ export default function ClientDetail() {
         const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid));
         const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
         setPmRole(contractorRole);
-        if (contractorRole === "project_manager") {
+        const needsFilter = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+        if (needsFilter) {
           const assignedPhones = contractorSnap.data()?.assignedClients || [];
           if (!assignedPhones.includes(phone)) {
             setAccessDenied(true);
@@ -328,6 +330,13 @@ export default function ClientDetail() {
 
         const clientDocSnap = clientsSnap.docs[0];
         const clientData = { id: clientDocSnap.id, ...clientDocSnap.data() };
+
+        // Block non-admins from viewing archived clients
+        if (clientData.archived && pmRole !== "admin") {
+          navigate("/myclaim/clients", { replace: true });
+          return;
+        }
+
         setClient(clientData);
         setClientDocId(clientDocSnap.id);
         if (clientData.claimNumbers?.[0]) setClaimNumber(clientData.claimNumbers[0]);
@@ -1053,13 +1062,14 @@ export default function ClientDetail() {
     } finally { setNotifySending(false); }
   };
 
-  // ── Delete client ─────────────────────────────────────────────────────
-  const doDeleteClient = async () => {
+  // ── Archive client (replaces delete) ─────────────────────────────────
+  const doArchiveClient = async () => {
     if (!clientDocId) return;
     setDeletingClient(true);
     try {
-      await deleteDoc(doc(db, "organization_data", orgId, "clients", clientDocId));
-      await deleteDoc(doc(db, "client_phones", phone)).catch(() => {});
+      await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), {
+        archived: true, archivedAt: serverTimestamp(),
+      });
       navigate("/myclaim/clients");
     } finally { setDeletingClient(false); }
   };
@@ -1219,7 +1229,7 @@ export default function ClientDetail() {
             >
               {(client?.claimStatus || "open") === "open" ? "Claim Open" : "Claim Closed"}
             </button>
-            {pmRole !== "project_manager" && (
+            {(pmRole === "admin" || pmRole === "public_adjuster" || pmRole === null) && (
               <button
                 className={`cd-docs-nav-btn${showDocsDrawer ? " active" : ""}`}
                 onClick={() => setShowDocsDrawer(v => !v)}>
@@ -1279,6 +1289,10 @@ export default function ClientDetail() {
               {t.label}
             </button>
           ))}
+          <button className="cd-tab cd-tab--invoice"
+            onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(id)}/invoices`)}>
+            🧾 Invoices
+          </button>
         </div>
 
         {/* ══════════════ OVERVIEW TAB ══════════════ */}
@@ -1368,6 +1382,22 @@ export default function ClientDetail() {
                 </div>
               )}
             </div>
+
+            {/* Insurance Settlement */}
+            <SettlementOverviewCard
+              clientUid={clientUid}
+              clientName={client?.name || ''}
+              orgId={orgId}
+              phone={phone}
+              prefill={{
+                claimNumber:      clientFields.claimNumber,
+                policyNumber:     clientFields.policyNumber,
+                insuranceCompany: adjuster.company,
+                adjusterName:     adjuster.name,
+                adjusterPhone:    adjuster.phone,
+                adjusterEmail:    adjuster.email,
+              }}
+            />
 
             {/* Quick stats */}
             <div className="cd-section-card">
@@ -1603,11 +1633,11 @@ export default function ClientDetail() {
                   </div>
                   <div className="cd-todo-type-row">
                     {[
-                      { type:"upload_file",   icon:"📄", label:"Upload File",    pmAllowed: false },
-                      { type:"add_selection", icon:"🎨", label:"Make Selection", pmAllowed: true  },
-                      { type:"sign_forms",    icon:"✍️", label:"Sign Document",  pmAllowed: false },
-                      { type:"general",       icon:"✓",  label:"General Task",   pmAllowed: true  },
-                    ].filter(opt => pmRole !== "project_manager" || opt.pmAllowed).map(opt => (
+                      { type:"upload_file",   icon:"📄", label:"Upload File",    docsOnly: true  },
+                      { type:"add_selection", icon:"🎨", label:"Make Selection", docsOnly: false },
+                      { type:"sign_forms",    icon:"✍️", label:"Sign Document",  docsOnly: true  },
+                      { type:"general",       icon:"✓",  label:"General Task",   docsOnly: false },
+                    ].filter(opt => !opt.docsOnly || pmRole !== "project_manager").map(opt => (
                       <button key={opt.type} type="button"
                         className={`cd-todo-type-btn${todoType === opt.type ? " active" : ""}`}
                         onClick={() => {
@@ -1975,25 +2005,25 @@ export default function ClientDetail() {
               )}
             </div>
 
-            {/* Danger zone */}
+            {/* Archive zone */}
             <div className="cd-danger-zone">
               {confirmDelete ? (
                 <div className="cd-delete-confirm">
                   <p className="cd-delete-confirm-msg">
-                    Permanently delete <strong>{client.name || phone}</strong>? This removes all their data and cannot be undone.
+                    Archive <strong>{client.name || phone}</strong>? They'll be hidden from the client list. Admins can restore them later.
                   </p>
                   <div className="cd-delete-confirm-actions">
                     <button className="cd-btn-secondary" onClick={() => setConfirmDelete(false)} disabled={deletingClient}>
                       Cancel
                     </button>
-                    <button className="cd-btn-danger" onClick={doDeleteClient} disabled={deletingClient}>
-                      {deletingClient ? "Deleting…" : "Yes, Delete"}
+                    <button className="cd-btn-danger" onClick={doArchiveClient} disabled={deletingClient}>
+                      {deletingClient ? "Archiving…" : "Yes, Archive"}
                     </button>
                   </div>
                 </div>
               ) : (
                 <button className="cd-delete-claim-btn" onClick={() => setConfirmDelete(true)}>
-                  <TrashIcon /> Delete Client
+                  <TrashIcon /> Archive Client
                 </button>
               )}
             </div>

@@ -56,6 +56,9 @@ export default function Clients() {
   const [saveError,        setSaveError]        = useState("");
   const [confirmDelete,    setConfirmDelete]    = useState(null);
   const [deletingClient,   setDeletingClient]   = useState(false);
+  const [archivedClients,  setArchivedClients]  = useState([]);
+  const [showArchive,      setShowArchive]      = useState(false);
+  const [restoringId,      setRestoringId]      = useState(null);
 
   const addressInputRef = useRef(null);
   const autocompleteRef = useRef(null);
@@ -80,20 +83,25 @@ export default function Clients() {
         const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid));
         if (cancelled) return;
         const contractorRole    = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
-        const assignedPhones    = contractorRole === "project_manager" ? (contractorSnap.data()?.assignedClients || []) : null;
+        const needsFilter       = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+        const assignedPhones    = needsFilter ? (contractorSnap.data()?.assignedClients || []) : null;
         setUserRole(contractorRole);
 
         const snap = await getDocs(collection(db, "organization_data", oid, "clients"));
         if (cancelled) return;
 
-        const base = snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          // Project managers only see explicitly assigned clients
-          .filter(c => assignedPhones === null || assignedPhones.includes(c.phone))
-          .sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
+        const allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        // Enrich with live user doc data where available
-        const enriched = await Promise.all(base.map(async (client) => {
+        // Split into active and archived
+        const activeDocs   = allDocs
+          .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)))
+          .sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
+        const archivedDocs = allDocs
+          .filter(c => c.archived)
+          .sort((a, b) => (b.archivedAt?.toMillis?.() ?? 0) - (a.archivedAt?.toMillis?.() ?? 0));
+
+        // Enrich active clients with live user data
+        const enriched = await Promise.all(activeDocs.map(async (client) => {
           try {
             // Fast path: uid already cached on client doc
             if (client.uid) {
@@ -115,7 +123,7 @@ export default function Clients() {
           return { ...client, hasAccount: false };
         }));
 
-        if (!cancelled) setClients(enriched);
+        if (!cancelled) { setClients(enriched); setArchivedClients(archivedDocs); }
       } catch (err) {
         console.error("Clients load error:", err);
         if (!cancelled) setError(err.message || "Could not load clients.");
@@ -153,13 +161,15 @@ export default function Clients() {
   const refreshClients = async (oid) => {
     const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid)).catch(() => null);
     const contractorRole = contractorSnap?.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
-    const assignedPhones = contractorRole === "project_manager" ? (contractorSnap?.data()?.assignedClients || []) : null;
+    const needsFilter    = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+    const assignedPhones = needsFilter ? (contractorSnap?.data()?.assignedClients || []) : null;
 
     const snap = await getDocs(collection(db, "organization_data", oid, "clients"));
-    const base = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .filter(c => assignedPhones === null || assignedPhones.includes(c.phone))
+    const allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const activeDocs = allDocs
+      .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)))
       .sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
-    const enriched = await Promise.all(base.map(async (client) => {
+    const enriched = await Promise.all(activeDocs.map(async (client) => {
       try {
         if (client.uid) {
           const uSnap = await getDoc(doc(db, "users", client.uid));
@@ -169,6 +179,7 @@ export default function Clients() {
       return { ...client, hasAccount: false };
     }));
     setClients(enriched);
+    setArchivedClients(allDocs.filter(c => c.archived).sort((a, b) => (b.archivedAt?.toMillis?.() ?? 0) - (a.archivedAt?.toMillis?.() ?? 0)));
   };
 
   const handleAddClient = async (e) => {
@@ -196,16 +207,31 @@ export default function Clients() {
     } finally { setSaving(false); }
   };
 
-  const deleteClient = async () => {
+  const archiveClient = async () => {
     if (!confirmDelete || !organizationName) return;
     setDeletingClient(true);
-    const { id, phone } = confirmDelete;
+    const { id } = confirmDelete;
     try {
-      if (id) await deleteDoc(doc(db, "organization_data", organizationName, "clients", id));
-      if (phone) await deleteDoc(doc(db, "client_phones", phone)).catch(() => {});
+      await updateDoc(doc(db, "organization_data", organizationName, "clients", id), {
+        archived: true, archivedAt: serverTimestamp(),
+      });
+      const archived = clients.find(c => c.id === id);
       setClients(prev => prev.filter(c => c.id !== id));
+      if (archived) setArchivedClients(prev => [{ ...archived, archived: true }, ...prev]);
       setConfirmDelete(null);
     } finally { setDeletingClient(false); }
+  };
+
+  const restoreClient = async (client) => {
+    if (!organizationName) return;
+    setRestoringId(client.id);
+    try {
+      await updateDoc(doc(db, "organization_data", organizationName, "clients", client.id), {
+        archived: false, archivedAt: null,
+      });
+      setArchivedClients(prev => prev.filter(c => c.id !== client.id));
+      setClients(prev => [{ ...client, archived: false }, ...prev]);
+    } finally { setRestoringId(null); }
   };
 
   const toggleClaimStatus = async (client, e) => {
@@ -241,11 +267,9 @@ export default function Clients() {
               {loading ? "Loading…" : `${clients.length} client${clients.length !== 1 ? "s" : ""}`}
             </p>
           </div>
-          {userRole !== "project_manager" && (
-            <button className="cl-add-btn" onClick={openModal}>
-              <PlusIcon /> Add New Client
-            </button>
-          )}
+          <button className="cl-add-btn" onClick={openModal}>
+            <PlusIcon /> Add New Client
+          </button>
         </div>
 
         <div className="cl-search-wrap">
@@ -337,27 +361,72 @@ export default function Clients() {
         })()}
       </div>
 
-      {/* Delete Confirm Modal */}
+      {/* Archive Confirm Modal */}
       {confirmDelete && (
         <div className="cl-modal-overlay" onClick={() => !deletingClient && setConfirmDelete(null)}>
           <div className="cl-modal" onClick={e => e.stopPropagation()}>
             <div className="cl-modal-header">
-              <h3>Delete Client</h3>
+              <h3>Archive Client</h3>
               <button className="cl-modal-close" onClick={() => setConfirmDelete(null)} disabled={deletingClient}>✕</button>
             </div>
             <div className="cl-modal-form">
               <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.6 }}>
-                Permanently delete <strong>{confirmDelete.name || confirmDelete.phone}</strong>?
-                This cannot be undone.
+                Archive <strong>{confirmDelete.name || confirmDelete.phone}</strong>?
+                They'll be hidden from the client list. Admins can restore them later.
               </p>
               <div className="cl-modal-actions">
                 <button className="cl-btn-secondary" onClick={() => setConfirmDelete(null)} disabled={deletingClient}>Cancel</button>
-                <button className="cl-btn-danger" onClick={deleteClient} disabled={deletingClient}>
-                  {deletingClient ? "Deleting…" : "Delete Client"}
+                <button className="cl-btn-danger" onClick={archiveClient} disabled={deletingClient}>
+                  {deletingClient ? "Archiving…" : "Archive Client"}
                 </button>
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Archived Clients — admin only */}
+      {userRole === "admin" && archivedClients.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <button
+            className="cl-section-label"
+            style={{ width: "100%", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", textAlign: "left" }}
+            onClick={() => setShowArchive(v => !v)}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Archived</span>
+              <span className="cl-section-count">{archivedClients.length}</span>
+            </span>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>{showArchive ? "Hide ▲" : "Show ▼"}</span>
+          </button>
+          {showArchive && (
+            <div className="cl-grid" style={{ marginTop: 8 }}>
+              {archivedClients.map(client => (
+                <div key={client.id} className="cl-card" style={{ opacity: 0.75, border: "1px dashed #cbd5e1" }}>
+                  <div className="cl-card-top">
+                    <div className="cl-avatar" style={{ background: "#f1f5f9", color: "#94a3b8" }}>
+                      {(client.name || client.phone || "?")[0].toUpperCase()}
+                    </div>
+                    <div className="cl-card-info">
+                      <p className="cl-card-name">{client.name || <span className="cl-no-name">No name</span>}</p>
+                      <p className="cl-card-phone">{client.phone}</p>
+                    </div>
+                  </div>
+                  {client.address && <p className="cl-card-address"><PinIcon /> {client.address}</p>}
+                  <div className="cl-card-actions">
+                    <button
+                      className="cl-open-btn"
+                      onClick={() => restoreClient(client)}
+                      disabled={restoringId === client.id}
+                      style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }}
+                    >
+                      {restoringId === client.id ? "Restoring…" : "↩ Restore"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

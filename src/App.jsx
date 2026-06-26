@@ -33,11 +33,12 @@ function NotFound() {
 import './myclaim/myclaim.css'
 import { useAuth } from './myclaim/useAuth'
 
-// Redirects project managers away from admin-only pages
-function AdminRoute({ children }) {
+// Redirects roles that lack access to certain pages back to the dashboard.
+// Default blocked: project_manager. Pass blockedRoles to override.
+function AdminRoute({ children, blockedRoles = ['project_manager'] }) {
   const { role, loading } = useAuth()
   if (loading) return null
-  if (role === 'project_manager') return <Navigate to="/myclaim" replace />
+  if (blockedRoles.includes(role)) return <Navigate to="/myclaim" replace />
   return children
 }
 
@@ -55,6 +56,10 @@ const Chatbot      = lazy(() => import('./myclaim/Chatbot'))
 const AIAnalysis   = lazy(() => import('./myclaim/AIAnalysis'))
 const Settings     = lazy(() => import('./myclaim/Settings'))
 const TeamSettings = lazy(() => import('./myclaim/TeamSettings'))
+const Invoices      = lazy(() => import('./myclaim/Invoices'))
+const InvoiceEditor = lazy(() => import('./myclaim/InvoiceEditor'))
+const InvoiceReport = lazy(() => import('./myclaim/InvoiceReport'))
+const Settlement    = lazy(() => import('./myclaim/Settlement'))
 const OptInPolicy      = lazy(() => import('./myclaim/OptInPolicy'))
 const PendingApproval  = lazy(() => import('./myclaim/PendingApproval'))
 
@@ -171,6 +176,10 @@ export default function App() {
           <Route index element={<Suspense fallback={<PortalFallback />}><Dashboard /></Suspense>} />
           <Route path="clients" element={<Suspense fallback={<PortalFallback />}><Clients /></Suspense>} />
           <Route path="clients/:id" element={<Suspense fallback={<PortalFallback />}><ClientDetail /></Suspense>} />
+          <Route path="clients/:id/invoices" element={<Suspense fallback={<PortalFallback />}><Invoices /></Suspense>} />
+          <Route path="clients/:id/invoices/:invoiceId" element={<Suspense fallback={<PortalFallback />}><InvoiceEditor /></Suspense>} />
+          <Route path="clients/:id/settlement" element={<Suspense fallback={<PortalFallback />}><Settlement /></Suspense>} />
+          <Route path="invoices" element={<Suspense fallback={<PortalFallback />}><InvoiceReport /></Suspense>} />
           <Route path="chatbot" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Chatbot /></Suspense></AdminRoute>} />
           <Route path="ai" element={<AdminRoute><Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense></AdminRoute>} />
           <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />

@@ -1767,6 +1767,11 @@
   background: #dbeafe;
   color: #2563eb;
 }
+
+.cd-tab--invoice { color: #374151; }
+.cd-tab--invoice:hover { color: #2563eb; }
+.cd-tab--settlement { color: #374151; }
+.cd-tab--settlement:hover { color: #7c3aed; }
 .cd-docs-hint {
   margin: 0 0 14px;
   font-size: 12.5px;

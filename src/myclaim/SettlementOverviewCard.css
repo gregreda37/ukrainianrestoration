@@ -1,0 +1,464 @@
+.sovc-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow: 0 2px 10px rgba(15,23,42,.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Header ── */
+.sovc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 10px;
+}
+
+.sovc-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.sovc-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sovc-text-btn {
+  background: none;
+  border: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 0;
+}
+.sovc-text-btn:hover { text-decoration: underline; }
+
+.sovc-receipt-btn {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1.5px solid #86efac;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.sovc-receipt-btn:hover { background: #bbf7d0; }
+
+.sovc-add-btn {
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid #2563eb;
+  background: #eff6ff;
+  color: #2563eb;
+  transition: background 0.12s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.sovc-add-btn:hover { background: #dbeafe; }
+.sovc-add-btn--cancel { border-color: #e2e8f0; background: #f8fafc; color: #64748b; }
+.sovc-add-btn--cancel:hover { background: #f1f5f9; }
+
+/* ── Empty state ── */
+.sovc-empty {
+  padding: 4px 0 6px;
+}
+
+.sovc-empty-msg {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  color: #475569;
+}
+
+.sovc-hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* ── Settlement list ── */
+.sovc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sovc-row {
+  border: 1px solid #f1f5f9;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fafbfc;
+}
+
+.sovc-row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.sovc-row-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sovc-claim-num {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sovc-insurer {
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.sovc-loss-date {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.sovc-row-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sovc-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* ── Metrics row ── */
+.sovc-metrics {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.sovc-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sovc-metric-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sovc-metric-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* ── Recovery bar ── */
+.sovc-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sovc-bar {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.sovc-bar-segment {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+
+.sovc-bar-segment--acv {
+  background: #fde68a;
+  z-index: 1;
+}
+
+.sovc-bar-segment--settled {
+  background: linear-gradient(90deg, #4ade80, #16a34a);
+  z-index: 2;
+}
+
+.sovc-bar-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  width: 90px;
+  text-align: right;
+}
+
+/* ── Inline form ── */
+.sovc-form {
+  margin-top: 16px;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sovc-form-section-label {
+  font-size: 11.5px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.sovc-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.sovc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sovc-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.sovc-input {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.14s;
+}
+.sovc-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.07); }
+.sovc-input::placeholder { color: #94a3b8; }
+
+.sovc-input--prefilled {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.sovc-textarea {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.14s;
+}
+.sovc-textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.07); }
+
+/* ── Amount table ── */
+.sovc-table-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sovc-table-scroll {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.sovc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.sovc-table thead {
+  background: #f8fafc;
+}
+
+.sovc-th-cat {
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.sovc-th-num {
+  padding: 9px 10px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.sovc-table tbody tr:nth-child(even) { background: #fafbfc; }
+
+.sovc-td-cat {
+  padding: 8px 12px;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.sovc-td-amt {
+  padding: 5px 6px;
+  text-align: right;
+}
+
+.sovc-amount-input {
+  width: 100px;
+  padding: 6px 8px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  font-family: inherit;
+  text-align: right;
+  box-sizing: border-box;
+  transition: border-color 0.14s;
+}
+.sovc-amount-input:focus { border-color: #2563eb; }
+.sovc-amount-input::placeholder { color: #e2e8f0; }
+
+.sovc-tfoot-row {
+  background: #f8fafc;
+  border-top: 2px solid #e2e8f0;
+}
+
+.sovc-tfoot-row td {
+  padding: 8px 10px;
+}
+
+/* ── Profit recoup slider ── */
+.sovc-recoup-block {
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.sovc-recoup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+
+.sovc-recoup-pct {
+  font-size: 18px;
+  font-weight: 800;
+  color: #2563eb;
+}
+
+.sovc-recoup-slider {
+  width: 100%;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.sovc-recoup-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: #94a3b8;
+  margin-top: 3px;
+}
+
+.sovc-recoup-net {
+  margin: 7px 0 0;
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.sovc-recoup-net strong { color: #2563eb; }
+
+.sovc-notes-row {
+  display: flex;
+  gap: 12px;
+}
+
+.sovc-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ── Buttons ── */
+.sovc-btn {
+  padding: 9px 20px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: background 0.13s;
+}
+.sovc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sovc-btn--primary { background: #2563eb; color: #fff; }
+.sovc-btn--primary:hover:not(:disabled) { background: #1d4ed8; }
+
+.sovc-btn--outline { background: #fff; color: #334155; border: 1.5px solid #e2e8f0; }
+.sovc-btn--outline:hover:not(:disabled) { background: #f8fafc; }
+
+@media (max-width: 600px) {
+  .sovc-form-grid { grid-template-columns: 1fr 1fr; }
+  .sovc-metrics { gap: 12px; }
+  .sovc-bar-label { width: 80px; font-size: 11px; }
+}
+
+@media (max-width: 420px) {
+  .sovc-form-grid { grid-template-columns: 1fr; }
+}

@@ -10,8 +10,9 @@ import TemplateBuilder from "./TemplateBuilder";
 import "./TeamSettings.css";
 
 const ROLES = [
-  { value: "admin",           label: "Admin" },
-  { value: "project_manager", label: "Project Manager" },
+  { value: "admin",            label: "Admin" },
+  { value: "project_manager",  label: "Project Manager" },
+  { value: "public_adjuster",  label: "Public Adjuster" },
 ];
 
 const encodeEmail = (email) =>
@@ -386,7 +387,7 @@ export default function TeamSettings() {
                       <div className="ts-member-email">{member.email || "—"}</div>
                       <div className="ts-member-meta">
                         Last login: {formatDate(member.lastLogin)}
-                        {role === "project_manager" && (
+                        {(role === "project_manager" || role === "public_adjuster") && (
                           <span className="ts-assigned-hint">
                             &nbsp;· {assignedCount} client{assignedCount !== 1 ? "s" : ""} assigned
                           </span>
@@ -406,7 +407,7 @@ export default function TeamSettings() {
                         ))}
                       </select>
 
-                      {role === "project_manager" && !isYou && (
+                      {(role === "project_manager" || role === "public_adjuster") && !isYou && (
                         <button
                           className="ts-assign-btn"
                           onClick={() => openAssignModal(member)}

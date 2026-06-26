@@ -689,7 +689,7 @@ export default function ClientPortal() {
                           const displayName  = c.displayName || c.email || "Team Member";
                           const shownEmail   = c.contactEmail || c.email || null;
                           const shownPhone   = c.phone || null;
-                          const roleLabel    = c.role === "project_manager" ? "Project Manager" : "Admin";
+                          const roleLabel    = c.role === "project_manager" ? "Project Manager" : c.role === "public_adjuster" ? "Public Adjuster" : "Admin";
                           return (
                             <div key={c.uid} className="cp-team-member">
                               <div className="cp-team-avatar">

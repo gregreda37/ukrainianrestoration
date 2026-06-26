@@ -241,11 +241,12 @@ export default function AIAnalysis() {
         ]);
         if (cancelled) return;
         const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
-        const assignedPhones = contractorRole === "project_manager" ? (contractorSnap.data()?.assignedClients || []) : null;
+        const needsFilter    = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+        const assignedPhones = needsFilter ? (contractorSnap.data()?.assignedClients || []) : null;
 
         const list = snap.docs
           .map((d) => ({ docId: d.id, ...d.data() }))
-          .filter((c) => assignedPhones === null || assignedPhones.includes(c.phone));
+          .filter((c) => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
         list.sort((a, b) => {
           if (a.claimStatus === b.claimStatus) return (a.name || "").localeCompare(b.name || "");
           return a.claimStatus === "open" ? -1 : 1;

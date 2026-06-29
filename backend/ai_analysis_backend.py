@@ -15,9 +15,10 @@ from firebase_admin import firestore as admin_firestore, auth as admin_auth
 
 ai_analysis_app = Blueprint("ai_analysis_app", __name__)
 
-CLAUDE_MODEL    = "claude-haiku-4-5-20251001"
-ALLOWED_MODELS  = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6"}
+CLAUDE_MODEL      = "claude-haiku-4-5-20251001"
+ALLOWED_MODELS    = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6"}
 CACHE_TTL_MINUTES = 30
+CACHE_VERSION     = "v2"  # bump to invalidate all cached contexts on deploy
 
 # ── Image pipeline constants ──────────────────────────────────────────────────
 # CompanyCam URI priority: original can be huge (>10 MB); large ~1-3 MB is ideal.
@@ -496,7 +497,7 @@ def get_context():
 
     try:
         db        = admin_firestore.client()
-        cache_key = f"{org_id}_{client_uid}_{_flags_hash(context_flags)}"
+        cache_key = f"{CACHE_VERSION}_{org_id}_{client_uid}_{_flags_hash(context_flags)}"
 
         # Fast path: return cached context if still fresh and same caller
         cached = db.collection("ai_context_cache").document(cache_key).get()

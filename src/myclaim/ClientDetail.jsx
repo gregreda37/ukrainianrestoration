@@ -358,15 +358,18 @@ export default function ClientDetail() {
         }
         if (cancelled) return;
 
+        const preLoginDocsRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "documents");
+
         if (uid) {
           setClientUid(uid);
-          const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap] = await Promise.all([
+          const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap, preLoginDocsSnap] = await Promise.all([
             getDoc(doc(db, "users", uid)),
             getDocs(query(collection(db, "users", uid, "todos"),     orderBy("createdAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "documents"), orderBy("uploadedAt", "desc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "selections"),orderBy("addedAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "budget"),    orderBy("addedAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "activity"),  orderBy("timestamp", "desc"))).catch(() => null),
+            getDocs(query(preLoginDocsRef, orderBy("uploadedAt", "desc"))).catch(() => null),
           ]);
           if (cancelled) return;
 
@@ -406,10 +409,28 @@ export default function ClientDetail() {
             setClientFieldsEdit(fields);
           }
           if (todosSnap)    setTodos(todosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-          if (docsSnap)     setDocs(docsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           if (selSnap)      setSelections(selSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           if (budgetSnap)   setBudgetItems(budgetSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           if (activitySnap) setActivityLog(activitySnap.docs.map(d => ({ id: d.id, ...d.data() })));
+          // Merge user-path docs + any pre-login org-path docs
+          const userDocs    = docsSnap       ? docsSnap.docs.map(d       => ({ id: d.id, ...d.data() }))                      : [];
+          const preLoginDocs = preLoginDocsSnap ? preLoginDocsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() })) : [];
+          setDocs([...userDocs, ...preLoginDocs]);
+        } else {
+          // Client hasn't logged in yet — load pre-login docs uploaded by contractor
+          const preLoginDocsSnap = await getDocs(
+            query(preLoginDocsRef, orderBy("uploadedAt", "desc"))
+          ).catch(() => null);
+          if (preLoginDocsSnap) {
+            setDocs(preLoginDocsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() })));
+          }
+          // Prefill address from org client doc so contractor can see it
+          const fields = {
+            claimNumber: clientData.claimNumbers?.[0] || "", policyNumber: "",
+            address: clientData.address || "", email: clientData.email || "",
+          };
+          setClientFields(fields);
+          setClientFieldsEdit(fields);
         }
 
         // Load Drive folder data from the org client doc (stored by create-client-folder)
@@ -709,10 +730,19 @@ export default function ClientDetail() {
 
   // ── Documents ─────────────────────────────────────────────────────────
   const uploadDoc = async (file, folder = "client") => {
-    if (!clientUid || !file) return;
+    if (!file || (!clientUid && !clientDocId)) return;
     if (folder === "client") setUploading(true); else setContractorUploading(true);
     try {
-      const storageRef = ref(storage, `users/${clientUid}/documents/${Date.now()}_${file.name}`);
+      // Store under org client path when the client hasn't logged in yet (no uid)
+      const isOrgDoc   = !clientUid;
+      const storagePath = isOrgDoc
+        ? `org_clients/${orgId}/${clientDocId}/documents/${Date.now()}_${file.name}`
+        : `users/${clientUid}/documents/${Date.now()}_${file.name}`;
+      const firestoreCol = isOrgDoc
+        ? collection(db, "organization_data", orgId, "clients", clientDocId, "documents")
+        : collection(db, "users", clientUid, "documents");
+
+      const storageRef = ref(storage, storagePath);
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
       const payload = {
@@ -720,8 +750,8 @@ export default function ClientDetail() {
         size: file.size, folder, uploadedAt: serverTimestamp(),
         uploadedBy: user?.email || "contractor",
       };
-      const docRef = await addDoc(collection(db, "users", clientUid, "documents"), payload);
-      setDocs(prev => [{ id: docRef.id, ...payload }, ...prev]);
+      const docRef = await addDoc(firestoreCol, payload);
+      setDocs(prev => [{ id: docRef.id, _isOrgDoc: isOrgDoc, ...payload }, ...prev]);
 
       // Mirror to Drive using the already-saved Firebase Storage URL
       console.log('[Drive] driveConnected:', driveConnected, '| externalId:', driveExternalId, '| internalId:', driveInternalId, '| orgId:', orgId);
@@ -745,7 +775,10 @@ export default function ClientDetail() {
           const driveData = await dr.json();
           console.log('[Drive] Response status:', dr.status, '| body:', driveData);
           if (dr.ok && driveData.driveFileId) {
-            await updateDoc(doc(db, 'users', clientUid, 'documents', docRef.id), {
+            const updateRef = isOrgDoc
+              ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'documents', docRef.id)
+              : doc(db, 'users', clientUid, 'documents', docRef.id);
+            await updateDoc(updateRef, {
               driveFileId: driveData.driveFileId,
               driveFileUrl: driveData.driveFileUrl,
             });
@@ -771,9 +804,12 @@ export default function ClientDetail() {
   };
 
   const deleteDocument = async (document) => {
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     setDocs(prev => prev.filter(d => d.id !== document.id));
-    await deleteDoc(doc(db, "users", clientUid, "documents", document.id)).catch(console.error);
+    const docRef = document._isOrgDoc
+      ? doc(db, "organization_data", orgId, "clients", clientDocId, "documents", document.id)
+      : doc(db, "users", clientUid, "documents", document.id);
+    await deleteDoc(docRef).catch(console.error);
   };
 
   // ── Selections ────────────────────────────────────────────────────────

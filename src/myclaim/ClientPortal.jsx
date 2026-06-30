@@ -219,6 +219,13 @@ export default function ClientPortal() {
               if (n) setCustomerName(n);
               setClientDocId(cSnap.docs[0].id);
               if (cData.driveExternalFolderId) setDriveExternalFolderId(cData.driveExternalFolderId);
+              // Fall back to org client doc for progress fields when user doc doesn't have them
+              if (cData.mitigationStep != null || cData.constructionStep != null) {
+                setClaimProgress(prev => ({
+                  mitigationStep:   prev.mitigationStep  === -1 ? (cData.mitigationStep  ?? -1) : prev.mitigationStep,
+                  constructionStep: prev.constructionStep === -1 ? (cData.constructionStep ?? -1) : prev.constructionStep,
+                }));
+              }
             }
           } catch {}
         }
@@ -244,6 +251,32 @@ export default function ClientPortal() {
       .then(s => setTodos(s.docs.map(d => ({ id:d.id, ...d.data() })).filter(t => t.assignedTo !== "contractor")))
       .catch(console.error);
   }, [user]);
+
+  // Merge pre-login docs and todos uploaded/created by contractor before the client logged in
+  useEffect(() => {
+    if (!clientDocId || !orgId) return;
+    Promise.all([
+      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "documents"), orderBy("uploadedAt", "desc"))).catch(() => null),
+      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"), orderBy("createdAt", "asc"))).catch(() => null),
+    ]).then(([docsSnap, todosSnap]) => {
+      if (docsSnap?.docs.length > 0) {
+        const preLoginDocs = docsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() }));
+        setDocuments(prev => {
+          const existingIds = new Set(prev.map(d => d.id));
+          return [...prev, ...preLoginDocs.filter(d => !existingIds.has(d.id))];
+        });
+      }
+      if (todosSnap?.docs.length > 0) {
+        const preLoginTodos = todosSnap.docs
+          .map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() }))
+          .filter(t => t.assignedTo !== "contractor");
+        setTodos(prev => {
+          const existingIds = new Set(prev.map(t => t.id));
+          return [...prev, ...preLoginTodos.filter(t => !existingIds.has(t.id))];
+        });
+      }
+    }).catch(console.error);
+  }, [clientDocId, orgId]);
 
   useEffect(() => {
     if (!user) return;

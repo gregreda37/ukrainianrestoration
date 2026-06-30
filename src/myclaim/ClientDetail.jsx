@@ -358,18 +358,20 @@ export default function ClientDetail() {
         }
         if (cancelled) return;
 
-        const preLoginDocsRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "documents");
+        const preLoginDocsRef  = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "documents");
+        const preLoginTodosRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "todos");
 
         if (uid) {
           setClientUid(uid);
-          const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap, preLoginDocsSnap] = await Promise.all([
+          const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap, preLoginDocsSnap, preLoginTodosSnap] = await Promise.all([
             getDoc(doc(db, "users", uid)),
             getDocs(query(collection(db, "users", uid, "todos"),     orderBy("createdAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "documents"), orderBy("uploadedAt", "desc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "selections"),orderBy("addedAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "budget"),    orderBy("addedAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "activity"),  orderBy("timestamp", "desc"))).catch(() => null),
-            getDocs(query(preLoginDocsRef, orderBy("uploadedAt", "desc"))).catch(() => null),
+            getDocs(query(preLoginDocsRef,  orderBy("uploadedAt", "desc"))).catch(() => null),
+            getDocs(query(preLoginTodosRef, orderBy("createdAt",  "asc"))).catch(() => null),
           ]);
           if (cancelled) return;
 
@@ -408,26 +410,37 @@ export default function ClientDetail() {
             setClientFields(fields);
             setClientFieldsEdit(fields);
           }
-          if (todosSnap)    setTodos(todosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           if (selSnap)      setSelections(selSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           if (budgetSnap)   setBudgetItems(budgetSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           if (activitySnap) setActivityLog(activitySnap.docs.map(d => ({ id: d.id, ...d.data() })));
           // Merge user-path docs + any pre-login org-path docs
-          const userDocs    = docsSnap       ? docsSnap.docs.map(d       => ({ id: d.id, ...d.data() }))                      : [];
-          const preLoginDocs = preLoginDocsSnap ? preLoginDocsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() })) : [];
+          const userDocs     = docsSnap          ? docsSnap.docs.map(d          => ({ id: d.id, ...d.data() }))                       : [];
+          const preLoginDocs = preLoginDocsSnap  ? preLoginDocsSnap.docs.map(d  => ({ id: d.id, _isOrgDoc:  true, ...d.data() }))     : [];
           setDocs([...userDocs, ...preLoginDocs]);
+          // Merge user-path todos + any pre-login org-path todos
+          const userTodos     = todosSnap         ? todosSnap.docs.map(d         => ({ id: d.id, ...d.data() }))                      : [];
+          const preLoginTodos = preLoginTodosSnap ? preLoginTodosSnap.docs.map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() }))    : [];
+          setTodos([...userTodos, ...preLoginTodos]);
         } else {
-          // Client hasn't logged in yet — load pre-login docs uploaded by contractor
-          const preLoginDocsSnap = await getDocs(
-            query(preLoginDocsRef, orderBy("uploadedAt", "desc"))
-          ).catch(() => null);
+          // Client hasn't logged in yet — load all pre-login data from org client subcollections
+          const [preLoginDocsSnap, preLoginTodosSnap] = await Promise.all([
+            getDocs(query(preLoginDocsRef,  orderBy("uploadedAt", "desc"))).catch(() => null),
+            getDocs(query(preLoginTodosRef, orderBy("createdAt",  "asc"))).catch(() => null),
+          ]);
           if (preLoginDocsSnap) {
             setDocs(preLoginDocsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() })));
           }
-          // Prefill address from org client doc so contractor can see it
+          if (preLoginTodosSnap) {
+            setTodos(preLoginTodosSnap.docs.map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() })));
+          }
+          // Progress stored on org client doc when no uid
+          setMitStep(clientData.mitigationStep ?? -1);
+          setConStep(clientData.constructionStep ?? -1);
           const fields = {
-            claimNumber: clientData.claimNumbers?.[0] || "", policyNumber: "",
-            address: clientData.address || "", email: clientData.email || "",
+            claimNumber:  clientData.claimNumbers?.[0] || "",
+            policyNumber: clientData.policyNumber || "",
+            address:      clientData.address || "",
+            email:        clientData.email || "",
           };
           setClientFields(fields);
           setClientFieldsEdit(fields);
@@ -489,17 +502,21 @@ export default function ClientDetail() {
   }, [editingClientFields]);
 
   // ── Progress ─────────────────────────────────────────────────────────
+  const _stepDocRef = () => clientUid
+    ? doc(db, "users", clientUid)
+    : doc(db, "organization_data", orgId, "clients", clientDocId);
+
   const advanceStep = async (type) => {
-    if (!clientUid || savingProg) return;
+    if (savingProg || (!clientUid && !clientDocId)) return;
     setSavingProg(true);
     try {
       if (type === "mit") {
         const next = Math.min(mitStep + 1, MITIGATION_STEPS.length - 1);
-        await updateDoc(doc(db, "users", clientUid), { mitigationStep: next, updatedAt: serverTimestamp() });
+        await updateDoc(_stepDocRef(), { mitigationStep: next, updatedAt: serverTimestamp() });
         setMitStep(next);
       } else {
         const next = Math.min(conStep + 1, CONSTRUCTION_STEPS.length - 1);
-        await updateDoc(doc(db, "users", clientUid), { constructionStep: next, updatedAt: serverTimestamp() });
+        await updateDoc(_stepDocRef(), { constructionStep: next, updatedAt: serverTimestamp() });
         setConStep(next);
       }
     } catch (err) { console.error("advanceStep error:", err); }
@@ -507,16 +524,16 @@ export default function ClientDetail() {
   };
 
   const regressStep = async (type) => {
-    if (!clientUid || savingProg) return;
+    if (savingProg || (!clientUid && !clientDocId)) return;
     setSavingProg(true);
     try {
       if (type === "mit") {
         const next = Math.max(mitStep - 1, -1);
-        await updateDoc(doc(db, "users", clientUid), { mitigationStep: next, updatedAt: serverTimestamp() });
+        await updateDoc(_stepDocRef(), { mitigationStep: next, updatedAt: serverTimestamp() });
         setMitStep(next);
       } else {
         const next = Math.max(conStep - 1, -1);
-        await updateDoc(doc(db, "users", clientUid), { constructionStep: next, updatedAt: serverTimestamp() });
+        await updateDoc(_stepDocRef(), { constructionStep: next, updatedAt: serverTimestamp() });
         setConStep(next);
       }
     } catch (err) { console.error("regressStep error:", err); }
@@ -552,6 +569,7 @@ export default function ClientDetail() {
     setTodoError("");
 
     if (todoType === "sign_forms") {
+      if (!clientUid) { setTodoError("Client must activate their portal account before signing documents."); return; }
       if (!todoLabel.trim()) { setTodoError("Enter a document label."); return; }
       if (signMode === "template" && !selectedTemplate) {
         setTodoError("Select a template or switch to Raw PDF.");
@@ -607,27 +625,35 @@ export default function ClientDetail() {
       return;
     }
 
-    if (!clientUid || !todoLabel.trim()) { setTodoError("Please enter a task label."); return; }
+    if (!todoLabel.trim()) { setTodoError("Please enter a task label."); return; }
+    if (!clientUid && !clientDocId) { setTodoError("No client record found."); return; }
     setAddingTodo(true);
     try {
+      const isOrgTodo = !clientUid;
       const payload = {
         label: todoLabel.trim(), type: todoType,
         assignedTo: todoAssigned, completed: false,
         createdAt: serverTimestamp(),
       };
       if (todoType === "add_selection") payload.selectionCategory = todoCategory;
-      const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
-      setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
+      const todosCol = isOrgTodo
+        ? collection(db, "organization_data", orgId, "clients", clientDocId, "todos")
+        : collection(db, "users", clientUid, "todos");
+      const docRef = await addDoc(todosCol, payload);
+      setTodos(prev => [...prev, { id: docRef.id, _isOrgTodo: isOrgTodo, ...payload }]);
       resetTodoForm();
     } catch (err) { console.error("addTodo error:", err); setTodoError(err.message || "Could not add todo."); }
     finally { setAddingTodo(false); }
   };
 
   const toggleTodo = async (todo) => {
-    if (!clientUid) return;
+    if (!clientUid && !todo._isOrgTodo) return;
     const upd = { completed: !todo.completed };
     setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, ...upd } : t));
-    await updateDoc(doc(db, "users", clientUid, "todos", todo.id), upd).catch(console.error);
+    const ref = todo._isOrgTodo
+      ? doc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id)
+      : doc(db, "users", clientUid, "todos", todo.id);
+    await updateDoc(ref, upd).catch(console.error);
   };
 
   const toggleClaimStatus = async () => {
@@ -643,9 +669,13 @@ export default function ClientDetail() {
   };
 
   const deleteTodo = async (id) => {
-    if (!clientUid) return;
+    const todo = todos.find(t => t.id === id);
+    if (!todo) return;
     setTodos(prev => prev.filter(t => t.id !== id));
-    await deleteDoc(doc(db, "users", clientUid, "todos", id)).catch(console.error);
+    const ref = todo._isOrgTodo
+      ? doc(db, "organization_data", orgId, "clients", clientDocId, "todos", id)
+      : doc(db, "users", clientUid, "todos", id);
+    await deleteDoc(ref).catch(console.error);
   };
 
   // ── Google Drive helpers ───────────────────────────────────────────────
@@ -2293,11 +2323,10 @@ export default function ClientDetail() {
                 <input ref={fileInputRef} type="file" hidden
                   onChange={e => { if (e.target.files[0]) uploadDoc(e.target.files[0], "client"); e.target.value = ""; }} />
                 <button className="cd-upload-btn"
-                  onClick={() => fileInputRef.current?.click()} disabled={uploading || !clientUid}>
+                  onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                   {uploading ? "Uploading…" : <><UploadIcon /> Upload</>}
                 </button>
               </div>
-              {!clientUid && <p className="cd-docs-drawer-empty">Client must activate portal first.</p>}
               {docs.filter(d => d.folder !== "internal").length === 0
                 ? <p className="cd-docs-drawer-empty">No files yet.</p>
                 : (
@@ -2327,7 +2356,7 @@ export default function ClientDetail() {
                 <input ref={contractorFileRef} type="file" hidden
                   onChange={e => { if (e.target.files[0]) uploadDoc(e.target.files[0], "internal"); e.target.value = ""; }} />
                 <button className="cd-upload-btn"
-                  onClick={() => contractorFileRef.current?.click()} disabled={contractorUploading || !clientUid}>
+                  onClick={() => contractorFileRef.current?.click()} disabled={contractorUploading}>
                   {contractorUploading ? "Uploading…" : <><UploadIcon /> Upload</>}
                 </button>
               </div>

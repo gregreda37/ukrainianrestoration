@@ -8,12 +8,13 @@ export const NavCollapseContext = createContext(null)
 export const useNavCollapse = () => useContext(NavCollapseContext)
 
 const ALL_NAV = [
-  { to: '/myclaim',          label: 'Dashboard',   icon: '▦',  end: true },
-  { to: '/myclaim/clients',  label: 'Clients',     icon: '👥' },
-  { to: '/myclaim/invoices', label: 'Invoices',    icon: '🧾' },
-  { to: '/myclaim/ai',       label: 'AI Analysis', icon: '🤖', pmBlocked: true },
-  { to: '/myclaim/team',     label: 'Team',        icon: '👤', adminOnly: true },
-  { to: '/myclaim/settings', label: 'Settings',    icon: '⚙️' },
+  { to: '/myclaim',               label: 'Dashboard',   icon: '▦',  end: true },
+  { to: '/myclaim/clients',       label: 'Clients',     icon: '👥' },
+  { to: '/myclaim/open-work',     label: 'Invoices',    icon: '🧾' },
+  { to: '/myclaim/invoices',      label: 'Sales Report', icon: '📊' },
+  { to: '/myclaim/ai',            label: 'AI Analysis', icon: '🤖', pmBlocked: true },
+  { to: '/myclaim/team',          label: 'Team',        icon: '👤', adminOnly: true },
+  { to: '/myclaim/settings',      label: 'Settings',    icon: '⚙️' },
 ]
 
 export default function ClaimLayout() {

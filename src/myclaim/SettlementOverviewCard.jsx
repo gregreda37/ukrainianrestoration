@@ -31,7 +31,7 @@ const STATUS_META = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const n = v => parseFloat(v) || 0
-const fmtMoney = v => (parseFloat(v) || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const fmtMoney = v => (parseFloat(v) || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function computeTotals(form) {
   const totals = {}

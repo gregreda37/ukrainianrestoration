@@ -19,7 +19,12 @@ function fmtMoney(n, compact = false) {
   if (compact && Math.abs(n) >= 1000) {
     return '$' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'
   }
-  return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+  return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function fmtDate(str) {
+  if (!str) return '—'
+  return new Date(str + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function getYear(inv)    { return inv.issueDate ? new Date(inv.issueDate + 'T12:00:00').getFullYear() : null }
@@ -61,13 +66,17 @@ export default function InvoiceReport() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  const [summaries,    setSummaries]    = useState([])
-  const [settlements,  setSettlements]  = useState([])
-  const [partners,     setPartners]     = useState([])
-  const [loading,      setLoading]      = useState(true)
-  const [orgName,      setOrgName]      = useState('')
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
-  const [selectedQ,    setSelectedQ]    = useState(null)
+  const [summaries,       setSummaries]       = useState([])
+  const [settlements,     setSettlements]     = useState([])
+  const [partners,        setPartners]        = useState([])
+  const [loading,         setLoading]         = useState(true)
+  const [orgName,         setOrgName]         = useState('')
+  const [selectedYear,    setSelectedYear]    = useState(new Date().getFullYear())
+  const [selectedQ,       setSelectedQ]       = useState(null)
+  const [paidInvOpen,     setPaidInvOpen]     = useState(false)
+  const [insurerSearch,   setInsurerSearch]   = useState('')
+  const [claimSearch,     setClaimSearch]     = useState('')
+  const [fullView,        setFullView]        = useState(null) // null | 'insurers' | 'claims'
 
   useEffect(() => { if (user) load() }, [user])
 
@@ -113,6 +122,14 @@ const sn = v => parseFloat(v) || 0
     if (selectedQ && getQuarter(s) !== selectedQ) return false
     return true
   }), [summaries, selectedYear, selectedQ])
+
+  // ── Paid invoices (year + Q filtered) ──
+  const paidInvoiceList = useMemo(() => summaries
+    .filter(s => s.type === 'invoice' && s.status === 'paid' && getYear(s) === selectedYear && (!selectedQ || getQuarter(s) === selectedQ))
+    .sort((a, b) => (a.paidDate || a.issueDate || '') > (b.paidDate || b.issueDate || '') ? -1 : 1)
+  , [summaries, selectedYear, selectedQ])
+
+  const paidInvoiceTotal = paidInvoiceList.reduce((s, i) => s + (i.total || 0), 0)
 
   // ── Estimates: year-filtered for funnel, lifetime for conversion rate ──
   const allEstimates         = useMemo(() => summaries.filter(s => s.type === 'estimate' && getYear(s) === selectedYear), [summaries, selectedYear])
@@ -175,7 +192,7 @@ const sn = v => parseFloat(v) || 0
       map[key].settled   += sn(s.totalSettled)
       map[key].recoup    += sn(s.companyRecoup)
     })
-    return Object.values(map).sort((a, b) => b.submitted - a.submitted)
+    return Object.values(map).sort((a, b) => b.settled - a.settled)
   }, [settledClaims])
 
   // ── Monthly data with recoup ──
@@ -464,19 +481,57 @@ const sn = v => parseFloat(v) || 0
         )}
       </div>
 
-      {/* ── Settlement status pipeline (all-time) ── */}
-      {settlements.length > 0 && (
-        <div className="ir-sett-pipeline">
-          {statusPipeline.map((s, i) => (
-            <div key={s.key} className="ir-sett-pipe-step">
-              {i > 0 && <div className="ir-sett-pipe-arrow">→</div>}
-              <div className="ir-sett-pipe-pill" style={{ background: s.bg, color: s.color }}>
-                <div className="ir-sett-pipe-count">{s.count}</div>
-                <div className="ir-sett-pipe-label">{s.label}</div>
-                {s.exposure > 0 && <div className="ir-sett-pipe-amt">{fmtMoney(s.exposure, true)}</div>}
-              </div>
+      {/* ── Paid Invoices ── */}
+      {paidInvoiceList.length > 0 && (
+        <div className="ir-section ir-section--paid-inv">
+          <div
+            className="ir-section-title-row"
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => setPaidInvOpen(o => !o)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="ir-section-title" style={{ color: '#16a34a' }}>✓ Paid Invoices</div>
+              <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 9px', borderRadius: 20, background: '#f0fdf4', color: '#16a34a' }}>
+                {paidInvoiceList.length}
+              </span>
             </div>
-          ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="ir-section-sub" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(paidInvoiceTotal)} collected</div>
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>{paidInvOpen ? '▲' : '▼'}</span>
+            </div>
+          </div>
+          {paidInvOpen && (
+            <table className="ir-table">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Invoice #</th>
+                  <th className="ir-num">Amount</th>
+                  <th>Date Paid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paidInvoiceList.map(r => (
+                  <tr key={r.id}
+                    style={{ cursor: r.clientPhone ? 'pointer' : 'default' }}
+                    onClick={() => r.clientPhone && navigate(`/myclaim/clients/${encodeURIComponent(r.clientPhone)}/invoices/${r.invoiceId || r.id}`)}
+                  >
+                    <td style={{ fontWeight: 600 }}>{r.clientName || '—'}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#475569' }}>{r.invoiceNumber || '—'}</td>
+                    <td className="ir-num" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(r.total)}</td>
+                    <td style={{ color: '#64748b' }}>{fmtDate(r.paidDate || r.issueDate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="ir-total-row">
+                  <td colSpan={2}><strong>Total</strong></td>
+                  <td className="ir-num" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(paidInvoiceTotal)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          )}
         </div>
       )}
 
@@ -510,7 +565,7 @@ const sn = v => parseFloat(v) || 0
             <KPICard label="Total Settled"     value={fmtMoney(settTotalSettled)}   sub={`${settAvgRecovery.toFixed(1)}% recovery`}       color="#16a34a" />
             <KPICard label="Written Off"       value={fmtMoney(settTotalGap)}       sub="uncollected gap"                                 color={settTotalGap > 0 ? '#dc2626' : '#94a3b8'} />
             <KPICard label="Referral Fees Paid" value={fmtMoney(settTotalPartnerFees)}                    sub="paid to partners"    color="#7c3aed" />
-            <KPICard label="Company Net"       value={fmtMoney(settTotalSettled - settTotalPartnerFees)} sub="after referral fees" color="#2563eb" />
+            <KPICard label="Company Net"       value={fmtMoney(Math.max(0, settTotalSettled - settTotalPartnerFees))} sub="after referral fees" color="#2563eb" />
           </div>
 
           {settCatData.some(c => c.submitted > 0) && (
@@ -558,106 +613,76 @@ const sn = v => parseFloat(v) || 0
           )}
 
           {/* Insurer breakdown */}
-          {insurerData.length > 0 && (
-            <>
-              <div className="ir-section-label-sm" style={{ marginTop: 20 }}>Insurer Breakdown</div>
-              <table className="ir-table">
-                <thead>
-                  <tr>
-                    <th>Insurance Company</th>
-                    <th className="ir-num">Claims</th>
-                    <th className="ir-num">Submitted</th>
-                    <th className="ir-num">Settled</th>
-                    <th className="ir-num">Recovery</th>
-                    <th className="ir-num">Co. Recoup</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {insurerData.map(ins => {
-                    const rate = ins.submitted > 0 ? ins.settled / ins.submitted * 100 : 0
-                    return (
-                      <tr key={ins.name}>
-                        <td style={{ fontWeight: 600 }}>{ins.name}</td>
-                        <td className="ir-num">{ins.claims}</td>
-                        <td className="ir-num">{ins.submitted > 0 ? fmtMoney(ins.submitted) : '—'}</td>
-                        <td className="ir-num" style={{ color: '#16a34a' }}>{ins.settled > 0 ? fmtMoney(ins.settled) : '—'}</td>
-                        <td className="ir-num">
-                          {ins.submitted > 0
-                            ? <span className="ir-rate-pill" style={{ color: rate >= 90 ? '#15803d' : rate >= 75 ? '#92400e' : '#991b1b', background: rate >= 90 ? '#dcfce7' : rate >= 75 ? '#fef9c3' : '#fee2e2' }}>{rate.toFixed(1)}%</span>
-                            : '—'}
-                        </td>
-                        <td className="ir-num" style={{ color: '#2563eb', fontWeight: 700 }}>{ins.recoup > 0 ? fmtMoney(ins.recoup) : '—'}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </>
-          )}
-
-          <div className="ir-section-label-sm" style={{ marginTop: 20 }}>Profit Recoup Distribution</div>
-          <div className="ir-recoup-buckets">
-            {recoupBuckets.map(b => {
-              const amt = b.items.reduce((s, x) => s + sn(x.companyRecoup), 0)
-              const pct = settTotalRecoup > 0 ? amt / settTotalRecoup * 100 : 0
-              return (
-                <div key={b.label} className="ir-recoup-bucket" style={{ background: b.bg }}>
-                  <div className="ir-recoup-bucket-label" style={{ color: b.color }}>{b.label}</div>
-                  <div className="ir-recoup-bucket-count">{b.items.length} claim{b.items.length !== 1 ? 's' : ''}</div>
-                  <div className="ir-recoup-bucket-amt" style={{ color: b.color }}>{fmtMoney(amt)}</div>
-                  <div className="ir-recoup-bar-wrap">
-                    <div className="ir-recoup-bar-fill" style={{ width: `${pct}%`, background: b.color }} />
-                  </div>
-                  <div className="ir-recoup-bucket-pct" style={{ color: b.color }}>{pct.toFixed(0)}% of recoup</div>
+          {insurerData.length > 0 && (() => {
+            const q = insurerSearch.toLowerCase()
+            const filtered = insurerData.filter(ins => !q || ins.name.toLowerCase().includes(q))
+            const visible  = filtered.slice(0, 3)
+            return (
+              <>
+                <div className="ir-subsection-header" style={{ marginTop: 20 }}>
+                  <span className="ir-section-label-sm">Insurer Breakdown</span>
+                  {insurerData.length > 3 && (
+                    <button className="ir-viewall-btn" onClick={() => setFullView('insurers')}>
+                      View All {insurerData.length} →
+                    </button>
+                  )}
                 </div>
-              )
-            })}
-          </div>
+                <input
+                  className="ir-search-input"
+                  type="text"
+                  placeholder="Search insurer…"
+                  value={insurerSearch}
+                  onChange={e => setInsurerSearch(e.target.value)}
+                />
+                <InsurerTable rows={visible} />
+                {filtered.length > 3 && !insurerSearch && (
+                  <p className="ir-preview-note">Showing top 3 of {filtered.length} — <button className="ir-link-btn" onClick={() => setFullView('insurers')}>view all</button></p>
+                )}
+                {insurerSearch && filtered.length === 0 && (
+                  <p className="ir-preview-note">No insurers match "{insurerSearch}"</p>
+                )}
+              </>
+            )
+          })()}
 
-          <div className="ir-section-label-sm" style={{ marginTop: 18 }}>Claim Detail</div>
-          <table className="ir-table">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Claim #</th>
-                <th>Insurer</th>
-                <th className="ir-num">Submitted</th>
-                <th className="ir-num">Settled</th>
-                <th className="ir-num">Referral Fee</th>
-                <th className="ir-num">Co. Net</th>
-                <th className="ir-num">Recovery</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...filteredSettlements].sort((a, b) => sn(b.totalEstimate) - sn(a.totalEstimate)).map(s => {
-                const rate       = sn(s.recoveryRate)
-                const pFee       = sn(s.partnerFee)
-                const coNet      = sn(s.totalSettled) - pFee
-                return (
-                  <tr key={s.id}>
-                    <td>{s.clientName || '—'}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{s.claimNumber || '—'}</td>
-                    <td style={{ color: '#64748b' }}>{s.insuranceCompany || '—'}</td>
-                    <td className="ir-num">{sn(s.totalEstimate) > 0 ? fmtMoney(s.totalEstimate) : '—'}</td>
-                    <td className="ir-num" style={{ color: sn(s.totalSettled) > 0 ? '#16a34a' : '#d97706' }}>
-                      {sn(s.totalSettled) > 0 ? fmtMoney(s.totalSettled) : 'Pending'}
-                    </td>
-                    <td className="ir-num" style={{ color: pFee > 0 ? '#7c3aed' : '#94a3b8' }}>
-                      {pFee > 0 ? fmtMoney(pFee) : '—'}
-                    </td>
-                    <td className="ir-num" style={{ color: '#2563eb', fontWeight: 700 }}>
-                      {sn(s.totalSettled) > 0 ? fmtMoney(coNet) : '—'}
-                    </td>
-                    <td className="ir-num">
-                      {rate > 0
-                        ? <span className="ir-rate-pill" style={{ color: rate >= 90 ? '#15803d' : rate >= 75 ? '#92400e' : '#991b1b', background: rate >= 90 ? '#dcfce7' : rate >= 75 ? '#fef9c3' : '#fee2e2' }}>{rate.toFixed(1)}%</span>
-                        : '—'}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          {/* Claim detail */}
+          {(() => {
+            const allClaims = [...filteredSettlements].sort((a, b) => sn(b.totalSettled) - sn(a.totalSettled))
+            const q = claimSearch.toLowerCase()
+            const filteredClaims = allClaims.filter(s =>
+              !q ||
+              (s.clientName || '').toLowerCase().includes(q) ||
+              (s.claimNumber || '').toLowerCase().includes(q) ||
+              (s.insuranceCompany || '').toLowerCase().includes(q)
+            )
+            const visible = filteredClaims.slice(0, 3)
+            return (
+              <>
+                <div className="ir-subsection-header" style={{ marginTop: 18 }}>
+                  <span className="ir-section-label-sm">Claim Detail</span>
+                  {allClaims.length > 3 && (
+                    <button className="ir-viewall-btn" onClick={() => setFullView('claims')}>
+                      View All {allClaims.length} →
+                    </button>
+                  )}
+                </div>
+                <input
+                  className="ir-search-input"
+                  type="text"
+                  placeholder="Search client, claim #, insurer…"
+                  value={claimSearch}
+                  onChange={e => setClaimSearch(e.target.value)}
+                />
+                <ClaimTable rows={visible} sn={sn} />
+                {filteredClaims.length > 3 && !claimSearch && (
+                  <p className="ir-preview-note">Showing top 3 of {filteredClaims.length} — <button className="ir-link-btn" onClick={() => setFullView('claims')}>view all</button></p>
+                )}
+                {claimSearch && filteredClaims.length === 0 && (
+                  <p className="ir-preview-note">No claims match "{claimSearch}"</p>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 
@@ -686,7 +711,7 @@ const sn = v => parseFloat(v) || 0
                   <td className="ir-num" style={{ color: '#16a34a' }}>{p.settled > 0 ? fmtMoney(p.settled) : '—'}</td>
                   <td className="ir-num" style={{ color: '#dc2626' }}>{p.partnerFee > 0 ? fmtMoney(p.partnerFee) : '—'}</td>
                   <td className="ir-num ir-bold" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-                    {fmtMoney(p.settled - p.partnerFee)}
+                    {fmtMoney(Math.max(0, p.settled - p.partnerFee))}
                     <span style={{ fontSize: 11, color: '#94a3b8' }}>View →</span>
                   </td>
                 </tr>
@@ -700,7 +725,7 @@ const sn = v => parseFloat(v) || 0
                   <td className="ir-num ir-bold">{fmtMoney(partnerStats.reduce((s, p) => s + p.submitted, 0))}</td>
                   <td className="ir-num" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(partnerStats.reduce((s, p) => s + p.settled, 0))}</td>
                   <td className="ir-num" style={{ color: '#dc2626', fontWeight: 700 }}>{fmtMoney(partnerStats.reduce((s, p) => s + p.partnerFee, 0))}</td>
-                  <td className="ir-num ir-bold">{fmtMoney(partnerStats.reduce((s, p) => s + p.settled - p.partnerFee, 0))}</td>
+                  <td className="ir-num ir-bold">{fmtMoney(Math.max(0, partnerStats.reduce((s, p) => s + p.settled - p.partnerFee, 0)))}</td>
                 </tr>
               </tfoot>
             )}
@@ -929,7 +954,138 @@ const sn = v => parseFloat(v) || 0
         <strong>{orgName}</strong> — Invoice Report {selectedYear}{selectedQ ? ` Q${selectedQ}` : ''}
         <br />Generated {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
       </div>
+
+      {/* ── Full-view overlay ── */}
+      {fullView && (() => {
+        const isInsurers = fullView === 'insurers'
+        const search    = isInsurers ? insurerSearch : claimSearch
+        const setSearch = isInsurers ? setInsurerSearch : setClaimSearch
+        const allClaims = [...filteredSettlements].sort((a, b) => sn(b.totalSettled) - sn(a.totalSettled))
+        const q = search.toLowerCase()
+        const rows = isInsurers
+          ? insurerData.filter(ins => !q || ins.name.toLowerCase().includes(q))
+          : allClaims.filter(s =>
+              !q ||
+              (s.clientName || '').toLowerCase().includes(q) ||
+              (s.claimNumber || '').toLowerCase().includes(q) ||
+              (s.insuranceCompany || '').toLowerCase().includes(q)
+            )
+        return (
+          <div className="ir-overlay" onClick={() => setFullView(null)}>
+            <div className="ir-overlay-panel" onClick={e => e.stopPropagation()}>
+              <div className="ir-overlay-header">
+                <div>
+                  <div className="ir-overlay-title">{isInsurers ? 'All Insurers' : 'All Claims'}</div>
+                  <div className="ir-overlay-sub">
+                    {selectedYear}{selectedQ ? ` Q${selectedQ}` : ''} · {rows.length} {isInsurers ? 'insurer' : 'claim'}{rows.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                <button className="ir-overlay-close" onClick={() => setFullView(null)}>✕ Close</button>
+              </div>
+              <div className="ir-overlay-body">
+                <input
+                  className="ir-search-input"
+                  type="text"
+                  placeholder={isInsurers ? 'Search insurer…' : 'Search client, claim #, insurer…'}
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  autoFocus
+                />
+                {isInsurers
+                  ? <InsurerTable rows={rows} />
+                  : <ClaimTable rows={rows} sn={sn} />
+                }
+                {rows.length === 0 && <p className="ir-preview-note">No results for "{search}"</p>}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
+  )
+}
+
+function InsurerTable({ rows }) {
+  return (
+    <table className="ir-table">
+      <thead>
+        <tr>
+          <th>Insurance Company</th>
+          <th className="ir-num">Claims</th>
+          <th className="ir-num">Submitted</th>
+          <th className="ir-num">Settled</th>
+          <th className="ir-num">Recovery</th>
+          <th className="ir-num">Co. Recoup</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(ins => {
+          const rate = ins.submitted > 0 ? ins.settled / ins.submitted * 100 : 0
+          return (
+            <tr key={ins.name}>
+              <td style={{ fontWeight: 600 }}>{ins.name}</td>
+              <td className="ir-num">{ins.claims}</td>
+              <td className="ir-num">{ins.submitted > 0 ? fmtMoney(ins.submitted) : '—'}</td>
+              <td className="ir-num" style={{ color: '#16a34a' }}>{ins.settled > 0 ? fmtMoney(ins.settled) : '—'}</td>
+              <td className="ir-num">
+                {ins.submitted > 0
+                  ? <span className="ir-rate-pill" style={{ color: rate >= 90 ? '#15803d' : rate >= 75 ? '#92400e' : '#991b1b', background: rate >= 90 ? '#dcfce7' : rate >= 75 ? '#fef9c3' : '#fee2e2' }}>{rate.toFixed(1)}%</span>
+                  : '—'}
+              </td>
+              <td className="ir-num" style={{ color: '#2563eb', fontWeight: 700 }}>{ins.recoup > 0 ? fmtMoney(ins.recoup) : '—'}</td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+function ClaimTable({ rows, sn }) {
+  return (
+    <table className="ir-table">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Claim #</th>
+          <th>Insurer</th>
+          <th className="ir-num">Submitted</th>
+          <th className="ir-num">Settled</th>
+          <th className="ir-num">Referral Fee</th>
+          <th className="ir-num">Co. Net</th>
+          <th className="ir-num">Recovery</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(s => {
+          const rate  = sn(s.recoveryRate)
+          const pFee  = sn(s.partnerFee)
+          const coNet = Math.max(0, sn(s.totalSettled) - pFee)
+          return (
+            <tr key={s.id}>
+              <td style={{ fontWeight: 600 }}>{s.clientName || '—'}</td>
+              <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{s.claimNumber || '—'}</td>
+              <td style={{ color: '#64748b' }}>{s.insuranceCompany || '—'}</td>
+              <td className="ir-num">{sn(s.totalEstimate) > 0 ? fmtMoney(s.totalEstimate) : '—'}</td>
+              <td className="ir-num" style={{ color: sn(s.totalSettled) > 0 ? '#16a34a' : '#d97706' }}>
+                {sn(s.totalSettled) > 0 ? fmtMoney(s.totalSettled) : 'Pending'}
+              </td>
+              <td className="ir-num" style={{ color: pFee > 0 ? '#7c3aed' : '#94a3b8' }}>
+                {pFee > 0 ? fmtMoney(pFee) : '—'}
+              </td>
+              <td className="ir-num" style={{ color: '#2563eb', fontWeight: 700 }}>
+                {sn(s.totalSettled) > 0 ? fmtMoney(coNet) : '—'}
+              </td>
+              <td className="ir-num">
+                {rate > 0
+                  ? <span className="ir-rate-pill" style={{ color: rate >= 90 ? '#15803d' : rate >= 75 ? '#92400e' : '#991b1b', background: rate >= 90 ? '#dcfce7' : rate >= 75 ? '#fef9c3' : '#fee2e2' }}>{rate.toFixed(1)}%</span>
+                  : '—'}
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
   )
 }
 
@@ -950,7 +1106,7 @@ function PipelinePill({ icon, label, count, amount, color, bg }) {
       <div>
         <div className="ir-pill-count" style={{ color }}>{count}</div>
         <div className="ir-pill-label">{label}</div>
-        {amount > 0 && <div className="ir-pill-amt" style={{ color }}>{amount.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</div>}
+        {amount > 0 && <div className="ir-pill-amt" style={{ color }}>{amount.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
       </div>
     </div>
   )

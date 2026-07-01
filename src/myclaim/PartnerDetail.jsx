@@ -14,7 +14,7 @@ const STATUS_META = {
 }
 
 const n = v => parseFloat(v) || 0
-const fmt = v => n(v).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const fmt = v => n(v).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function fmtDate(str) {
   if (!str) return '—'

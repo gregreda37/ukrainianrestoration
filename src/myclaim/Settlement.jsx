@@ -18,11 +18,10 @@ const CATEGORIES = [
 ]
 
 const COL_FIELDS = [
-  { key: 'Estimate',    label: 'Our Estimate',      hint: 'Amount on your scope of work',        color: '#0f172a' },
-  { key: 'ACV',         label: 'Insurance ACV',     hint: 'Actual Cash Value (depreciated)',     color: '#d97706' },
-  { key: 'RCV',         label: 'Insurance RCV',     hint: 'Replacement Cost Value (full)',       color: '#7c3aed' },
-  { key: 'Supplement',  label: 'Supplement',        hint: 'Additional amounts negotiated',       color: '#0891b2' },
-  { key: 'Settled',     label: 'Final Settlement',  hint: 'Total amount actually paid out',      color: '#16a34a' },
+  { key: 'Estimate',   label: 'Our Estimate',    hint: 'Amount on your scope of work',          color: '#0f172a' },
+  { key: 'Supplement', label: 'Supplement',       hint: 'Additional amounts negotiated',         color: '#0891b2' },
+  { key: 'Settled',    label: 'Final Settlement', hint: 'Total amount actually paid out',        color: '#16a34a' },
+  { key: 'Expenses',   label: 'Expenses',         hint: 'Company expenses for this category',   color: '#dc2626' },
 ]
 
 const STATUS_META = {
@@ -52,14 +51,15 @@ function computeTotals(form) {
   for (const col of COL_FIELDS) {
     totals[col.key] = CATEGORIES.reduce((s, cat) => s + n(form[`${cat.key}${col.key}`]), 0)
   }
-  totals.gap          = Math.max(0, totals.Estimate - totals.Settled)
+  totals.gap          = totals.Estimate - totals.Settled   // negative = surplus (recovered more than estimated)
   totals.recoveryRate = totals.Estimate > 0 ? totals.Settled / totals.Estimate * 100 : 0
+  totals.grossProfit  = totals.Settled - totals.Expenses
   return totals
 }
 
 function fmtMoney(v) {
   const num = parseFloat(v) || 0
-  return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+  return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtDate(str) {
@@ -76,19 +76,21 @@ const EMPTY_FORM = (prefill = {}) => ({
   status: 'estimating', deductible: '',
   recoupPercent: 100,
   dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: '',
-  partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFeeValue: '',
+  partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFeeValue: '', partnerFeeOnNet: false,
   notes: '',
   ...CATEGORIES.flatMap(c => COL_FIELDS.map(f => [`${c.key}${f.key}`, ''])).reduce((o, [k, v]) => ({ ...o, [k]: v }), {}),
 })
 
-function computeCategoryRecoups(form) {
+function computeCategoryRecoups(form, onNet = false) {
   const masterPct = n(form.recoupPercent) || 100
   let companyRecoup = 0
   const breakdown = CATEGORIES.map(cat => {
-    const settled = n(form[`${cat.key}Settled`])
+    const settled  = n(form[`${cat.key}Settled`])
+    const expenses = onNet ? n(form[`${cat.key}Expenses`]) : 0
+    const base     = Math.max(0, settled - expenses)
     const override = form[`${cat.key}RecoupPct`]
     const pct = (override !== null && override !== undefined && override !== '') ? n(override) : masterPct
-    const recoup = settled * pct / 100
+    const recoup = base * pct / 100
     companyRecoup += recoup
     return { key: cat.key, label: cat.label, settled, pct, recoup }
   })
@@ -101,14 +103,18 @@ function computePartnerFee(form, companyRecoup) {
   return form.partnerFeeType === 'fixed' ? n(form.partnerFeeValue) : companyRecoup
 }
 
-function buildSummaryDoc(id, data, totals, clientUid, clientName) {
+function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
   const hasSettled = totals.Settled > 0
   const masterPct = n(data.recoupPercent) || 100
-  const recoups = computeCategoryRecoups(data)
+  const recoups = computeCategoryRecoups(data, !!data.partnerFeeOnNet)
   const partnerFee = hasSettled ? computePartnerFee(data, recoups.companyRecoup) : 0
+  const totalExpenses = totals.Expenses || 0
+  const grossProfit = hasSettled ? totals.Settled - totalExpenses : null
+  const netAfterPartner = hasSettled ? totals.Settled - totalExpenses - (data.partnerId ? partnerFee : 0) : null
   return {
     settlementId:                id,
     clientUid:                   clientUid ?? null,
+    clientPhone:                 clientPhone || null,
     clientName:                  clientName || '',
     claimNumber:                 data.claimNumber            || '',
     insuranceCompany:            data.insuranceCompany       || '',
@@ -121,8 +127,21 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName) {
     dryCleanSettled:             n(data.dryCleanSettled),
     mitigationSettled:           n(data.mitigationSettled),
     reconstructionSettled:       n(data.reconstructionSettled),
+    dryCleanExpenses:            n(data.dryCleanExpenses),
+    mitigationExpenses:          n(data.mitigationExpenses),
+    reconstructionExpenses:      n(data.reconstructionExpenses),
+    dryCleanPaid:                !!data.dryCleanPaid,
+    mitigationPaid:              !!data.mitigationPaid,
+    reconstructionPaid:          !!data.reconstructionPaid,
+    dryCleanPaidAmount:          n(data.dryCleanPaidAmount),
+    mitigationPaidAmount:        n(data.mitigationPaidAmount),
+    reconstructionPaidAmount:    n(data.reconstructionPaidAmount),
+    totalPaidAmount:             n(data.totalPaidAmount),
+    totalOutstanding:            Math.max(0, totals.Settled - n(data.totalPaidAmount)),
     totalEstimate:               totals.Estimate,
     totalSettled:                totals.Settled,
+    totalExpenses:               totalExpenses,
+    grossProfit:                 grossProfit,
     recoveryRate:                hasSettled ? totals.recoveryRate : null,
     gap:                         hasSettled ? totals.gap          : null,
     recoupPercent:               masterPct,
@@ -137,8 +156,11 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName) {
     partnerName:                 data.partnerName || null,
     partnerFeeType:              data.partnerFeeType  || 'percent',
     partnerFeeValue:             n(data.partnerFeeValue),
+    partnerFeeOnNet:             !!data.partnerFeeOnNet,
     partnerFee:                  hasSettled && data.partnerId ? partnerFee : null,
-    companyNetAfterPartner:      hasSettled ? totals.Settled - (data.partnerId ? partnerFee : 0) : null,
+    companyNetAfterPartner:      netAfterPartner,
+    paid:                        !!data.paid,
+    paidDate:                    data.paidDate || null,
     updatedAt:                   serverTimestamp(),
   }
 }
@@ -244,20 +266,22 @@ export default function Settlement() {
       if (hasSettled && newFormMut.status === 'settled' && !newFormMut.settlementDate) {
         newFormMut = { ...newFormMut, settlementDate: new Date().toISOString().slice(0, 10) }
       }
-      const recoups = computeCategoryRecoups(newFormMut)
+      const recoups = computeCategoryRecoups(newFormMut, !!newFormMut.partnerFeeOnNet)
       const partnerFee = hasSettled ? computePartnerFee(newFormMut, recoups.companyRecoup) : 0
       const data = {
         ...newFormMut,
         totalEstimate:               totals.Estimate,
         totalSettled:                totals.Settled,
+        totalExpenses:               totals.Expenses,
         recoveryRate:                hasSettled ? totals.recoveryRate : null,
         gap:                         hasSettled ? totals.gap          : null,
+        grossProfit:                 hasSettled ? totals.grossProfit  : null,
         companyRecoup:               hasSettled ? recoups.companyRecoup : null,
         dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
         mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
         reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
         partnerFee:                  hasSettled && newFormMut.partnerId ? partnerFee : null,
-        companyNetAfterPartner:      hasSettled ? totals.Settled - (newFormMut.partnerId ? partnerFee : 0) : null,
+        companyNetAfterPartner:      hasSettled ? totals.Settled - totals.Expenses - (newFormMut.partnerId ? partnerFee : 0) : null,
         createdAt:                   serverTimestamp(),
         updatedAt:                   serverTimestamp(),
         createdBy:                   user.uid,
@@ -269,7 +293,7 @@ export default function Settlement() {
       if (orgId) {
         await setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', ref.id),
-          buildSummaryDoc(ref.id, newFormMut, totals, clientUid, clientName)
+          buildSummaryDoc(ref.id, newFormMut, totals, clientUid, clientName, phone)
         )
       }
       setSettlements(prev => [{ id: ref.id, ...data, ...(!clientUid && { _isOrgSettlement: true }) }, ...prev])
@@ -319,6 +343,48 @@ export default function Settlement() {
         </div>
       )}
 
+      {/* ── Awaiting payment section ── */}
+      {(() => {
+        const awaiting = settlements.filter(s => n(s.totalSettled) > 0 && !s.paid)
+        if (!awaiting.length) return null
+        const awaitingTotal = awaiting.reduce((sum, s) => {
+          const totalSettled = n(s.totalSettled)
+          const totalPaid    = n(s.totalPaidAmount)
+          return sum + (totalPaid > 0 ? Math.max(0, totalSettled - totalPaid) : totalSettled)
+        }, 0)
+        return (
+          <div className="sl-awaiting-section">
+            <div className="sl-awaiting-header">
+              <span className="sl-awaiting-label">⏳ Awaiting Payment</span>
+              <span className="sl-awaiting-total">{fmtMoney(awaitingTotal)}</span>
+            </div>
+            <div className="sl-awaiting-list">
+              {awaiting.map(s => {
+                const totalSettled = n(s.totalSettled)
+                const totalPaid    = n(s.totalPaidAmount)
+                const outstanding  = totalPaid > 0 ? Math.max(0, totalSettled - totalPaid) : totalSettled
+                return (
+                  <div key={s.id} className="sl-awaiting-card">
+                    <div className="sl-awaiting-left">
+                      <span className="sl-awaiting-claim">{s.claimNumber || 'No claim #'}</span>
+                      <span className="sl-awaiting-insurer">{s.insuranceCompany || 'Insurance TBD'}</span>
+                      {s.settlementDate && <span className="sl-awaiting-date">Settled {fmtDate(s.settlementDate)}</span>}
+                      {totalPaid > 0 && (
+                        <span className="sl-awaiting-rcvd">{fmtMoney(totalPaid)} received</span>
+                      )}
+                    </div>
+                    <div className="sl-awaiting-right">
+                      <span className="sl-awaiting-amt">{fmtMoney(outstanding)}</span>
+                      <span className="sl-awaiting-due-label">outstanding</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ── Settlement list ── */}
       {settlements.length === 0 && !showNew ? (
         <div className="sl-empty">
@@ -352,6 +418,7 @@ export default function Settlement() {
               setSettlements(prev => prev.map(x => x.id === s.id ? { ...x, ...updated } : x))
               setEditingId(null)
             }}
+            onPaidToggle={updated => setSettlements(prev => prev.map(x => x.id === s.id ? { ...x, ...updated } : x))}
             onDelete={() => setSettlements(prev => prev.filter(x => x.id !== s.id))}
           />
         ))
@@ -362,7 +429,7 @@ export default function Settlement() {
 
 // ── Settlement record (summary + expandable detail) ───────────────────────────
 
-function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete }) {
+function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete, onPaidToggle }) {
   const navigate = useNavigate()
   const totals = computeTotals(s)
   const sm = STATUS_META[s.status] || STATUS_META.estimating
@@ -374,6 +441,32 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
   const [showLogForm, setShowLogForm] = useState(false)
   const [confirmDel, setConfirmDel]  = useState(false)
   const [deleting, setDeleting]      = useState(false)
+  const [catPaid, setCatPaid] = useState({
+    dryClean:       !!s.dryCleanPaid,
+    mitigation:     !!s.mitigationPaid,
+    reconstruction: !!s.reconstructionPaid,
+  })
+  const [paidAmounts, setPaidAmounts] = useState({
+    dryClean:       n(s.dryCleanPaidAmount),
+    mitigation:     n(s.mitigationPaidAmount),
+    reconstruction: n(s.reconstructionPaidAmount),
+  })
+  const [togglingCat, setTogglingCat] = useState(null)
+  const [savingPaidAmt, setSavingPaidAmt] = useState(null)
+
+  useEffect(() => {
+    setCatPaid({
+      dryClean:       !!s.dryCleanPaid,
+      mitigation:     !!s.mitigationPaid,
+      reconstruction: !!s.reconstructionPaid,
+    })
+    setPaidAmounts({
+      dryClean:       n(s.dryCleanPaidAmount),
+      mitigation:     n(s.mitigationPaidAmount),
+      reconstruction: n(s.reconstructionPaidAmount),
+    })
+  }, [s.dryCleanPaid, s.mitigationPaid, s.reconstructionPaid,
+      s.dryCleanPaidAmount, s.mitigationPaidAmount, s.reconstructionPaidAmount])
 
   useEffect(() => {
     if (editing) {
@@ -409,20 +502,22 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
       const totals = computeTotals(editForm)
       const { id: _id, _isOrgSettlement: _flag, ...cleanForm } = editForm
       const hasSettled = totals.Settled > 0
-      const recoups = computeCategoryRecoups(editForm)
+      const recoups = computeCategoryRecoups(editForm, !!editForm.partnerFeeOnNet)
       const partnerFee = hasSettled ? computePartnerFee(editForm, recoups.companyRecoup) : 0
       const updates = {
         ...cleanForm,
         totalEstimate:               totals.Estimate,
         totalSettled:                totals.Settled,
+        totalExpenses:               totals.Expenses,
         recoveryRate:                hasSettled ? totals.recoveryRate : null,
         gap:                         hasSettled ? totals.gap          : null,
+        grossProfit:                 hasSettled ? totals.grossProfit  : null,
         companyRecoup:               hasSettled ? recoups.companyRecoup : null,
         dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
         mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
         reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
         partnerFee:                  hasSettled && editForm.partnerId ? partnerFee : null,
-        companyNetAfterPartner:      hasSettled ? totals.Settled - (editForm.partnerId ? partnerFee : 0) : null,
+        companyNetAfterPartner:      hasSettled ? totals.Settled - totals.Expenses - (editForm.partnerId ? partnerFee : 0) : null,
         settlementDate:              editForm.settlementDate || (hasSettled && editForm.status === 'settled' ? new Date().toISOString().slice(0, 10) : ''),
         updatedAt:                   serverTimestamp(),
       }
@@ -434,7 +529,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
       if (orgId) {
         setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', s.id),
-          buildSummaryDoc(s.id, updates, totals, clientUid, clientName)
+          buildSummaryDoc(s.id, updates, totals, clientUid, clientName, phone)
         ).catch(e => console.warn('settlement_summary update:', e))
       }
       onSaved(updates)
@@ -462,8 +557,104 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
     }
   }
 
+  async function doToggleCatPaid(catKey) {
+    const nowPaid = !catPaid[catKey]
+    const settled = n(s[`${catKey}Settled`])
+    // Clicking ✓ to mark paid → fill paid amount to settled; unpaying → clear to 0
+    const newPaidAmt = nowPaid ? settled : 0
+    const newCatPaid = { ...catPaid, [catKey]: nowPaid }
+    setCatPaid(newCatPaid)
+    setPaidAmounts(prev => ({ ...prev, [catKey]: newPaidAmt }))
+    setTogglingCat(catKey)
+    try {
+      const allPaid = CATEGORIES.every(c => {
+        const s2 = n(s[`${c.key}Settled`])
+        return s2 <= 0 || newCatPaid[c.key]
+      })
+      const newTotalPaid = CATEGORIES.reduce((sum, c) => {
+        if (c.key === catKey) return sum + newPaidAmt
+        return sum + n(s[`${c.key}PaidAmount`])
+      }, 0)
+      const paidField = `${catKey}Paid`
+      const amtField  = `${catKey}PaidAmount`
+      const update = {
+        [paidField]: nowPaid,
+        [amtField]:  newPaidAmt,
+        totalPaidAmount:   newTotalPaid,
+        totalOutstanding:  n(s.totalSettled) - newTotalPaid,
+        paid:     allPaid,
+        paidDate: allPaid ? todayStr() : (s.paidDate || null),
+        updatedAt: serverTimestamp(),
+      }
+      const settDocRef = (s._isOrgSettlement || !clientUid)
+        ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id)
+        : doc(db, 'users', clientUid, 'settlements', s.id)
+      await setDoc(settDocRef, update, { merge: true })
+      if (orgId) {
+        setDoc(doc(db, 'organization_data', orgId, 'settlement_summary', s.id), update, { merge: true }).catch(() => {})
+      }
+      onPaidToggle?.({ [paidField]: nowPaid, [amtField]: newPaidAmt, paid: allPaid, paidDate: update.paidDate, totalPaidAmount: newTotalPaid, totalOutstanding: update.totalOutstanding })
+    } catch (e) {
+      console.error('Toggle cat paid failed:', e)
+      setCatPaid(prev => ({ ...prev, [catKey]: !nowPaid }))
+      setPaidAmounts(prev => ({ ...prev, [catKey]: nowPaid ? 0 : settled }))
+    } finally {
+      setTogglingCat(null)
+    }
+  }
+
+  async function saveCatPaidAmount(catKey, rawVal) {
+    const amount  = parseFloat(rawVal) || 0
+    const settled = n(s[`${catKey}Settled`])
+    const nowPaid = amount > 0 && amount >= settled
+    const newCatPaid = { ...catPaid, [catKey]: nowPaid }
+    setCatPaid(newCatPaid)
+    setSavingPaidAmt(catKey)
+    try {
+      const allPaid = CATEGORIES.every(c => {
+        const s2 = n(s[`${c.key}Settled`])
+        return s2 <= 0 || newCatPaid[c.key]
+      })
+      const newTotalPaid = CATEGORIES.reduce((sum, c) => {
+        if (c.key === catKey) return sum + amount
+        return sum + n(s[`${c.key}PaidAmount`])
+      }, 0)
+      const paidField = `${catKey}Paid`
+      const amtField  = `${catKey}PaidAmount`
+      const update = {
+        [amtField]:  amount,
+        [paidField]: nowPaid,
+        totalPaidAmount:  newTotalPaid,
+        totalOutstanding: n(s.totalSettled) - newTotalPaid,
+        paid:     allPaid,
+        paidDate: allPaid ? todayStr() : (s.paidDate || null),
+        updatedAt: serverTimestamp(),
+      }
+      const settDocRef = (s._isOrgSettlement || !clientUid)
+        ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id)
+        : doc(db, 'users', clientUid, 'settlements', s.id)
+      await setDoc(settDocRef, update, { merge: true })
+      if (orgId) {
+        setDoc(doc(db, 'organization_data', orgId, 'settlement_summary', s.id), update, { merge: true }).catch(() => {})
+      }
+      onPaidToggle?.({ [amtField]: amount, [paidField]: nowPaid, paid: allPaid, paidDate: update.paidDate, totalPaidAmount: newTotalPaid, totalOutstanding: update.totalOutstanding })
+    } catch (e) {
+      console.error('Save paid amount failed:', e)
+    } finally {
+      setSavingPaidAmt(null)
+    }
+  }
+
   const displayTotals = editing && editForm ? computeTotals(editForm) : totals
-  const recovPct = Math.min(100, displayTotals.recoveryRate)
+  const recovPct = displayTotals.recoveryRate
+  const displaySource = editing && editForm ? editForm : s
+  const displayRecoups = computeCategoryRecoups(displaySource, !!displaySource.partnerFeeOnNet)
+  const displayPartnerFee = displaySource.partnerId ? computePartnerFee(displaySource, displayRecoups.companyRecoup) : 0
+  const allPaid = displayTotals.Settled > 0 && CATEGORIES.every(c => {
+    const settled = n(s[`${c.key}Settled`])
+    return settled <= 0 || catPaid[c.key]
+  })
+  const partialPaid = !allPaid && CATEGORIES.some(c => catPaid[c.key] && n(s[`${c.key}Settled`]) > 0)
 
   return (
     <div className={`sl-card${expanded ? ' sl-card--expanded' : ''}`}>
@@ -485,8 +676,12 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
           </div>
           <div className="sl-metric">
             <span className="sl-metric-label">Gap</span>
-            <span className="sl-metric-val" style={{ color: displayTotals.gap > 0 ? '#dc2626' : '#94a3b8' }}>
-              {displayTotals.gap > 0 ? `– ${fmtMoney(displayTotals.gap)}` : '—'}
+            <span className="sl-metric-val" style={{ color: displayTotals.gap > 0 ? '#dc2626' : displayTotals.gap < 0 ? '#15803d' : '#94a3b8' }}>
+              {displayTotals.gap > 0
+                ? `– ${fmtMoney(displayTotals.gap)}`
+                : displayTotals.gap < 0
+                ? `+ ${fmtMoney(-displayTotals.gap)}`
+                : '—'}
             </span>
           </div>
           <div className="sl-metric">
@@ -500,6 +695,12 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
         </div>
         <div className="sl-summary-right">
           <span className="sl-badge" style={{ color: sm.color, background: sm.bg }}>{sm.label}</span>
+          {allPaid && (
+            <span className="sl-paid-indicator" title={s.paidDate ? `Paid ${fmtDate(s.paidDate)}` : 'All paid'}>✓ Paid</span>
+          )}
+          {partialPaid && (
+            <span className="sl-partial-paid-indicator">⧗ Partial</span>
+          )}
           <span className="sl-chevron">{expanded ? '▲' : '▼'}</span>
         </div>
       </div>
@@ -510,10 +711,6 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
           <div className="sl-recovery-bar">
             <div className="sl-recovery-fill sl-recovery-fill--settled"
               style={{ width: `${Math.min(100, displayTotals.Settled / displayTotals.Estimate * 100)}%` }} />
-            {displayTotals.ACV > 0 && (
-              <div className="sl-recovery-fill sl-recovery-fill--acv"
-                style={{ width: `${Math.min(100, displayTotals.ACV / displayTotals.Estimate * 100)}%` }} />
-            )}
           </div>
           <span className="sl-recovery-pct">{recovPct.toFixed(1)}% recovered</span>
         </div>
@@ -558,24 +755,51 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                         <th key={f.key} className="sl-th-num" style={{ color: f.color }} title={f.hint}>{f.label}</th>
                       ))}
                       <th className="sl-th-num sl-gap-col">Gap</th>
+                      <th className="sl-th-paid">Paid</th>
                     </tr>
                   </thead>
                   <tbody>
                     {CATEGORIES.map(cat => {
-                      const gap = Math.max(0, n(s[`${cat.key}Estimate`]) - n(s[`${cat.key}Settled`]))
+                      const gap = n(s[`${cat.key}Estimate`]) - n(s[`${cat.key}Settled`])
+                      const isPaid = catPaid[cat.key]
                       return (
-                        <tr key={cat.key} className="sl-data-row">
+                        <tr key={cat.key} className={`sl-data-row${isPaid ? ' sl-data-row--paid' : ''}`}>
                           <td className="sl-td-cat">{cat.label}</td>
                           {COL_FIELDS.map(f => {
                             const val = n(s[`${cat.key}${f.key}`])
                             return (
                               <td key={f.key} className="sl-td-num">
-                                {val > 0 ? <span style={{ color: f.color }}>{fmtMoney(val)}</span> : <span className="sl-dash">—</span>}
+                                {val !== 0 ? <span style={{ color: f.color }}>{fmtMoney(val)}</span> : <span className="sl-dash">—</span>}
                               </td>
                             )
                           })}
                           <td className="sl-td-num sl-gap-col">
-                            {gap > 0 ? <span className="sl-gap-amt">– {fmtMoney(gap)}</span> : <span className="sl-dash">—</span>}
+                            {gap > 0
+                              ? <span className="sl-gap-amt">– {fmtMoney(gap)}</span>
+                              : gap < 0
+                              ? <span style={{ color: '#15803d', fontWeight: 600 }}>+ {fmtMoney(-gap)}</span>
+                              : <span className="sl-dash">—</span>}
+                          </td>
+                          <td className="sl-td-paid">
+                            <div className="sl-paid-cell">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className={`sl-paid-amt-input${savingPaidAmt === cat.key ? ' sl-paid-amt-input--saving' : ''}`}
+                                placeholder="$ received"
+                                value={paidAmounts[cat.key] || ''}
+                                onChange={e => setPaidAmounts(prev => ({ ...prev, [cat.key]: e.target.value }))}
+                                onBlur={e => saveCatPaidAmount(cat.key, e.target.value)}
+                                onClick={e => e.stopPropagation()}
+                              />
+                              <button
+                                className={`sl-cat-paid-btn${isPaid ? ' sl-cat-paid-btn--paid' : ''}`}
+                                onClick={e => { e.stopPropagation(); doToggleCatPaid(cat.key) }}
+                                disabled={togglingCat === cat.key}
+                                title={isPaid ? 'Fully paid — click to unmark' : 'Mark as fully paid'}
+                              >✓</button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -592,7 +816,28 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                       <td className="sl-td-num sl-gap-col">
                         {displayTotals.gap > 0
                           ? <strong className="sl-gap-amt">– {fmtMoney(displayTotals.gap)}</strong>
+                          : displayTotals.gap < 0
+                          ? <strong style={{ color: '#15803d' }}>+ {fmtMoney(-displayTotals.gap)}</strong>
                           : <span className="sl-dash">—</span>}
+                      </td>
+                      <td className="sl-td-paid">
+                        {(() => {
+                          const totalReceived = CATEGORIES.reduce((sum, c) => sum + (paidAmounts[c.key] || 0), 0)
+                          const totalSettled  = displayTotals.Settled
+                          const outstanding   = Math.max(0, totalSettled - totalReceived)
+                          if (totalReceived === 0) return null
+                          return (
+                            <div className="sl-paid-totals">
+                              <span className="sl-paid-received">{fmtMoney(totalReceived)} rcvd</span>
+                              {outstanding > 0 && (
+                                <span className="sl-paid-outstanding">− {fmtMoney(outstanding)} due</span>
+                              )}
+                              {outstanding === 0 && totalSettled > 0 && (
+                                <span className="sl-paid-tally sl-paid-tally--all">Paid in full</span>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
                     </tr>
                   </tfoot>
@@ -603,12 +848,6 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
               {displayTotals.Estimate > 0 && (
                 <div className="sl-analysis">
                   <RecoveryBar label="Our Estimate"     value={displayTotals.Estimate} max={displayTotals.Estimate} color="#e2e8f0" />
-                  {displayTotals.RCV > 0 && (
-                    <RecoveryBar label="Insurance RCV"    value={displayTotals.RCV}      max={displayTotals.Estimate} color="#c4b5fd" />
-                  )}
-                  {displayTotals.ACV > 0 && (
-                    <RecoveryBar label="Insurance ACV"    value={displayTotals.ACV}      max={displayTotals.Estimate} color="#fde68a" />
-                  )}
                   {displayTotals.Settled > 0 && (
                     <RecoveryBar label="Final Settlement" value={displayTotals.Settled}   max={displayTotals.Estimate} color="#86efac" highlight />
                   )}
@@ -620,7 +859,97 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                 </div>
               )}
 
+              {/* Profit breakdown */}
+              {(displayTotals.Expenses > 0 || displayPartnerFee > 0) && (
+                <div className="sl-profit-analysis">
+                  <div className="sl-profit-row">
+                    <span className="sl-profit-label">Final Settlement</span>
+                    <span className="sl-profit-val sl-profit-val--settled">{fmtMoney(displayTotals.Settled)}</span>
+                  </div>
+                  {displayTotals.Expenses > 0 && (
+                    <div className="sl-profit-row sl-profit-row--deduct">
+                      <span className="sl-profit-label">Less: Expenses</span>
+                      <span className="sl-profit-val sl-profit-val--expense">− {fmtMoney(displayTotals.Expenses)}</span>
+                    </div>
+                  )}
+                  <div className="sl-profit-row sl-profit-row--gross">
+                    <span className="sl-profit-label">Gross Profit</span>
+                    <span className="sl-profit-val" style={{ color: displayTotals.grossProfit >= 0 ? '#0891b2' : '#dc2626' }}>
+                      {fmtMoney(displayTotals.grossProfit)}
+                    </span>
+                  </div>
+                  {displayPartnerFee > 0 && (
+                    <div className="sl-profit-row sl-profit-row--deduct">
+                      <span className="sl-profit-label">
+                        Less: Referral Fee{displaySource.partnerName ? ` (${displaySource.partnerName})` : ''}
+                        <span className="sl-fee-basis-chip">{displaySource.partnerFeeOnNet ? 'on net' : 'on gross'}</span>
+                      </span>
+                      <span className="sl-profit-val sl-profit-val--expense">− {fmtMoney(displayPartnerFee)}</span>
+                    </div>
+                  )}
+                  {displayPartnerFee > 0 && (
+                    <div className="sl-profit-row sl-profit-row--net">
+                      <span className="sl-profit-label">Net to Company</span>
+                      <span className="sl-profit-val sl-profit-val--net">
+                        {fmtMoney(displayTotals.grossProfit - displayPartnerFee)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Payment status */}
+              {displayTotals.Settled > 0 && (() => {
+                const totalReceived  = CATEGORIES.reduce((sum, c) => sum + (paidAmounts[c.key] || 0), 0)
+                const outstanding    = Math.max(0, displayTotals.Settled - totalReceived)
+                if (totalReceived === 0 && !allPaid) return null
+                return (
+                  <div className="sl-payment-status">
+                    <div className="sl-payment-status-title">Payment Status</div>
+                    <div className="sl-payment-status-rows">
+                      {CATEGORIES.map(c => {
+                        const settled = n(s[`${c.key}Settled`])
+                        const received = paidAmounts[c.key] || 0
+                        if (settled <= 0) return null
+                        const catOutstanding = Math.max(0, settled - received)
+                        return (
+                          <div key={c.key} className="sl-payment-cat-row">
+                            <span className="sl-payment-cat-label">{c.label}</span>
+                            <div className="sl-payment-cat-vals">
+                              <span style={{ color: '#16a34a' }}>{fmtMoney(settled)} settled</span>
+                              {received > 0 && <span style={{ color: '#0891b2' }}>· {fmtMoney(received)} rcvd</span>}
+                              {catOutstanding > 0 && <span className="sl-outstanding-chip">− {fmtMoney(catOutstanding)} due</span>}
+                              {catOutstanding === 0 && received > 0 && <span className="sl-paid-chip">✓</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {totalReceived > 0 && (
+                      <div className="sl-payment-summary-row">
+                        <div className="sl-payment-summary-item">
+                          <span className="sl-payment-summary-label">Total Received</span>
+                          <span className="sl-payment-summary-val" style={{ color: '#0891b2' }}>{fmtMoney(totalReceived)}</span>
+                        </div>
+                        <div className="sl-payment-summary-item">
+                          <span className="sl-payment-summary-label">Outstanding</span>
+                          <span className="sl-payment-summary-val" style={{ color: outstanding > 0 ? '#dc2626' : '#15803d', fontWeight: 700 }}>
+                            {outstanding > 0 ? fmtMoney(outstanding) : 'Paid in full'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
               {s.notes && <div className="sl-notes">📝 {s.notes}</div>}
+
+              {allPaid && s.paidDate && (
+                <div className="sl-notes" style={{ color: '#15803d', background: '#f0fdf4', borderColor: '#bbf7d0' }}>
+                  ✓ All payments received {fmtDate(s.paidDate)}
+                </div>
+              )}
 
               <div className="sl-detail-actions">
                 <button className="sl-btn sl-btn--outline" onClick={onEdit}>Edit</button>
@@ -891,12 +1220,12 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
         {(() => {
           const t = computeTotals(form)
           if (t.Settled <= 0) return null
-          const { companyRecoup } = computeCategoryRecoups(form)
+          const { companyRecoup } = computeCategoryRecoups(form, !!form.partnerFeeOnNet)
           return (
             <div className="sl-recoup-total-preview">
               <span>Referral fee paid to partner: <strong>{fmtMoney(companyRecoup)}</strong></span>
               <span className="sl-recoup-split-note">
-                (of {fmtMoney(t.Settled)} settled)
+                (of {fmtMoney(form.partnerFeeOnNet ? Math.max(0, t.Settled - t.Expenses) : t.Settled)} {form.partnerFeeOnNet ? 'net settled' : 'settled'})
               </span>
             </div>
           )
@@ -941,6 +1270,19 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
                     onChange={e => set('partnerFeeValue', e.target.value)} />
                 </div>
               )}
+              {form.partnerFeeType !== 'fixed' && (
+                <div className="sl-field">
+                  <label className="sl-label">Fee Calculated On</label>
+                  <div className="sl-toggle-row">
+                    <button type="button"
+                      className={`sl-toggle-btn${!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
+                      onClick={() => set('partnerFeeOnNet', false)}>Gross Settlement</button>
+                    <button type="button"
+                      className={`sl-toggle-btn${!!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
+                      onClick={() => set('partnerFeeOnNet', true)}>Net (after expenses)</button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -948,12 +1290,15 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
           if (!form.partnerId) return null
           const t = computeTotals(form)
           if (t.Settled <= 0) return null
-          const { companyRecoup } = computeCategoryRecoups(form)
+          const { companyRecoup } = computeCategoryRecoups(form, !!form.partnerFeeOnNet)
           const fee = computePartnerFee(form, companyRecoup)
+          const netToCompany = t.Settled - t.Expenses - fee
           return (
             <div className="sl-partner-preview">
-              <span>{partners.find(p => p.id === form.partnerId)?.name || 'Partner'} earns: <strong>{fmtMoney(fee)}</strong></span>
-              <span className="sl-partner-net">Company nets: <strong style={{ color: '#2563eb' }}>{fmtMoney(t.Settled - fee)}</strong></span>
+              <span>{partners.find(p => p.id === form.partnerId)?.name || 'Partner'} earns: <strong>{fmtMoney(fee)}</strong>
+                <span className="sl-fee-basis-chip">{form.partnerFeeOnNet ? 'on net' : 'on gross'}</span>
+              </span>
+              <span className="sl-partner-net">Company nets: <strong style={{ color: netToCompany >= 0 ? '#2563eb' : '#dc2626' }}>{fmtMoney(netToCompany)}</strong></span>
             </div>
           )
         })()}

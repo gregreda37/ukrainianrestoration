@@ -85,6 +85,10 @@
   margin-bottom: 32px;
 }
 
+.oil-kpi-row--4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .oil-kpi {
   background: #fff;
   border: 1px solid #e2e8f0;
@@ -101,6 +105,11 @@
 .oil-kpi--amber {
   border-color: #fde68a;
   background: #fffef8;
+}
+
+.oil-kpi--green {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
 }
 
 .oil-kpi-label {
@@ -122,6 +131,7 @@
 
 .oil-kpi--danger .oil-kpi-val { color: #dc2626; }
 .oil-kpi--amber  .oil-kpi-val { color: #d97706; }
+.oil-kpi--green  .oil-kpi-val { color: #16a34a; }
 
 .oil-kpi-sub {
   font-size: 12px;
@@ -191,6 +201,69 @@
   font-size: 15px;
   font-weight: 700;
   color: #0f172a;
+}
+
+.oil-section-header--clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.13s;
+}
+.oil-section-header--clickable:hover { opacity: 0.8; }
+
+.oil-section-chevron {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* ── Settlement view tabs ── */
+.oil-sett-view-tabs {
+  display: flex;
+  gap: 2px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 3px;
+  margin-left: 4px;
+}
+
+.oil-sett-tab {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 11px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  color: #64748b;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.oil-sett-tab:hover { color: #0f172a; }
+
+.oil-sett-tab--active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(15,23,42,.1);
+}
+
+.oil-sett-total-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+.oil-fee-basis-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: #f5f3ff;
+  color: #7c3aed;
+  border: 1px solid #e9d5ff;
+  margin-top: 3px;
+  white-space: nowrap;
 }
 
 /* ── Table ── */
@@ -329,7 +402,8 @@
 
 @media (max-width: 700px) {
   .oil-root { padding: 20px 14px 80px; }
-  .oil-kpi-row { grid-template-columns: 1fr; }
+  .oil-kpi-row,
+  .oil-kpi-row--4 { grid-template-columns: repeat(2, 1fr); }
   .oil-td--num,
   .oil-td--date { display: none; }
   .oi-tabbar { padding: 12px 14px 0; }
@@ -529,4 +603,47 @@
   .po-kpi-row { grid-template-columns: repeat(2, 1fr); }
   .po-grid { grid-template-columns: 1fr; }
   .po-card-stats { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ── Settlement payment rows ── */
+.oil-sett-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.oil-cat-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.oil-cat-chip--all {
+  color: #64748b;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.oil-row--no-link {
+  cursor: default;
+}
+.oil-row--no-link:hover {
+  background: transparent;
+}
+
+.oil-outstanding-val {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.oil-total-row td {
+  padding: 10px 12px;
+  border-top: 2px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 13.5px;
 }

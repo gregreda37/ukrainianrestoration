@@ -191,7 +191,7 @@ const fmtPhone = (p = '') => {
   return p
 }
 const fmtCurrency = (n) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0)
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0)
 
 const AVATAR_COLORS = [
   ['#eff6ff','#2563eb'], ['#ecfeff','#0891b2'], ['#f0fdf4','#16a34a'],

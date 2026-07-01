@@ -59,6 +59,7 @@ const TeamSettings = lazy(() => import('./myclaim/TeamSettings'))
 const Invoices      = lazy(() => import('./myclaim/Invoices'))
 const InvoiceEditor = lazy(() => import('./myclaim/InvoiceEditor'))
 const OrgInvoices   = lazy(() => import('./myclaim/OrgInvoices'))
+const OpenWork      = lazy(() => import('./myclaim/OpenWork'))
 const Settlement    = lazy(() => import('./myclaim/Settlement'))
 const PartnerDetail = lazy(() => import('./myclaim/PartnerDetail'))
 const OptInPolicy      = lazy(() => import('./myclaim/OptInPolicy'))
@@ -181,6 +182,7 @@ export default function App() {
           <Route path="clients/:id/invoices/:invoiceId" element={<Suspense fallback={<PortalFallback />}><InvoiceEditor /></Suspense>} />
           <Route path="clients/:id/settlement" element={<Suspense fallback={<PortalFallback />}><Settlement /></Suspense>} />
           <Route path="invoices" element={<Suspense fallback={<PortalFallback />}><OrgInvoices /></Suspense>} />
+          <Route path="open-work" element={<Suspense fallback={<PortalFallback />}><OpenWork /></Suspense>} />
           <Route path="partners/:partnerId" element={<Suspense fallback={<PortalFallback />}><PartnerDetail /></Suspense>} />
           <Route path="chatbot" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Chatbot /></Suspense></AdminRoute>} />
           <Route path="ai" element={<AdminRoute><Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense></AdminRoute>} />

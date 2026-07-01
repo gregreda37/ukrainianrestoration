@@ -221,11 +221,10 @@ function Section({ title, items, basePath, onDelete, isReceipts }) {
                   </span>
                 )}
                 <div className="inv-card-actions">
-                  <a className="inv-link" href={`${basePath}/${inv.id}`}
-                    onClick={e => { e.preventDefault(); window.location.href = `${basePath}/${inv.id}` }}>
+                  <button className="inv-action-btn" onClick={() => window.location.href = `${basePath}/${inv.id}`}>
                     View
-                  </a>
-                  <button className="inv-link inv-link--danger" onClick={() => onDelete(inv)}>
+                  </button>
+                  <button className="inv-action-btn inv-action-btn--delete" onClick={() => onDelete(inv)}>
                     Delete
                   </button>
                 </div>

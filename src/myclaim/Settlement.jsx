@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import './Settlement.css'
+import InsurerCombobox from './InsurerCombobox'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -68,36 +69,77 @@ function fmtDate(str) {
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 
-const EMPTY_FORM = () => ({
-  claimNumber: '', dateOfLoss: '', settlementDate: '', insuranceCompany: '', adjusterName: '',
-  adjusterPhone: '', adjusterEmail: '', status: 'estimating', deductible: '',
-  recoupPercent: 100, notes: '',
+const EMPTY_FORM = (prefill = {}) => ({
+  claimNumber: prefill.claimNumber || '', dateOfLoss: '', settlementDate: '',
+  insuranceCompany: prefill.insuranceCompany || '', adjusterName: prefill.adjusterName || '',
+  adjusterPhone: prefill.adjusterPhone || '', adjusterEmail: prefill.adjusterEmail || '',
+  status: 'estimating', deductible: '',
+  recoupPercent: 100,
+  dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: '',
+  partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFeeValue: '',
+  notes: '',
   ...CATEGORIES.flatMap(c => COL_FIELDS.map(f => [`${c.key}${f.key}`, ''])).reduce((o, [k, v]) => ({ ...o, [k]: v }), {}),
 })
 
+function computeCategoryRecoups(form) {
+  const masterPct = n(form.recoupPercent) || 100
+  let companyRecoup = 0
+  const breakdown = CATEGORIES.map(cat => {
+    const settled = n(form[`${cat.key}Settled`])
+    const override = form[`${cat.key}RecoupPct`]
+    const pct = (override !== null && override !== undefined && override !== '') ? n(override) : masterPct
+    const recoup = settled * pct / 100
+    companyRecoup += recoup
+    return { key: cat.key, label: cat.label, settled, pct, recoup }
+  })
+  return { breakdown, companyRecoup }
+}
+
+function computePartnerFee(form, companyRecoup) {
+  if (!form.partnerId) return 0
+  // fixed $ = flat referral; percent = use the per-category breakdown total directly
+  return form.partnerFeeType === 'fixed' ? n(form.partnerFeeValue) : companyRecoup
+}
+
 function buildSummaryDoc(id, data, totals, clientUid, clientName) {
+  const hasSettled = totals.Settled > 0
+  const masterPct = n(data.recoupPercent) || 100
+  const recoups = computeCategoryRecoups(data)
+  const partnerFee = hasSettled ? computePartnerFee(data, recoups.companyRecoup) : 0
   return {
-    settlementId:           id,
-    clientUid,
-    clientName:             clientName || '',
-    claimNumber:            data.claimNumber            || '',
-    insuranceCompany:       data.insuranceCompany       || '',
-    status:                 data.status                 || 'estimating',
-    dateOfLoss:             data.dateOfLoss             || '',
-    settlementDate:         data.settlementDate         || '',
-    dryCleanEstimate:       n(data.dryCleanEstimate),
-    mitigationEstimate:     n(data.mitigationEstimate),
-    reconstructionEstimate: n(data.reconstructionEstimate),
-    dryCleanSettled:        n(data.dryCleanSettled),
-    mitigationSettled:      n(data.mitigationSettled),
-    reconstructionSettled:  n(data.reconstructionSettled),
-    totalEstimate:          totals.Estimate,
-    totalSettled:           totals.Settled,
-    recoveryRate:           totals.recoveryRate,
-    gap:                    totals.gap,
-    recoupPercent:          n(data.recoupPercent) || 100,
-    companyRecoup:          totals.Settled * (n(data.recoupPercent) || 100) / 100,
-    updatedAt:              serverTimestamp(),
+    settlementId:                id,
+    clientUid:                   clientUid ?? null,
+    clientName:                  clientName || '',
+    claimNumber:                 data.claimNumber            || '',
+    insuranceCompany:            data.insuranceCompany       || '',
+    status:                      data.status                 || 'estimating',
+    dateOfLoss:                  data.dateOfLoss             || '',
+    settlementDate:              data.settlementDate         || '',
+    dryCleanEstimate:            n(data.dryCleanEstimate),
+    mitigationEstimate:          n(data.mitigationEstimate),
+    reconstructionEstimate:      n(data.reconstructionEstimate),
+    dryCleanSettled:             n(data.dryCleanSettled),
+    mitigationSettled:           n(data.mitigationSettled),
+    reconstructionSettled:       n(data.reconstructionSettled),
+    totalEstimate:               totals.Estimate,
+    totalSettled:                totals.Settled,
+    recoveryRate:                hasSettled ? totals.recoveryRate : null,
+    gap:                         hasSettled ? totals.gap          : null,
+    recoupPercent:               masterPct,
+    dryCleanRecoupPct:           hasSettled ? (recoups.breakdown[0]?.pct ?? null) : null,
+    mitigationRecoupPct:         hasSettled ? (recoups.breakdown[1]?.pct ?? null) : null,
+    reconstructionRecoupPct:     hasSettled ? (recoups.breakdown[2]?.pct ?? null) : null,
+    dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
+    mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
+    reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+    companyRecoup:               hasSettled ? recoups.companyRecoup : null,
+    partnerId:                   data.partnerId   || null,
+    partnerName:                 data.partnerName || null,
+    partnerFeeType:              data.partnerFeeType  || 'percent',
+    partnerFeeValue:             n(data.partnerFeeValue),
+    partnerFee:                  hasSettled && data.partnerId ? partnerFee : null,
+    companyNetAfterPartner:      hasSettled ? totals.Settled - (data.partnerId ? partnerFee : 0) : null,
+    updatedAt:                   serverTimestamp(),
   }
 }
 
@@ -115,6 +157,9 @@ export default function Settlement() {
   const [orgId,        setOrgId]        = useState(null)
   const [claimNumbers, setClaimNumbers] = useState([])
   const [settlements,  setSettlements]  = useState([])
+  const [partners,     setPartners]     = useState([])
+  const [insurers,     setInsurers]     = useState([])
+  const [clientPrefill,setClientPrefill]= useState({})
   const [expanded,     setExpanded]     = useState(null)
   const [editingId,    setEditingId]    = useState(null)
   const [showNew,      setShowNew]      = useState(false)
@@ -130,6 +175,11 @@ export default function Settlement() {
       const oid = userSnap.data()?.organizationId
       if (!oid) return
       setOrgId(oid)
+
+      const partnerSnap = await getDocs(query(collection(db, 'organization_data', oid, 'partners'), orderBy('name', 'asc'))).catch(() => ({ docs: [] }))
+      setPartners(partnerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const insurerSnap = await getDocs(query(collection(db, 'organization_data', oid, 'insurers'), orderBy('name', 'asc'))).catch(() => ({ docs: [] }))
+      setInsurers(insurerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
 
       const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
       const clientDoc = clientsSnap.docs.find(d => {
@@ -158,6 +208,10 @@ export default function Settlement() {
           const ud = uSnap.data()
           setClientName(ud.displayName || cdata.name || '')
           setClaimNumbers(ud.claimNumbers || [])
+          const adj = ud.adjuster || cdata.adjuster || {}
+          const pf = { insuranceCompany: adj.company || '', adjusterName: adj.name || '', adjusterPhone: adj.phone || '', adjusterEmail: adj.email || '' }
+          setClientPrefill(pf)
+          setNewForm(EMPTY_FORM(pf))
         }
         const userSetts = userSettSnap.docs.map(d => ({ id: d.id, ...d.data() }))
         const seenIds   = new Set(userSetts.map(s => s.id))
@@ -167,6 +221,10 @@ export default function Settlement() {
       } else {
         setClientName(cdata.name || '')
         setClaimNumbers(cdata.claimNumbers || [])
+        const adj = cdata.adjuster || {}
+        const pf = { insuranceCompany: adj.company || '', adjusterName: adj.name || '', adjusterPhone: adj.phone || '', adjusterEmail: adj.email || '' }
+        setClientPrefill(pf)
+        setNewForm(EMPTY_FORM(pf))
         setSettlements(orgSetts)
         if (orgSetts.length > 0) setExpanded(orgSetts[0].id)
       }
@@ -179,16 +237,30 @@ export default function Settlement() {
     if (!clientUid && !(orgId && clientDocId)) return
     setSavingNew(true)
     try {
-      const totals = computeTotals(newForm)
+      let newFormMut = { ...newForm }
+      const totals = computeTotals(newFormMut)
+      const hasSettled = totals.Settled > 0
+      // Auto-set settlementDate if settled with no date
+      if (hasSettled && newFormMut.status === 'settled' && !newFormMut.settlementDate) {
+        newFormMut = { ...newFormMut, settlementDate: new Date().toISOString().slice(0, 10) }
+      }
+      const recoups = computeCategoryRecoups(newFormMut)
+      const partnerFee = hasSettled ? computePartnerFee(newFormMut, recoups.companyRecoup) : 0
       const data = {
-        ...newForm,
-        totalEstimate:   totals.Estimate,
-        totalSettled:    totals.Settled,
-        recoveryRate:    totals.recoveryRate,
-        gap:             totals.gap,
-        createdAt:       serverTimestamp(),
-        updatedAt:       serverTimestamp(),
-        createdBy:       user.uid,
+        ...newFormMut,
+        totalEstimate:               totals.Estimate,
+        totalSettled:                totals.Settled,
+        recoveryRate:                hasSettled ? totals.recoveryRate : null,
+        gap:                         hasSettled ? totals.gap          : null,
+        companyRecoup:               hasSettled ? recoups.companyRecoup : null,
+        dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
+        mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
+        reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+        partnerFee:                  hasSettled && newFormMut.partnerId ? partnerFee : null,
+        companyNetAfterPartner:      hasSettled ? totals.Settled - (newFormMut.partnerId ? partnerFee : 0) : null,
+        createdAt:                   serverTimestamp(),
+        updatedAt:                   serverTimestamp(),
+        createdBy:                   user.uid,
       }
       const settColRef = clientUid
         ? collection(db, 'users', clientUid, 'settlements')
@@ -197,12 +269,12 @@ export default function Settlement() {
       if (orgId) {
         await setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', ref.id),
-          buildSummaryDoc(ref.id, data, totals, clientUid, clientName)
+          buildSummaryDoc(ref.id, newFormMut, totals, clientUid, clientName)
         )
       }
       setSettlements(prev => [{ id: ref.id, ...data, ...(!clientUid && { _isOrgSettlement: true }) }, ...prev])
       setShowNew(false)
-      setNewForm(EMPTY_FORM())
+      setNewForm(EMPTY_FORM(clientPrefill))
       setExpanded(ref.id)
     } finally {
       setSavingNew(false)
@@ -240,6 +312,8 @@ export default function Settlement() {
             onSave={saveNew}
             onCancel={() => setShowNew(false)}
             saving={savingNew}
+            partners={partners}
+            insurers={insurers}
             isNew
           />
         </div>
@@ -267,6 +341,8 @@ export default function Settlement() {
             phone={phone}
             userId={user.uid}
             userEmail={user.email}
+            partners={partners}
+            insurers={insurers}
             expanded={expanded === s.id}
             editing={editingId === s.id}
             onToggle={() => { setExpanded(prev => prev === s.id ? null : s.id); setEditingId(null) }}
@@ -286,12 +362,13 @@ export default function Settlement() {
 
 // ── Settlement record (summary + expandable detail) ───────────────────────────
 
-function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete }) {
+function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete }) {
   const navigate = useNavigate()
   const totals = computeTotals(s)
   const sm = STATUS_META[s.status] || STATUS_META.estimating
   const [editForm, setEditForm] = useState(null)
   const [saving, setSaving]     = useState(false)
+  const [saveError, setSaveError] = useState(null)
   const [log, setLog]           = useState(null)
   const [loadingLog, setLoadingLog] = useState(false)
   const [showLogForm, setShowLogForm] = useState(false)
@@ -299,7 +376,12 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
   const [deleting, setDeleting]      = useState(false)
 
   useEffect(() => {
-    if (editing && !editForm) setEditForm({ ...s })
+    if (editing) {
+      setEditForm({ ...s })
+      setSaveError(null)
+    } else {
+      setEditForm(null)
+    }
   }, [editing])
 
   useEffect(() => {
@@ -322,22 +404,33 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
   async function doSave() {
     if (!editForm) return
     setSaving(true)
+    setSaveError(null)
     try {
       const totals = computeTotals(editForm)
       const { id: _id, _isOrgSettlement: _flag, ...cleanForm } = editForm
+      const hasSettled = totals.Settled > 0
+      const recoups = computeCategoryRecoups(editForm)
+      const partnerFee = hasSettled ? computePartnerFee(editForm, recoups.companyRecoup) : 0
       const updates = {
         ...cleanForm,
-        totalEstimate: totals.Estimate,
-        totalSettled:  totals.Settled,
-        recoveryRate:  totals.recoveryRate,
-        gap:           totals.gap,
-        updatedAt:     serverTimestamp(),
+        totalEstimate:               totals.Estimate,
+        totalSettled:                totals.Settled,
+        recoveryRate:                hasSettled ? totals.recoveryRate : null,
+        gap:                         hasSettled ? totals.gap          : null,
+        companyRecoup:               hasSettled ? recoups.companyRecoup : null,
+        dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
+        mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
+        reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+        partnerFee:                  hasSettled && editForm.partnerId ? partnerFee : null,
+        companyNetAfterPartner:      hasSettled ? totals.Settled - (editForm.partnerId ? partnerFee : 0) : null,
+        settlementDate:              editForm.settlementDate || (hasSettled && editForm.status === 'settled' ? new Date().toISOString().slice(0, 10) : ''),
+        updatedAt:                   serverTimestamp(),
       }
+      // Use setDoc+merge so edits succeed even if the doc path differs from what the flag implies
       const settDocRef = (s._isOrgSettlement || !clientUid)
         ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id)
         : doc(db, 'users', clientUid, 'settlements', s.id)
-      await updateDoc(settDocRef, updates)
-      // Update summary without blocking the editor close
+      await setDoc(settDocRef, updates, { merge: true })
       if (orgId) {
         setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', s.id),
@@ -347,6 +440,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
       onSaved(updates)
     } catch (e) {
       console.error('Settlement save failed:', e)
+      setSaveError('Save failed — please try again.')
     } finally {
       setSaving(false)
     }
@@ -400,7 +494,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
             <span className="sl-metric-val" style={{
               color: displayTotals.recoveryRate >= 90 ? '#15803d' : displayTotals.recoveryRate >= 75 ? '#d97706' : displayTotals.recoveryRate > 0 ? '#dc2626' : '#94a3b8'
             }}>
-              {displayTotals.Estimate > 0 ? `${displayTotals.recoveryRate.toFixed(1)}%` : '—'}
+              {displayTotals.Settled > 0 ? `${displayTotals.recoveryRate.toFixed(1)}%` : '—'}
             </span>
           </div>
         </div>
@@ -411,7 +505,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
       </div>
 
       {/* ── Recovery bar (visible when not editing) ── */}
-      {!editing && displayTotals.Estimate > 0 && (
+      {!editing && displayTotals.Settled > 0 && (
         <div className="sl-recovery-bar-wrap">
           <div className="sl-recovery-bar">
             <div className="sl-recovery-fill sl-recovery-fill--settled"
@@ -437,6 +531,9 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                 onSave={doSave}
                 onCancel={onCancelEdit}
                 saving={saving}
+                saveError={saveError}
+                partners={partners || []}
+                insurers={insurers || []}
               />
             </>
           ) : (
@@ -628,7 +725,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
 
 // ── Settlement form (new + edit) ──────────────────────────────────────────────
 
-function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving, isNew }) {
+function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving, saveError, isNew, partners = [], insurers = [] }) {
   const set = (k, v) => onChange(prev => ({ ...prev, [k]: v }))
 
   return (
@@ -653,9 +750,12 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
         </div>
         <div className="sl-field">
           <label className="sl-label">Insurance Company</label>
-          <input className="sl-input" value={form.insuranceCompany}
-            onChange={e => set('insuranceCompany', e.target.value)}
-            placeholder="e.g. State Farm" />
+          <InsurerCombobox
+            className="sl-input"
+            value={form.insuranceCompany || ''}
+            onChange={v => set('insuranceCompany', v)}
+            insurers={insurers}
+          />
         </div>
         <div className="sl-field">
           <label className="sl-label">Status</label>
@@ -733,29 +833,129 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
         </table>
       </div>
 
-      {/* Profit recoup */}
+      {/* Referral Fee Breakdown - per category */}
       <div className="sl-recoup-block">
-        <div className="sl-recoup-header">
-          <label className="sl-label">Profit Recoup</label>
-          <span className="sl-recoup-pct">{n(form.recoupPercent) || 100}%</span>
+        <div className="sl-recoup-section-title">Referral Fee Breakdown</div>
+
+        {/* Master slider */}
+        <div className="sl-recoup-master-row">
+          <div className="sl-recoup-header">
+            <label className="sl-label">Default Referral Fee %</label>
+            <span className="sl-recoup-pct">{n(form.recoupPercent) || 0}%</span>
+          </div>
+          <input type="range" min="0" max="100" step="5"
+            className="sl-recoup-slider"
+            value={n(form.recoupPercent) || 0}
+            onChange={e => set('recoupPercent', Number(e.target.value))} />
+          <div className="sl-recoup-labels">
+            <span>0% — no referral fee</span>
+            <span>50% of settled</span>
+            <span>100% — all settled to partner</span>
+          </div>
         </div>
-        <input type="range" min="0" max="100" step="5"
-          className="sl-recoup-slider"
-          value={n(form.recoupPercent) || 100}
-          onChange={e => set('recoupPercent', Number(e.target.value))} />
-        <div className="sl-recoup-labels">
-          <span>0% — partner keeps all</span>
-          <span>50% split</span>
-          <span>100% — we keep all</span>
+
+        {/* Per-category overrides */}
+        <div className="sl-recoup-cats">
+          <div className="sl-recoup-cats-label">Per-Category Override (blank = use default)</div>
+          {CATEGORIES.map(cat => {
+            const fieldKey = `${cat.key}RecoupPct`
+            const val = form[fieldKey]
+            const masterPct = n(form.recoupPercent) || 100
+            const effectivePct = (val !== null && val !== undefined && val !== '') ? n(val) : masterPct
+            const settled = n(form[`${cat.key}Settled`])
+            const recoup = settled * effectivePct / 100
+            return (
+              <div key={cat.key} className="sl-recoup-cat-row">
+                <span className="sl-recoup-cat-name">{cat.label}</span>
+                <div className="sl-recoup-cat-input-wrap">
+                  <input
+                    type="number" min="0" max="100" step="1"
+                    className="sl-amount-input sl-recoup-cat-input"
+                    placeholder={`${masterPct}% (master)`}
+                    value={val ?? ''}
+                    onChange={e => set(fieldKey, e.target.value)}
+                  />
+                  <span className="sl-recoup-cat-unit">%</span>
+                </div>
+                {settled > 0 && (
+                  <span className="sl-recoup-cat-preview">
+                    → {fmtMoney(recoup)} ({effectivePct}%)
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
+
+        {/* Total recoup preview */}
         {(() => {
           const t = computeTotals(form)
-          return t.Settled > 0 ? (
-            <p className="sl-recoup-net">
-              Company net on this claim: <strong>{fmtMoney(t.Settled * (n(form.recoupPercent) || 100) / 100)}</strong>
-              {n(form.recoupPercent) < 100 && ` (${100 - n(form.recoupPercent)}% → partner: ${fmtMoney(t.Settled * (100 - n(form.recoupPercent)) / 100)})`}
-            </p>
-          ) : null
+          if (t.Settled <= 0) return null
+          const { companyRecoup } = computeCategoryRecoups(form)
+          return (
+            <div className="sl-recoup-total-preview">
+              <span>Referral fee paid to partner: <strong>{fmtMoney(companyRecoup)}</strong></span>
+              <span className="sl-recoup-split-note">
+                (of {fmtMoney(t.Settled)} settled)
+              </span>
+            </div>
+          )
+        })()}
+      </div>
+
+      {/* Partner / Referral */}
+      <div className="sl-partner-block">
+        <div className="sl-recoup-section-title">Partner / Referral Fee</div>
+        <div className="sl-partner-grid">
+          <div className="sl-field">
+            <label className="sl-label">Who brought this job?</label>
+            <select className="sl-input" value={form.partnerId || ''} onChange={e => {
+              const pid = e.target.value
+              const pname = partners.find(p => p.id === pid)?.name || ''
+              set('partnerId', pid)
+              set('partnerName', pname)
+            }}>
+              <option value="">No partner</option>
+              {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          {form.partnerId && (
+            <>
+              <div className="sl-field">
+                <label className="sl-label">Fee Type</label>
+                <div className="sl-toggle-row">
+                  <button type="button"
+                    className={`sl-toggle-btn${(form.partnerFeeType || 'percent') === 'percent' ? ' sl-toggle-btn--active' : ''}`}
+                    onClick={() => set('partnerFeeType', 'percent')}>% Breakdown Above</button>
+                  <button type="button"
+                    className={`sl-toggle-btn${form.partnerFeeType === 'fixed' ? ' sl-toggle-btn--active' : ''}`}
+                    onClick={() => set('partnerFeeType', 'fixed')}>Fixed $</button>
+                </div>
+              </div>
+              {form.partnerFeeType === 'fixed' && (
+                <div className="sl-field">
+                  <label className="sl-label">Fixed Referral Fee ($)</label>
+                  <input className="sl-input" type="number" min="0" step="1"
+                    placeholder="0"
+                    value={form.partnerFeeValue || ''}
+                    onChange={e => set('partnerFeeValue', e.target.value)} />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {(() => {
+          if (!form.partnerId) return null
+          const t = computeTotals(form)
+          if (t.Settled <= 0) return null
+          const { companyRecoup } = computeCategoryRecoups(form)
+          const fee = computePartnerFee(form, companyRecoup)
+          return (
+            <div className="sl-partner-preview">
+              <span>{partners.find(p => p.id === form.partnerId)?.name || 'Partner'} earns: <strong>{fmtMoney(fee)}</strong></span>
+              <span className="sl-partner-net">Company nets: <strong style={{ color: '#2563eb' }}>{fmtMoney(t.Settled - fee)}</strong></span>
+            </div>
+          )
         })()}
       </div>
 
@@ -767,6 +967,7 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
           placeholder="Internal notes about this claim…" />
       </div>
 
+      {saveError && <p className="sl-save-error">{saveError}</p>}
       <div className="sl-form-actions">
         <button className="sl-btn sl-btn--outline" onClick={onCancel} type="button">Cancel</button>
         <button className="sl-btn sl-btn--primary" onClick={onSave} disabled={saving} type="button">

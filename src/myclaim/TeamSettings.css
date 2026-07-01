@@ -785,3 +785,88 @@
   background: #f1f5f9;
   color: #64748b;
 }
+
+/* ── ts-input and ts-btn (used by Partners section) ── */
+.ts-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 9px 13px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 9px;
+  font-size: 14px;
+  color: #0f172a;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s;
+  box-sizing: border-box;
+}
+.ts-input:focus { border-color: #2563eb; }
+
+.ts-btn {
+  padding: 9px 18px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  transition: background .15s;
+}
+
+.ts-btn--primary {
+  background: #2563eb;
+  color: #fff;
+}
+.ts-btn--primary:hover:not(:disabled) { background: #1d4ed8; }
+.ts-btn--primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Partners ── */
+.ts-partner-add-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.ts-partner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ts-partner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.ts-partner-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ts-btn--danger-sm {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: #fff;
+  color: #dc2626;
+  border: 1.5px solid #fecaca;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ts-btn--danger-sm:hover:not(:disabled) { background: #fef2f2; }
+.ts-btn--danger-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ts-empty-msg {
+  font-size: 13.5px;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 12px 0;
+}

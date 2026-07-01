@@ -481,7 +481,25 @@ def permanent_delete_client():
         except Exception as exc:
             errors.append(f"opt_in_records: {exc}")
 
-    # ── 5. AI caches (all keyed by clientUid) ────────────────────────────
+    # ── 5. Org-level summary docs keyed by this client ───────────────────
+    try:
+        inv_sum_ref  = db.collection("organization_data").document(org_id).collection("invoice_summary")
+        sett_sum_ref = db.collection("organization_data").document(org_id).collection("settlement_summary")
+        inv_count = 0
+        sett_count = 0
+        for snap in inv_sum_ref.where("clientDocId", "==", client_doc_id).stream():
+            snap.reference.delete(); inv_count += 1
+        if client_uid:
+            for snap in inv_sum_ref.where("clientUid", "==", client_uid).stream():
+                snap.reference.delete(); inv_count += 1
+            for snap in sett_sum_ref.where("clientUid", "==", client_uid).stream():
+                snap.reference.delete(); sett_count += 1
+        if inv_count or sett_count:
+            deleted.append(f"invoice_summary ({inv_count}), settlement_summary ({sett_count})")
+    except Exception as exc:
+        errors.append(f"summary_docs: {exc}")
+
+    # ── 6. AI caches (all keyed by clientUid) ────────────────────────────
     if client_uid:
         for col_name in ("ai_context_cache", "ai_photo_blocks",
                          "ai_photo_classifications"):
@@ -497,7 +515,7 @@ def permanent_delete_client():
             except Exception as exc:
                 errors.append(f"{col_name}: {exc}")
 
-    # ── 6. Firebase Storage files ─────────────────────────────────────────
+    # ── 7. Firebase Storage files ─────────────────────────────────────────
     try:
         from firebase_admin import storage as admin_storage
         bucket = admin_storage.bucket()

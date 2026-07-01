@@ -60,6 +60,7 @@ const Invoices      = lazy(() => import('./myclaim/Invoices'))
 const InvoiceEditor = lazy(() => import('./myclaim/InvoiceEditor'))
 const OrgInvoices   = lazy(() => import('./myclaim/OrgInvoices'))
 const Settlement    = lazy(() => import('./myclaim/Settlement'))
+const PartnerDetail = lazy(() => import('./myclaim/PartnerDetail'))
 const OptInPolicy      = lazy(() => import('./myclaim/OptInPolicy'))
 const PendingApproval  = lazy(() => import('./myclaim/PendingApproval'))
 
@@ -180,6 +181,7 @@ export default function App() {
           <Route path="clients/:id/invoices/:invoiceId" element={<Suspense fallback={<PortalFallback />}><InvoiceEditor /></Suspense>} />
           <Route path="clients/:id/settlement" element={<Suspense fallback={<PortalFallback />}><Settlement /></Suspense>} />
           <Route path="invoices" element={<Suspense fallback={<PortalFallback />}><OrgInvoices /></Suspense>} />
+          <Route path="partners/:partnerId" element={<Suspense fallback={<PortalFallback />}><PartnerDetail /></Suspense>} />
           <Route path="chatbot" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Chatbot /></Suspense></AdminRoute>} />
           <Route path="ai" element={<AdminRoute><Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense></AdminRoute>} />
           <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { db } from "../firebase";
 import {
   collection, getDocs, doc, getDoc, setDoc, deleteDoc,
-  query, orderBy, where, addDoc, serverTimestamp, updateDoc,
+  query, orderBy, where, addDoc, serverTimestamp, updateDoc, writeBatch,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import { api } from "./api";
@@ -17,6 +17,25 @@ const ROLES = [
 
 const encodeEmail = (email) =>
   email.toLowerCase().replace(/\./g, "__dot__").replace(/@/g, "__at__");
+
+const DEFAULT_INSURERS = [
+  'AAA Insurance', 'Acuity Insurance', 'Allstate Insurance', 'American Family Insurance',
+  'American National Insurance', 'Amica Mutual Insurance', 'Arbella Insurance',
+  'Auto Club Group (AAA)', 'Auto-Owners Insurance', 'Bristol West Insurance',
+  'Chubb Insurance', 'Church Mutual Insurance', 'Cincinnati Insurance',
+  'Citizens Property Insurance', 'CNA Financial', 'Country Financial',
+  'Donegal Insurance Group', 'Encompass Insurance', 'Erie Insurance',
+  'Farmers Insurance', 'GEICO Homeowners', 'Grange Insurance',
+  'GuideOne Insurance', 'Hanover Insurance Group', 'Hartford Financial Services',
+  'Heritage Insurance Holdings', 'Hippo Insurance', 'Homeowners of America',
+  'ICW Group', 'Kemper Insurance', 'Kentucky Farm Bureau', 'Kin Insurance',
+  'Lemonade Insurance', 'Liberty Mutual Insurance', 'Mercury Insurance',
+  'MetLife Home', 'Nationwide Insurance', 'PEMCO Insurance',
+  'Progressive Homeowners', 'Safeco Insurance', 'Security First Financial',
+  'Sentry Insurance', 'Shelter Insurance', 'Society Insurance',
+  'State Farm Insurance', 'Travelers Insurance', 'Universal Property & Casualty',
+  'USAA Insurance', 'Westfield Insurance', 'Zurich Insurance',
+].sort();
 
 export default function TeamSettings() {
   const { user, orgId: authOrgId, isAdmin } = useAuth();
@@ -51,6 +70,25 @@ export default function TeamSettings() {
   const [builderFile,      setBuilderFile]      = useState(null);
   const [deletingTplId,    setDeletingTplId]    = useState(null);
   const tplFileRef = React.useRef(null);
+
+  // Partners
+  const [partners,         setPartners]         = useState([]);
+  const [newPartnerName,   setNewPartnerName]   = useState('');
+  const [addingPartner,    setAddingPartner]    = useState(false);
+  const [removingPartnerId,setRemovingPartnerId]= useState(null);
+
+  // Insurers
+  const [insurers,          setInsurers]          = useState([]);
+  const [newInsurerName,    setNewInsurerName]    = useState('');
+  const [addingInsurer,     setAddingInsurer]     = useState(false);
+  const [removingInsurerId, setRemovingInsurerId] = useState(null);
+
+  // Data cleanup
+  const [cleanupName,    setCleanupName]    = useState('');
+  const [cleanupResults, setCleanupResults] = useState(null); // null | { count, docs }
+  const [cleanupSearching, setCleanupSearching] = useState(false);
+  const [cleanupDeleting,  setCleanupDeleting]  = useState(false);
+  const [cleanupDone,      setCleanupDone]      = useState(false);
 
   // Integrations
   const [driveStatus,   setDriveStatus]   = useState(null);
@@ -92,6 +130,25 @@ export default function TeamSettings() {
 
         const role = contractorSnap.data()?.role || "admin";
         setUserRole(role);
+
+        // Load partners
+        const partnerSnap = await getDocs(query(collection(db, 'organization_data', oid, 'partners'), orderBy('name', 'asc'))).catch(() => ({ docs: [] }));
+        setPartners(partnerSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // Load insurers — seed defaults on first use
+        const insurerSnap = await getDocs(query(collection(db, 'organization_data', oid, 'insurers'), orderBy('name', 'asc'))).catch(() => ({ docs: [] }));
+        let insurerList = insurerSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (insurerList.length === 0) {
+          const batch = writeBatch(db);
+          DEFAULT_INSURERS.forEach(name => {
+            const ref = doc(collection(db, 'organization_data', oid, 'insurers'));
+            batch.set(ref, { name, createdAt: serverTimestamp() });
+            insurerList.push({ id: ref.id, name });
+          });
+          batch.commit().catch(e => console.warn('insurer seed:', e));
+        }
+        setInsurers(insurerList);
+
         setMembers(membersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         const cl = clientsSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -295,6 +352,44 @@ export default function TeamSettings() {
     }
   }
 
+  async function addPartner() {
+    const name = newPartnerName.trim();
+    if (!name || !orgId) return;
+    setAddingPartner(true);
+    try {
+      const ref = await addDoc(collection(db, 'organization_data', orgId, 'partners'), { name, createdAt: serverTimestamp() });
+      setPartners(prev => [...prev, { id: ref.id, name }].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewPartnerName('');
+    } finally { setAddingPartner(false); }
+  }
+
+  async function removePartner(pid) {
+    setRemovingPartnerId(pid);
+    try {
+      await deleteDoc(doc(db, 'organization_data', orgId, 'partners', pid));
+      setPartners(prev => prev.filter(p => p.id !== pid));
+    } finally { setRemovingPartnerId(null); }
+  }
+
+  async function addInsurer() {
+    const name = newInsurerName.trim();
+    if (!name || !orgId) return;
+    setAddingInsurer(true);
+    try {
+      const ref = await addDoc(collection(db, 'organization_data', orgId, 'insurers'), { name, createdAt: serverTimestamp() });
+      setInsurers(prev => [...prev, { id: ref.id, name }].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewInsurerName('');
+    } finally { setAddingInsurer(false); }
+  }
+
+  async function removeInsurer(iid) {
+    setRemovingInsurerId(iid);
+    try {
+      await deleteDoc(doc(db, 'organization_data', orgId, 'insurers', iid));
+      setInsurers(prev => prev.filter(i => i.id !== iid));
+    } finally { setRemovingInsurerId(null); }
+  }
+
   const formatDate = (ts) => {
     if (!ts) return "Never";
     const d = ts.toDate?.() ?? new Date(ts);
@@ -331,6 +426,42 @@ export default function TeamSettings() {
         </div>
       </div>
     );
+  }
+
+  async function searchCleanup() {
+    if (!orgId || !cleanupName.trim()) return;
+    setCleanupSearching(true);
+    setCleanupResults(null);
+    setCleanupDone(false);
+    try {
+      const name = cleanupName.trim();
+      const [settSnap, invSnap] = await Promise.all([
+        getDocs(query(collection(db, 'organization_data', orgId, 'settlement_summary'), where('clientName', '==', name))),
+        getDocs(query(collection(db, 'organization_data', orgId, 'invoice_summary'),    where('clientName', '==', name))),
+      ]);
+      const docs = [
+        ...settSnap.docs.map(d => ({ ref: d.ref, col: 'settlement_summary', id: d.id })),
+        ...invSnap.docs.map(d => ({ ref: d.ref, col: 'invoice_summary',    id: d.id })),
+      ];
+      setCleanupResults({ count: docs.length, docs });
+    } finally {
+      setCleanupSearching(false);
+    }
+  }
+
+  async function deleteCleanup() {
+    if (!cleanupResults?.docs?.length) return;
+    setCleanupDeleting(true);
+    try {
+      const batch = writeBatch(db);
+      cleanupResults.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      setCleanupResults(null);
+      setCleanupName('');
+      setCleanupDone(true);
+    } finally {
+      setCleanupDeleting(false);
+    }
   }
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim());
@@ -664,6 +795,165 @@ export default function TeamSettings() {
           <div className="ts-legend-item">
             <span className="ts-role-badge ts-role-pm-badge">Project Manager</span>
             <span>Access limited to assigned clients · no team settings</span>
+          </div>
+        </div>
+
+        {/* ── Partners section ── */}
+        <div className="mc-page__hd" style={{ marginTop: 8 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: 0 }}>Partners & Referrals</h2>
+        </div>
+
+        <div className="ts-section">
+          <div className="ts-section-header">
+            <div className="ts-section-header-row">
+              <div>
+                <h2 className="ts-section-title">
+                  Partners & Referral Sources
+                  <span className="ts-member-count">{partners.length}</span>
+                </h2>
+                <p className="ts-section-hint">Track which partners and referral sources bring in jobs.</p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px 28px' }}>
+            <div className="ts-partner-add-row">
+              <input
+                className="ts-input"
+                placeholder="Partner or referral source name"
+                value={newPartnerName}
+                onChange={e => setNewPartnerName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addPartner()}
+              />
+              <button className="ts-btn ts-btn--primary" onClick={addPartner} disabled={!newPartnerName.trim() || addingPartner}>
+                {addingPartner ? 'Adding…' : 'Add Partner'}
+              </button>
+            </div>
+
+            {partners.length === 0 ? (
+              <p className="ts-empty-msg">No partners added yet. Add a name above to start tracking referrals.</p>
+            ) : (
+              <div className="ts-partner-list">
+                {partners.map(p => (
+                  <div key={p.id} className="ts-partner-row">
+                    <span className="ts-partner-name">👤 {p.name}</span>
+                    <button className="ts-btn--danger-sm" onClick={() => removePartner(p.id)} disabled={removingPartnerId === p.id}>
+                      {removingPartnerId === p.id ? 'Removing…' : 'Remove'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Insurance Companies section ── */}
+        <div className="mc-page__hd" style={{ marginTop: 8 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: 0 }}>Insurance Companies</h2>
+        </div>
+
+        <div className="ts-section">
+          <div className="ts-section-header">
+            <div className="ts-section-header-row">
+              <div>
+                <h2 className="ts-section-title">
+                  Insurance Companies
+                  <span className="ts-member-count">{insurers.length}</span>
+                </h2>
+                <p className="ts-section-hint">Manage the list of insurance companies for consistent categorization in reports.</p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px 28px' }}>
+            <div className="ts-partner-add-row">
+              <input
+                className="ts-input"
+                placeholder="e.g. State Farm, Allstate, USAA"
+                value={newInsurerName}
+                onChange={e => setNewInsurerName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addInsurer()}
+              />
+              <button className="ts-btn ts-btn--primary" onClick={addInsurer} disabled={!newInsurerName.trim() || addingInsurer}>
+                {addingInsurer ? 'Adding…' : 'Add Insurer'}
+              </button>
+            </div>
+
+            {insurers.length === 0 ? (
+              <p className="ts-empty-msg">No insurance companies added yet. Add one above to start tracking.</p>
+            ) : (
+              <div className="ts-partner-list" style={{ maxHeight: 320, overflowY: 'auto' }}>
+                {insurers.map(i => (
+                  <div key={i.id} className="ts-partner-row">
+                    <span className="ts-partner-name">🏛️ {i.name}</span>
+                    <button className="ts-btn--danger-sm" onClick={() => removeInsurer(i.id)} disabled={removingInsurerId === i.id}>
+                      {removingInsurerId === i.id ? 'Removing…' : 'Remove'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Data Cleanup ── */}
+        <div className="mc-page__hd" style={{ marginTop: 8 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#991b1b', margin: 0 }}>Data Cleanup</h2>
+        </div>
+        <div className="ts-section" style={{ border: '1.5px solid #fecaca' }}>
+          <div className="ts-section-header" style={{ borderBottom: '1px solid #fecaca', background: '#fff5f5' }}>
+            <div className="ts-section-header-row">
+              <div>
+                <h2 className="ts-section-title" style={{ color: '#991b1b' }}>Remove Orphaned Records</h2>
+                <p className="ts-section-hint">Search by exact client name to find and delete lingering settlement or invoice records from reports.</p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                className="ts-input"
+                style={{ flex: 1, minWidth: 220 }}
+                placeholder="Client name"
+                value={cleanupName}
+                onChange={e => { setCleanupName(e.target.value); setCleanupResults(null); setCleanupDone(false); }}
+                onKeyDown={e => e.key === 'Enter' && searchCleanup()}
+              />
+              <button
+                className="ts-btn ts-btn--primary"
+                onClick={searchCleanup}
+                disabled={cleanupSearching || !cleanupName.trim()}
+              >
+                {cleanupSearching ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+
+            {cleanupDone && (
+              <p style={{ fontSize: 13, color: '#15803d', fontWeight: 600, margin: 0 }}>
+                ✓ All matching records deleted.
+              </p>
+            )}
+
+            {cleanupResults && (
+              cleanupResults.count === 0 ? (
+                <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>No records found for that name.</p>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                  <p style={{ fontSize: 13, color: '#b91c1c', fontWeight: 600, margin: 0 }}>
+                    Found {cleanupResults.count} record{cleanupResults.count !== 1 ? 's' : ''} — {cleanupResults.docs.filter(d => d.col === 'settlement_summary').length} settlement, {cleanupResults.docs.filter(d => d.col === 'invoice_summary').length} invoice.
+                  </p>
+                  <button
+                    className="ts-btn"
+                    onClick={deleteCleanup}
+                    disabled={cleanupDeleting}
+                    style={{ background: '#dc2626', color: '#fff', border: 'none' }}
+                  >
+                    {cleanupDeleting ? 'Deleting…' : `Delete All ${cleanupResults.count} Records`}
+                  </button>
+                </div>
+              )
+            )}
           </div>
         </div>
       </div>

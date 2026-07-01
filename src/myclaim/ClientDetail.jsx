@@ -12,6 +12,7 @@ import "./ClientDetail.css";
 import ContractorSignModal from "./ContractorSignModal";
 import TemplateBuilder from "./TemplateBuilder";
 import SettlementOverviewCard from "./SettlementOverviewCard";
+import InsurerCombobox from "./InsurerCombobox";
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
@@ -235,6 +236,7 @@ export default function ClientDetail() {
   // Adjuster
   const [adjuster,        setAdjuster]        = useState({ name:"", company:"", phone:"", email:"", notes:"" });
   const [adjusterEdit,    setAdjusterEdit]    = useState({ name:"", company:"", phone:"", email:"", notes:"" });
+  const [insurers,        setInsurers]        = useState([]);
   const [editingAdjuster, setEditingAdjuster] = useState(false);
   const [savingAdjuster,  setSavingAdjuster]  = useState(false);
 
@@ -313,6 +315,14 @@ export default function ClientDetail() {
       }
     })();
   }, [user, phone]);
+
+  // ── Load insurers when orgId resolves ───────────────────────────────
+  useEffect(() => {
+    if (!orgId) return;
+    getDocs(query(collection(db, 'organization_data', orgId, 'insurers'), orderBy('name', 'asc')))
+      .then(snap => setInsurers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => {});
+  }, [orgId]);
 
   // ── Load client data when orgId resolves ─────────────────────────────
   useEffect(() => {
@@ -1240,15 +1250,25 @@ export default function ClientDetail() {
   };
 
   // ── Archive client (replaces delete) ─────────────────────────────────
-  const doArchiveClient = async () => {
-    if (!clientDocId) return;
+  const doDeleteClient = async () => {
+    if (!clientDocId || !orgId) return;
     setDeletingClient(true);
     try {
-      await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), {
-        archived: true, archivedAt: serverTimestamp(),
+      const token = await user.getIdToken();
+      const res = await fetch(`${API}/clients/permanent-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ orgId, clientDocId }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Delete failed");
       navigate("/myclaim/clients");
-    } finally { setDeletingClient(false); }
+    } catch (err) {
+      console.error("Delete client error:", err);
+      alert(err.message || "Delete failed. Please try again.");
+    } finally {
+      setDeletingClient(false);
+    }
   };
 
   // ── Render guards ─────────────────────────────────────────────────────
@@ -1352,8 +1372,13 @@ export default function ClientDetail() {
                   <div className="cd-header-adj-fields">
                     <input className="cd-header-adj-input" placeholder="Name" value={adjusterEdit.name}
                       onChange={e => setAdjusterEdit(a => ({ ...a, name: e.target.value }))} />
-                    <input className="cd-header-adj-input" placeholder="Company" value={adjusterEdit.company}
-                      onChange={e => setAdjusterEdit(a => ({ ...a, company: e.target.value }))} />
+                    <InsurerCombobox
+                      className="cd-header-adj-input"
+                      value={adjusterEdit.company}
+                      onChange={v => setAdjusterEdit(a => ({ ...a, company: v }))}
+                      insurers={insurers}
+                      placeholder="Company"
+                    />
                     <input className="cd-header-adj-input" placeholder="Phone" value={adjusterEdit.phone}
                       onChange={e => setAdjusterEdit(a => ({ ...a, phone: e.target.value }))} />
                     <input className="cd-header-adj-input" placeholder="Email" value={adjusterEdit.email}
@@ -2183,25 +2208,25 @@ export default function ClientDetail() {
               )}
             </div>
 
-            {/* Archive zone */}
+            {/* Delete zone */}
             <div className="cd-danger-zone">
               {confirmDelete ? (
                 <div className="cd-delete-confirm">
                   <p className="cd-delete-confirm-msg">
-                    Archive <strong>{client.name || phone}</strong>? They'll be hidden from the client list. Admins can restore them later.
+                    Permanently delete <strong>{client.name || phone}</strong>? This removes all invoices, estimates, receipts, and settlements. This cannot be undone.
                   </p>
                   <div className="cd-delete-confirm-actions">
                     <button className="cd-btn-secondary" onClick={() => setConfirmDelete(false)} disabled={deletingClient}>
                       Cancel
                     </button>
-                    <button className="cd-btn-danger" onClick={doArchiveClient} disabled={deletingClient}>
-                      {deletingClient ? "Archiving…" : "Yes, Archive"}
+                    <button className="cd-btn-danger" onClick={doDeleteClient} disabled={deletingClient}>
+                      {deletingClient ? "Deleting…" : "Yes, Delete"}
                     </button>
                   </div>
                 </div>
               ) : (
                 <button className="cd-delete-claim-btn" onClick={() => setConfirmDelete(true)}>
-                  <TrashIcon /> Archive Client
+                  <TrashIcon /> Delete Client
                 </button>
               )}
             </div>

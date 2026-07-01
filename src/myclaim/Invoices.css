@@ -210,19 +210,24 @@
   align-items: center;
 }
 
-.inv-link {
-  font-size: 13px;
+.inv-action-btn {
+  font-size: 12.5px;
   font-weight: 600;
   color: #2563eb;
-  background: none;
-  border: none;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
   cursor: pointer;
-  padding: 0;
-  text-decoration: none;
+  padding: 5px 12px;
+  transition: background 0.15s, border-color 0.15s;
 }
-.inv-link:hover { text-decoration: underline; }
-.inv-link--danger { color: #94a3b8; }
-.inv-link--danger:hover { color: #dc2626; }
+.inv-action-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+.inv-action-btn--delete {
+  color: #dc2626;
+  background: #fff;
+  border-color: #fca5a5;
+}
+.inv-action-btn--delete:hover { background: #fef2f2; border-color: #f87171; }
 
 /* ── Empty states ── */
 .inv-empty {

@@ -42,6 +42,14 @@ function calcTotals(lineItems, taxRate, discount) {
   return { subtotal, taxAmount, total: subtotal + taxAmount - disc }
 }
 
+// Builds a human-readable filename: "Jane Smith_Estimate_(EST-001).pdf"
+function buildPdfName(clientName, docType, invNumber, { forStorage = false } = {}) {
+  const name = (clientName || 'Client').replace(/[/:*?"<>|\\]/g, '').trim() || 'Client'
+  const num  = invNumber ? `_(${invNumber})` : ''
+  const base = `${name}_${docType}${num}`
+  return forStorage ? `${base.replace(/\s+/g, '_')}.pdf` : `${base}.pdf`
+}
+
 // ── PDF generation ────────────────────────────────────────────────────────────
 
 async function generatePDF(inv, logoBase64) {
@@ -677,7 +685,8 @@ export default function InvoiceEditor() {
     try {
       const inv = buildInvoice()
       const pdf = await generatePDF(inv, logoBase64)
-      const filename = `${inv.invoiceNumber || (type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice')}.pdf`
+      const docType = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
+      const filename = buildPdfName(clientName, docType, inv.invoiceNumber)
       if (download) pdf.save(filename)
       else pdf.output('dataurlnewwindow')
     } finally {
@@ -694,21 +703,26 @@ export default function InvoiceEditor() {
       const inv = buildInvoice()
       const pdf = await generatePDF(inv, logoBase64)
       const blob = pdf.output('blob')
-      const label = inv.invoiceNumber || (type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice')
-      const filename = `${label}-${Date.now()}.pdf`
+      const docType  = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
+      const dispName = buildPdfName(clientName, docType, inv.invoiceNumber)
+      const storeName = buildPdfName(clientName, docType, inv.invoiceNumber, { forStorage: true })
+      const uniqueName = `${Date.now()}_${storeName}`
+      // Storage: pre-login uses users/{orgId}/documents/clients/... because the
+      // storage rule only covers users/*/documents/** (not organization_data/**).
       const storagePath = clientUid
-        ? `users/${clientUid}/documents/${filename}`
-        : `organization_data/${orgId}/clients/${clientDocId}/documents/${filename}`
+        ? `users/${clientUid}/documents/${uniqueName}`
+        : `users/${orgId}/documents/clients/${clientDocId}/${uniqueName}`
 
       const sRef = storageRef(storage, storagePath)
       await uploadBytes(sRef, blob, { contentType: 'application/pdf' })
       const downloadURL = await getDownloadURL(sRef)
 
+      // Firestore doc: org path for pre-login so ClientPortal can read it
       const docsColRef = clientUid
         ? collection(db, 'users', clientUid, 'documents')
         : collection(db, 'organization_data', orgId, 'clients', clientDocId, 'documents')
       await addDoc(docsColRef, {
-        name:        `${label}.pdf`,
+        name:        dispName,
         storagePath,
         downloadURL,
         size:        blob.size,
@@ -766,7 +780,6 @@ export default function InvoiceEditor() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const backPath = `/myclaim/clients/${encodeURIComponent(phone)}/invoices`
   const isEstimate = type === 'estimate'
   const isReceipt  = type === 'receipt'
 
@@ -776,7 +789,7 @@ export default function InvoiceEditor() {
     <div className="ied-root">
       {/* ── Top bar ── */}
       <div className="ied-topbar">
-        <button className="ied-back" onClick={() => navigate(backPath)}>← Back</button>
+        <button className="ied-back" onClick={() => navigate(-1)}>← Back</button>
         <div className="ied-topbar-center">
           <span className="ied-topbar-label">{isEstimate ? 'Estimate' : isReceipt ? 'Receipt' : 'Invoice'}</span>
           {invNumber && <span className="ied-topbar-num">{invNumber}</span>}

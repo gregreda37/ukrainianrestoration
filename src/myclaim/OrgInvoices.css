@@ -89,6 +89,18 @@
   grid-template-columns: repeat(4, 1fr);
 }
 
+.oil-kpi-row--4 .oil-kpi {
+  padding: 16px 14px 13px;
+}
+
+.oil-kpi-row--4 .oil-kpi-val {
+  font-size: 21px;
+}
+
+.oil-kpi-row--4 .oil-kpi-label {
+  font-size: 10px;
+}
+
 .oil-kpi {
   background: #fff;
   border: 1px solid #e2e8f0;

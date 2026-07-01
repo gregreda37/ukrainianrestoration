@@ -77,6 +77,7 @@ export default function InvoiceReport() {
   const [insurerSearch,   setInsurerSearch]   = useState('')
   const [claimSearch,     setClaimSearch]     = useState('')
   const [fullView,        setFullView]        = useState(null) // null | 'insurers' | 'claims'
+  const [plSearch,        setPlSearch]        = useState('')
 
   useEffect(() => { if (user) load() }, [user])
 
@@ -150,7 +151,7 @@ const sn = v => parseFloat(v) || 0
 
   // ── Filtered settlements: undated only in full-year view ──
   const filteredSettlements = useMemo(() => settlements.filter(s => {
-    if (!s.settlementDate) return !selectedQ
+    if (!s.settlementDate) return false  // undated settlements excluded; they have no quarter
     const d = new Date(s.settlementDate + 'T12:00:00')
     if (d.getFullYear() !== selectedYear) return false
     if (selectedQ && Math.floor(d.getMonth() / 3) + 1 !== selectedQ) return false
@@ -166,6 +167,20 @@ const sn = v => parseFloat(v) || 0
   const settTotalRecoup       = settledClaims.reduce((s, x) => s + sn(x.companyRecoup), 0)
   const settTotalPartnerFees  = settledClaims.reduce((s, x) => s + sn(x.partnerFee),    0)
   const settAvgRecovery       = settTotalSubmitted > 0 ? settTotalSettled / settTotalSubmitted * 100 : 0
+
+  // ── Job Profit / Loss ranking ──
+  const plJobs = useMemo(() =>
+    settledClaims
+      .map(s => {
+        const settled  = sn(s.totalSettled)
+        const expenses = sn(s.totalExpenses)
+        const fee      = sn(s.partnerFee)
+        const profit   = settled - expenses - fee
+        return { ...s, _profit: profit, _margin: settled > 0 ? profit / settled * 100 : 0 }
+      })
+      .sort((a, b) => b._profit - a._profit)
+      .map((s, i) => ({ ...s, _rank: i + 1 })),
+  [settledClaims])
 
   // ── Status pipeline (all-time, not year/Q filtered) ──
   const statusPipeline = useMemo(() => {
@@ -217,17 +232,22 @@ const sn = v => parseFloat(v) || 0
 
   // ── Quarterly summary with insurance columns ──
   const quarterlyData = useMemo(() => [1, 2, 3, 4].map(q => {
-    const qInvs  = summaries.filter(s => s.type === 'invoice' && getYear(s) === selectedYear && getQuarter(s) === q)
-    const qSetts = settlements.filter(s => s.settlementDate && settYear(s) === selectedYear && settQ(s) === q)
-    const billed    = qInvs.reduce((s, i) => s + (i.total || 0), 0)
-    const collected = qInvs.reduce((s, i) => s + (i.paidAmount || 0), 0)
-    const recoup    = qSetts.filter(s => sn(s.totalSettled) > 0).reduce((s, x) => s + sn(x.companyRecoup), 0)
+    const qInvs         = summaries.filter(s => s.type === 'invoice' && getYear(s) === selectedYear && getQuarter(s) === q)
+    const qSetts        = settlements.filter(s => s.settlementDate && settYear(s) === selectedYear && settQ(s) === q)
+    const qSettled      = qSetts.filter(s => sn(s.totalSettled) > 0)
+    const billed        = qInvs.reduce((s, i) => s + (i.total || 0), 0)
+    const collected     = qInvs.reduce((s, i) => s + (i.paidAmount || 0), 0)
+    const recoup        = qSettled.reduce((s, x) => s + sn(x.companyRecoup), 0)
+    const qTotalSettled = qSettled.reduce((s, x) => s + sn(x.totalSettled), 0)
+    const qTotalFees    = qSettled.reduce((s, x) => s + sn(x.partnerFee), 0)
+    const companyNet    = Math.max(0, qTotalSettled - qTotalFees)
     return {
       q, count: qInvs.length, billed, collected,
       outstanding: billed - collected,
       rate: billed > 0 ? collected / billed * 100 : 0,
-      claims: qSetts.filter(s => sn(s.totalSettled) > 0).length, recoup,
+      claims: qSettled.length, recoup,
       totalRevenue: collected + recoup,
+      companyNet,
     }
   }), [summaries, settlements, selectedYear])
 
@@ -235,18 +255,22 @@ const sn = v => parseFloat(v) || 0
   const qCardData = useMemo(() => {
     const perQ = [1, 2, 3, 4].map(q => {
       const d = quarterlyData.find(x => x.q === q)
-      return { q, label: `Q${q}`, range: QUARTERS[q], ...(d || { count: 0, billed: 0, collected: 0, recoup: 0, totalRevenue: 0, claims: 0 }) }
+      return { q, label: `Q${q}`, range: QUARTERS[q], ...(d || { count: 0, billed: 0, collected: 0, recoup: 0, totalRevenue: 0, companyNet: 0, claims: 0 }) }
     })
-    const fyInvs    = summaries.filter(s => s.type === 'invoice' && getYear(s) === selectedYear)
-    const fySettsAll    = settlements.filter(s => !s.settlementDate || settYear(s) === selectedYear)
-    const fySettsSettled = fySettsAll.filter(s => sn(s.totalSettled) > 0)
-    const fyBilled    = fyInvs.reduce((s, i) => s + (i.total || 0), 0)
-    const fyCollected = fyInvs.reduce((s, i) => s + (i.paidAmount || 0), 0)
-    const fyRecoup    = fySettsSettled.reduce((s, x) => s + sn(x.companyRecoup), 0)
+    // Full Year: only dated settlements in the selected year (so FY = sum of all quarters)
+    const fyInvs         = summaries.filter(s => s.type === 'invoice' && getYear(s) === selectedYear)
+    const fySettsSettled = settlements.filter(s => s.settlementDate && settYear(s) === selectedYear && sn(s.totalSettled) > 0)
+    const fyBilled       = fyInvs.reduce((s, i) => s + (i.total || 0), 0)
+    const fyCollected    = fyInvs.reduce((s, i) => s + (i.paidAmount || 0), 0)
+    const fyRecoup       = fySettsSettled.reduce((s, x) => s + sn(x.companyRecoup), 0)
+    const fySettled      = fySettsSettled.reduce((s, x) => s + sn(x.totalSettled), 0)
+    const fyFees         = fySettsSettled.reduce((s, x) => s + sn(x.partnerFee), 0)
+    const fyCompanyNet   = Math.max(0, fySettled - fyFees)
     const fyCard = {
       q: null, label: 'Full Year', range: String(selectedYear),
       billed: fyBilled, collected: fyCollected, recoup: fyRecoup,
       totalRevenue: fyCollected + fyRecoup,
+      companyNet: fyCompanyNet,
       count: fyInvs.length, claims: fySettsSettled.length,
     }
     return [fyCard, ...perQ]
@@ -400,9 +424,10 @@ const sn = v => parseFloat(v) || 0
     )
   }
 
-  const totalRevenue = totalCollected + settTotalRecoup
-  const cashPct      = totalRevenue > 0 ? totalCollected  / totalRevenue * 100 : 0
-  const insPct       = totalRevenue > 0 ? settTotalRecoup / totalRevenue * 100 : 0
+  const totalRevenue   = totalCollected + settTotalRecoup
+  const companyNet     = Math.max(0, settTotalSettled - settTotalPartnerFees)
+  const cashPct        = totalRevenue > 0 ? totalCollected  / totalRevenue * 100 : 0
+  const insPct         = totalRevenue > 0 ? settTotalRecoup / totalRevenue * 100 : 0
 
   return (
     <div className="ir-root">
@@ -432,7 +457,7 @@ const sn = v => parseFloat(v) || 0
           >
             <div className="ir-qcard-label">{card.label}</div>
             <div className="ir-qcard-range">{card.range}</div>
-            <div className="ir-qcard-revenue">{fmtMoney(card.totalRevenue || 0, true)}</div>
+            <div className="ir-qcard-revenue">{fmtMoney(card.companyNet || 0, true)}</div>
             <div className="ir-qcard-sub">
               {(card.count || 0) > 0 && `${card.count} job${card.count !== 1 ? 's' : ''}`}
               {(card.count || 0) > 0 && (card.claims || 0) > 0 && ' · '}
@@ -446,7 +471,7 @@ const sn = v => parseFloat(v) || 0
       {/* ── Combined company sales ── */}
       <div className="ir-combined-block">
         <div className="ir-combined-label">Total Company Sales — {selectedYear}{selectedQ ? ` Q${selectedQ}` : ''}</div>
-        <div className="ir-combined-hero">{fmtMoney(totalRevenue)}</div>
+        <div className="ir-combined-hero">{fmtMoney(companyNet)}</div>
         <div className="ir-combined-sub">
           {filtered.length} cash job{filtered.length !== 1 ? 's' : ''}
           {settledClaims.length > 0 && ` · ${settledClaims.length} insurance claim${settledClaims.length !== 1 ? 's' : ''}`}
@@ -565,7 +590,7 @@ const sn = v => parseFloat(v) || 0
             <KPICard label="Total Settled"     value={fmtMoney(settTotalSettled)}   sub={`${settAvgRecovery.toFixed(1)}% recovery`}       color="#16a34a" />
             <KPICard label="Written Off"       value={fmtMoney(settTotalGap)}       sub="uncollected gap"                                 color={settTotalGap > 0 ? '#dc2626' : '#94a3b8'} />
             <KPICard label="Referral Fees Paid" value={fmtMoney(settTotalPartnerFees)}                    sub="paid to partners"    color="#7c3aed" />
-            <KPICard label="Company Net"       value={fmtMoney(Math.max(0, settTotalSettled - settTotalPartnerFees))} sub="after referral fees" color="#2563eb" />
+            <KPICard label="Company Net"       value={fmtMoney(companyNet)} sub="total settled − referral fees" color="#2563eb" />
           </div>
 
           {settCatData.some(c => c.submitted > 0) && (
@@ -685,6 +710,185 @@ const sn = v => parseFloat(v) || 0
           })()}
         </div>
       )}
+
+      {/* ── Job Profit / Loss ── */}
+      {plJobs.length > 0 && (() => {
+        const q    = plSearch.toLowerCase()
+        const rows = plJobs.filter(s =>
+          !q ||
+          (s.clientName      || '').toLowerCase().includes(q) ||
+          (s.claimNumber     || '').toLowerCase().includes(q) ||
+          (s.insuranceCompany|| '').toLowerCase().includes(q) ||
+          (s.partnerName     || '').toLowerCase().includes(q)
+        )
+        const plTotalSettled  = plJobs.reduce((s, j) => s + sn(j.totalSettled),  0)
+        const plTotalExpenses = plJobs.reduce((s, j) => s + sn(j.totalExpenses), 0)
+        const plTotalFees     = plJobs.reduce((s, j) => s + sn(j.partnerFee),    0)
+        const plTotalProfit   = plJobs.reduce((s, j) => s + j._profit,           0)
+        const plAvgMargin     = plTotalSettled > 0 ? plTotalProfit / plTotalSettled * 100 : 0
+        const plProfitCount   = plJobs.filter(j => j._profit >= 0).length
+        const plLossCount     = plJobs.filter(j => j._profit  < 0).length
+        const rowTotalSettled  = rows.reduce((s, j) => s + sn(j.totalSettled),  0)
+        const rowTotalExpenses = rows.reduce((s, j) => s + sn(j.totalExpenses), 0)
+        const rowTotalFees     = rows.reduce((s, j) => s + sn(j.partnerFee),    0)
+        const rowTotalProfit   = rows.reduce((s, j) => s + j._profit,           0)
+        const rowAvgMargin     = rowTotalSettled > 0 ? rowTotalProfit / rowTotalSettled * 100 : 0
+        return (
+          <div className="ir-section">
+            <div className="ir-section-title-row">
+              <div className="ir-section-title">Job Profit / Loss</div>
+              <div className="ir-section-sub">
+                Settled claims · ranked highest to lowest · {selectedYear}{selectedQ ? ` Q${selectedQ}` : ''}
+              </div>
+            </div>
+
+            {/* KPI summary strip */}
+            <div className="ir-pl-kpi-row">
+              <div className="ir-pl-kpi">
+                <div className="ir-pl-kpi-label">Total Net Profit</div>
+                <div className="ir-pl-kpi-val" style={{ color: plTotalProfit >= 0 ? '#15803d' : '#dc2626' }}>
+                  {plTotalProfit < 0 ? `– ${fmtMoney(Math.abs(plTotalProfit))}` : fmtMoney(plTotalProfit)}
+                </div>
+              </div>
+              <div className="ir-pl-kpi">
+                <div className="ir-pl-kpi-label">Total Expenses</div>
+                <div className="ir-pl-kpi-val" style={{ color: '#dc2626' }}>{fmtMoney(plTotalExpenses)}</div>
+              </div>
+              <div className="ir-pl-kpi">
+                <div className="ir-pl-kpi-label">Total Ref. Fees</div>
+                <div className="ir-pl-kpi-val" style={{ color: '#7c3aed' }}>{plTotalFees > 0 ? fmtMoney(plTotalFees) : '—'}</div>
+              </div>
+              <div className="ir-pl-kpi">
+                <div className="ir-pl-kpi-label">Avg Profit Margin</div>
+                <div className="ir-pl-kpi-val" style={{ color: plAvgMargin >= 40 ? '#15803d' : plAvgMargin >= 20 ? '#d97706' : '#dc2626' }}>
+                  {plAvgMargin.toFixed(1)}%
+                </div>
+              </div>
+              <div className="ir-pl-kpi">
+                <div className="ir-pl-kpi-label">Profitable Jobs</div>
+                <div className="ir-pl-kpi-val" style={{ color: '#15803d' }}>{plProfitCount}</div>
+              </div>
+              {plLossCount > 0 && (
+                <div className="ir-pl-kpi ir-pl-kpi--loss">
+                  <div className="ir-pl-kpi-label">Jobs at Loss</div>
+                  <div className="ir-pl-kpi-val" style={{ color: '#dc2626' }}>{plLossCount}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Search */}
+            <input
+              className="ir-search-input"
+              style={{ marginBottom: 14 }}
+              type="text"
+              placeholder="Search client, claim #, insurer, partner…"
+              value={plSearch}
+              onChange={e => setPlSearch(e.target.value)}
+            />
+
+            {rows.length === 0 ? (
+              <p className="ir-preview-note">No jobs match "{plSearch}"</p>
+            ) : (
+              <table className="ir-table ir-table--pl">
+                <thead>
+                  <tr>
+                    <th className="ir-pl-rank-col">#</th>
+                    <th>Client</th>
+                    <th className="ir-num">Gross Settled</th>
+                    <th className="ir-num">Expenses</th>
+                    <th className="ir-num">Ref. Fee</th>
+                    <th className="ir-num">Net Profit</th>
+                    <th className="ir-num">Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(s => {
+                    const isLoss = s._profit < 0
+                    return (
+                      <tr
+                        key={s.id}
+                        className={`ir-pl-row${isLoss ? ' ir-pl-row--loss' : ''}`}
+                        onClick={() => s.clientPhone && navigate(`/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`)}
+                        style={{ cursor: s.clientPhone ? 'pointer' : 'default' }}
+                      >
+                        <td className="ir-pl-rank-col">{s._rank}</td>
+                        <td>
+                          <div className="ir-client-name">{s.clientName || '—'}</div>
+                          <div className="ir-pl-sub">
+                            {s.claimNumber && <span>{s.claimNumber}</span>}
+                            {s.claimNumber && s.insuranceCompany && <span> · </span>}
+                            {s.insuranceCompany && <span>{s.insuranceCompany}</span>}
+                            {s.partnerName && (
+                              <span className="ir-pl-partner-chip">via {s.partnerName}</span>
+                            )}
+                          </div>
+                          {s.settlementDate && (
+                            <div className="ir-pl-date">{fmtDate(s.settlementDate)}</div>
+                          )}
+                        </td>
+                        <td className="ir-num" style={{ color: '#16a34a' }}>
+                          {fmtMoney(sn(s.totalSettled))}
+                        </td>
+                        <td className="ir-num" style={{ color: sn(s.totalExpenses) > 0 ? '#dc2626' : '#94a3b8' }}>
+                          {sn(s.totalExpenses) > 0 ? `– ${fmtMoney(sn(s.totalExpenses))}` : '—'}
+                        </td>
+                        <td className="ir-num" style={{ color: sn(s.partnerFee) > 0 ? '#7c3aed' : '#94a3b8' }}>
+                          {sn(s.partnerFee) > 0 ? `– ${fmtMoney(sn(s.partnerFee))}` : '—'}
+                        </td>
+                        <td className="ir-num">
+                          <strong style={{ color: isLoss ? '#dc2626' : '#15803d', fontSize: 14 }}>
+                            {isLoss ? `– ${fmtMoney(Math.abs(s._profit))}` : fmtMoney(s._profit)}
+                          </strong>
+                        </td>
+                        <td className="ir-num">
+                          <span className="ir-rate-pill" style={{
+                            color:      s._margin >= 40 ? '#15803d' : s._margin >= 20 ? '#92400e' : '#991b1b',
+                            background: s._margin >= 40 ? '#dcfce7' : s._margin >= 20 ? '#fef9c3' : '#fee2e2',
+                          }}>
+                            {isLoss
+                              ? `(${Math.abs(s._margin).toFixed(1)}%)`
+                              : `${s._margin.toFixed(1)}%`}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="ir-total-row">
+                    <td />
+                    <td><strong>{rows.length} job{rows.length !== 1 ? 's' : ''}</strong></td>
+                    <td className="ir-num ir-bold" style={{ color: '#16a34a' }}>
+                      {fmtMoney(rowTotalSettled)}
+                    </td>
+                    <td className="ir-num" style={{ color: '#dc2626', fontWeight: 700 }}>
+                      {rowTotalExpenses > 0 ? `– ${fmtMoney(rowTotalExpenses)}` : '—'}
+                    </td>
+                    <td className="ir-num" style={{ color: '#7c3aed', fontWeight: 700 }}>
+                      {rowTotalFees > 0 ? `– ${fmtMoney(rowTotalFees)}` : '—'}
+                    </td>
+                    <td className="ir-num">
+                      <strong style={{ color: rowTotalProfit >= 0 ? '#15803d' : '#dc2626', fontSize: 15 }}>
+                        {rowTotalProfit < 0
+                          ? `– ${fmtMoney(Math.abs(rowTotalProfit))}`
+                          : fmtMoney(rowTotalProfit)}
+                      </strong>
+                    </td>
+                    <td className="ir-num">
+                      <span className="ir-rate-pill" style={{
+                        color:      rowAvgMargin >= 40 ? '#15803d' : rowAvgMargin >= 20 ? '#92400e' : '#991b1b',
+                        background: rowAvgMargin >= 40 ? '#dcfce7' : rowAvgMargin >= 20 ? '#fef9c3' : '#fee2e2',
+                      }}>
+                        {rowAvgMargin.toFixed(1)}%
+                      </span>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Partner & Referral Performance ── */}
       {partnerStats.length > 0 && (

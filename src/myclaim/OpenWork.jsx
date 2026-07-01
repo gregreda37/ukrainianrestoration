@@ -9,6 +9,7 @@ const SETT_CATS = [
   { key: 'dryClean',       label: 'Dry Cleaning' },
   { key: 'mitigation',     label: 'Mitigation'   },
   { key: 'reconstruction', label: 'Reconstruction' },
+  { key: 'packout',        label: 'Packout' },
 ]
 
 function fmtMoney(n) {

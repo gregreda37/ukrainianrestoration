@@ -10,6 +10,7 @@ const CATEGORIES = [
   { key: 'dryClean',       label: 'Dry Cleaning / Contents' },
   { key: 'mitigation',     label: 'Mitigation'               },
   { key: 'reconstruction', label: 'Reconstruction'           },
+  { key: 'packout',        label: 'Packout'                  },
 ]
 
 const COL_FIELDS = [
@@ -55,10 +56,11 @@ function buildEmptyForm(prefill) {
     adjusterEmail:         prefill.adjusterEmail    || '',
     status:                'estimating',
     deductible:            '',
-    recoupPercent:         100,
+    recoupPercent:         0,
     dryCleanRecoupPct:     '',
     mitigationRecoupPct:   '',
     reconstructionRecoupPct: '',
+    packoutRecoupPct:      '',
     partnerId:             '',
     partnerName:           '',
     partnerFeeType:        'percent',
@@ -74,7 +76,7 @@ function buildEmptyForm(prefill) {
 }
 
 function computeCategoryRecoups(form) {
-  const masterPct = n(form.recoupPercent) || 100
+  const masterPct = n(form.recoupPercent)
   let companyRecoup = 0
   const breakdown = CATEGORIES.map(cat => {
     const settled = n(form[`${cat.key}Settled`])
@@ -172,7 +174,7 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
     try {
       const totals = computeTotals(form)
       const hasSettled = totals.Settled > 0
-      const masterPct = n(form.recoupPercent) || 100
+      const masterPct = n(form.recoupPercent)
       const recoups = computeCategoryRecoups(form)
       const partnerFee = hasSettled ? computePartnerFee(form, recoups.companyRecoup) : 0
       // Auto-set settlementDate if settled with no date
@@ -188,6 +190,7 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
         dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
         mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
         reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+        packoutCompanyRecoup:        hasSettled ? recoups.breakdown[3]?.recoup : null,
         partnerFee:                  hasSettled && form.partnerId ? partnerFee : null,
         companyNetAfterPartner:      hasSettled ? recoups.companyRecoup - (form.partnerId ? partnerFee : 0) : null,
         createdAt:                   serverTimestamp(),
@@ -210,9 +213,11 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
           dryCleanEstimate:            n(data.dryCleanEstimate),
           mitigationEstimate:          n(data.mitigationEstimate),
           reconstructionEstimate:      n(data.reconstructionEstimate),
+          packoutEstimate:             n(data.packoutEstimate),
           dryCleanSettled:             n(data.dryCleanSettled),
           mitigationSettled:           n(data.mitigationSettled),
           reconstructionSettled:       n(data.reconstructionSettled),
+          packoutSettled:              n(data.packoutSettled),
           totalEstimate:               totals.Estimate,
           totalSettled:                totals.Settled,
           recoveryRate:                hasSettled ? totals.recoveryRate : null,
@@ -221,9 +226,11 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
           dryCleanRecoupPct:           hasSettled ? (recoups.breakdown[0]?.pct ?? null) : null,
           mitigationRecoupPct:         hasSettled ? (recoups.breakdown[1]?.pct ?? null) : null,
           reconstructionRecoupPct:     hasSettled ? (recoups.breakdown[2]?.pct ?? null) : null,
+          packoutRecoupPct:            hasSettled ? (recoups.breakdown[3]?.pct ?? null) : null,
           dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
           mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
           reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+          packoutCompanyRecoup:        hasSettled ? recoups.breakdown[3]?.recoup : null,
           companyRecoup:               hasSettled ? recoups.companyRecoup : null,
           partnerId:                   data.partnerId   || null,
           partnerName:                 data.partnerName || null,
@@ -295,12 +302,13 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
                   </div>
                   <div className="sovc-row-right">
                     <span className="sovc-badge" style={{ color: sm.color, background: sm.bg }}>{sm.label}</span>
-                    {(n(s.dryCleanSettled) > 0 || n(s.mitigationSettled) > 0 || n(s.reconstructionSettled) > 0) && (
+                    {(n(s.dryCleanSettled) > 0 || n(s.mitigationSettled) > 0 || n(s.reconstructionSettled) > 0 || n(s.packoutSettled) > 0) && (
                       <button className="sovc-receipt-btn" onClick={() => {
                         const items = [
                           n(s.dryCleanSettled)       > 0 && { label: 'Dry Cleaning / Contents', unit: 'total', price: n(s.dryCleanSettled) },
                           n(s.mitigationSettled)     > 0 && { label: 'Mitigation',               unit: 'total', price: n(s.mitigationSettled) },
                           n(s.reconstructionSettled) > 0 && { label: 'Reconstruction',            unit: 'total', price: n(s.reconstructionSettled) },
+                          n(s.packoutSettled)        > 0 && { label: 'Packout',                   unit: 'total', price: n(s.packoutSettled) },
                         ].filter(Boolean)
                         navigate(
                           `/myclaim/clients/${encodeURIComponent(phone)}/invoices/new`,
@@ -467,11 +475,11 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
             <div className="sovc-recoup-master-row">
               <div className="sovc-recoup-header">
                 <label className="sovc-label">Master Default</label>
-                <span className="sovc-recoup-pct">{n(form.recoupPercent) || 100}%</span>
+                <span className="sovc-recoup-pct">{n(form.recoupPercent)}%</span>
               </div>
               <input type="range" min="0" max="100" step="5"
                 className="sovc-recoup-slider"
-                value={n(form.recoupPercent) || 100}
+                value={n(form.recoupPercent)}
                 onChange={e => setForm(p => ({ ...p, recoupPercent: Number(e.target.value) }))} />
               <div className="sovc-recoup-labels">
                 <span>0% — partner keeps all</span>
@@ -486,7 +494,7 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
               {CATEGORIES.map(cat => {
                 const fieldKey = `${cat.key}RecoupPct`
                 const val = form[fieldKey]
-                const masterPct = n(form.recoupPercent) || 100
+                const masterPct = n(form.recoupPercent)
                 const effectivePct = (val !== null && val !== undefined && val !== '') ? n(val) : masterPct
                 const settled = n(form[`${cat.key}Settled`])
                 const recoup = settled * effectivePct / 100

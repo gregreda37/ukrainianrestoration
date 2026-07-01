@@ -339,6 +339,11 @@ const sn = v => parseFloat(v) || 0
       submitted: settledClaims.reduce((s, x) => s + sn(x.reconstructionEstimate), 0),
       settled:   settledClaims.reduce((s, x) => s + sn(x.reconstructionSettled),  0),
     },
+    {
+      label: 'Packout',
+      submitted: settledClaims.reduce((s, x) => s + sn(x.packoutEstimate), 0),
+      settled:   settledClaims.reduce((s, x) => s + sn(x.packoutSettled),  0),
+    },
   ]
 
   const recoupBuckets = [

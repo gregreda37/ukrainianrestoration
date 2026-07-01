@@ -15,6 +15,7 @@ const CATEGORIES = [
   { key: 'dryClean',       label: 'Dry Cleaning / Contents' },
   { key: 'mitigation',     label: 'Mitigation'               },
   { key: 'reconstruction', label: 'Reconstruction'           },
+  { key: 'packout',        label: 'Packout'                  },
 ]
 
 const COL_FIELDS = [
@@ -74,15 +75,15 @@ const EMPTY_FORM = (prefill = {}) => ({
   insuranceCompany: prefill.insuranceCompany || '', adjusterName: prefill.adjusterName || '',
   adjusterPhone: prefill.adjusterPhone || '', adjusterEmail: prefill.adjusterEmail || '',
   status: 'estimating', deductible: '',
-  recoupPercent: 100,
-  dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: '',
+  recoupPercent: 0,
+  dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: '', packoutRecoupPct: '',
   partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFeeValue: '', partnerFeeOnNet: false,
   notes: '',
   ...CATEGORIES.flatMap(c => COL_FIELDS.map(f => [`${c.key}${f.key}`, ''])).reduce((o, [k, v]) => ({ ...o, [k]: v }), {}),
 })
 
 function computeCategoryRecoups(form, onNet = false) {
-  const masterPct = n(form.recoupPercent) || 100
+  const masterPct = n(form.recoupPercent)
   let companyRecoup = 0
   const breakdown = CATEGORIES.map(cat => {
     const settled  = n(form[`${cat.key}Settled`])
@@ -105,7 +106,7 @@ function computePartnerFee(form, companyRecoup) {
 
 function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
   const hasSettled = totals.Settled > 0
-  const masterPct = n(data.recoupPercent) || 100
+  const masterPct = n(data.recoupPercent)
   const recoups = computeCategoryRecoups(data, !!data.partnerFeeOnNet)
   const partnerFee = hasSettled ? computePartnerFee(data, recoups.companyRecoup) : 0
   const totalExpenses = totals.Expenses || 0
@@ -124,18 +125,23 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
     dryCleanEstimate:            n(data.dryCleanEstimate),
     mitigationEstimate:          n(data.mitigationEstimate),
     reconstructionEstimate:      n(data.reconstructionEstimate),
+    packoutEstimate:             n(data.packoutEstimate),
     dryCleanSettled:             n(data.dryCleanSettled),
     mitigationSettled:           n(data.mitigationSettled),
     reconstructionSettled:       n(data.reconstructionSettled),
+    packoutSettled:              n(data.packoutSettled),
     dryCleanExpenses:            n(data.dryCleanExpenses),
     mitigationExpenses:          n(data.mitigationExpenses),
     reconstructionExpenses:      n(data.reconstructionExpenses),
+    packoutExpenses:             n(data.packoutExpenses),
     dryCleanPaid:                !!data.dryCleanPaid,
     mitigationPaid:              !!data.mitigationPaid,
     reconstructionPaid:          !!data.reconstructionPaid,
+    packoutPaid:                 !!data.packoutPaid,
     dryCleanPaidAmount:          n(data.dryCleanPaidAmount),
     mitigationPaidAmount:        n(data.mitigationPaidAmount),
     reconstructionPaidAmount:    n(data.reconstructionPaidAmount),
+    packoutPaidAmount:           n(data.packoutPaidAmount),
     totalPaidAmount:             n(data.totalPaidAmount),
     totalOutstanding:            Math.max(0, totals.Settled - n(data.totalPaidAmount)),
     totalEstimate:               totals.Estimate,
@@ -148,9 +154,11 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
     dryCleanRecoupPct:           hasSettled ? (recoups.breakdown[0]?.pct ?? null) : null,
     mitigationRecoupPct:         hasSettled ? (recoups.breakdown[1]?.pct ?? null) : null,
     reconstructionRecoupPct:     hasSettled ? (recoups.breakdown[2]?.pct ?? null) : null,
+    packoutRecoupPct:            hasSettled ? (recoups.breakdown[3]?.pct ?? null) : null,
     dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
     mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
     reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+    packoutCompanyRecoup:        hasSettled ? recoups.breakdown[3]?.recoup : null,
     companyRecoup:               hasSettled ? recoups.companyRecoup : null,
     partnerId:                   data.partnerId   || null,
     partnerName:                 data.partnerName || null,
@@ -280,6 +288,7 @@ export default function Settlement() {
         dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
         mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
         reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+        packoutCompanyRecoup:        hasSettled ? recoups.breakdown[3]?.recoup : null,
         partnerFee:                  hasSettled && newFormMut.partnerId ? partnerFee : null,
         companyNetAfterPartner:      hasSettled ? totals.Settled - totals.Expenses - (newFormMut.partnerId ? partnerFee : 0) : null,
         createdAt:                   serverTimestamp(),
@@ -445,11 +454,13 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
     dryClean:       !!s.dryCleanPaid,
     mitigation:     !!s.mitigationPaid,
     reconstruction: !!s.reconstructionPaid,
+    packout:        !!s.packoutPaid,
   })
   const [paidAmounts, setPaidAmounts] = useState({
     dryClean:       n(s.dryCleanPaidAmount),
     mitigation:     n(s.mitigationPaidAmount),
     reconstruction: n(s.reconstructionPaidAmount),
+    packout:        n(s.packoutPaidAmount),
   })
   const [togglingCat, setTogglingCat] = useState(null)
   const [savingPaidAmt, setSavingPaidAmt] = useState(null)
@@ -459,14 +470,16 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
       dryClean:       !!s.dryCleanPaid,
       mitigation:     !!s.mitigationPaid,
       reconstruction: !!s.reconstructionPaid,
+      packout:        !!s.packoutPaid,
     })
     setPaidAmounts({
       dryClean:       n(s.dryCleanPaidAmount),
       mitigation:     n(s.mitigationPaidAmount),
       reconstruction: n(s.reconstructionPaidAmount),
+      packout:        n(s.packoutPaidAmount),
     })
-  }, [s.dryCleanPaid, s.mitigationPaid, s.reconstructionPaid,
-      s.dryCleanPaidAmount, s.mitigationPaidAmount, s.reconstructionPaidAmount])
+  }, [s.dryCleanPaid, s.mitigationPaid, s.reconstructionPaid, s.packoutPaid,
+      s.dryCleanPaidAmount, s.mitigationPaidAmount, s.reconstructionPaidAmount, s.packoutPaidAmount])
 
   useEffect(() => {
     if (editing) {
@@ -516,6 +529,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
         dryCleanCompanyRecoup:       hasSettled ? recoups.breakdown[0]?.recoup : null,
         mitigationCompanyRecoup:     hasSettled ? recoups.breakdown[1]?.recoup : null,
         reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
+        packoutCompanyRecoup:        hasSettled ? recoups.breakdown[3]?.recoup : null,
         partnerFee:                  hasSettled && editForm.partnerId ? partnerFee : null,
         companyNetAfterPartner:      hasSettled ? totals.Settled - totals.Expenses - (editForm.partnerId ? partnerFee : 0) : null,
         settlementDate:              editForm.settlementDate || (hasSettled && editForm.status === 'settled' ? new Date().toISOString().slice(0, 10) : ''),
@@ -1189,7 +1203,7 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
           {CATEGORIES.map(cat => {
             const fieldKey = `${cat.key}RecoupPct`
             const val = form[fieldKey]
-            const masterPct = n(form.recoupPercent) || 100
+            const masterPct = n(form.recoupPercent)
             const effectivePct = (val !== null && val !== undefined && val !== '') ? n(val) : masterPct
             const settled = n(form[`${cat.key}Settled`])
             const recoup = settled * effectivePct / 100

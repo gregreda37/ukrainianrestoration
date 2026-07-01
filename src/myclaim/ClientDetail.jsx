@@ -763,10 +763,13 @@ export default function ClientDetail() {
     if (!file || (!clientUid && !clientDocId)) return;
     if (folder === "client") setUploading(true); else setContractorUploading(true);
     try {
-      // Store under org client path when the client hasn't logged in yet (no uid)
+      // Store under org client path when the client hasn't logged in yet (no uid).
+      // We use users/{orgId}/documents/clients/... so the existing storage rule
+      // (any auth'd user may write to users/*/documents/**) covers this without
+      // requiring a separate rule deployment.
       const isOrgDoc   = !clientUid;
       const storagePath = isOrgDoc
-        ? `org_clients/${orgId}/${clientDocId}/documents/${Date.now()}_${file.name}`
+        ? `users/${orgId}/documents/clients/${clientDocId}/${Date.now()}_${file.name}`
         : `users/${clientUid}/documents/${Date.now()}_${file.name}`;
       const firestoreCol = isOrgDoc
         ? collection(db, "organization_data", orgId, "clients", clientDocId, "documents")

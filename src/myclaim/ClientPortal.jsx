@@ -226,6 +226,26 @@ export default function ClientPortal() {
                   constructionStep: prev.constructionStep === -1 ? (cData.constructionStep ?? -1) : prev.constructionStep,
                 }));
               }
+              // Fall back to org client doc for scalar fields not yet on the user doc
+              const infoWithFallback = {
+                claimNumber:  info.claimNumber  || cData.claimNumbers?.[0] || cData.claimNumber || "",
+                policyNumber: info.policyNumber || cData.policyNumber || "",
+                address:      info.address      || cData.address || "",
+                email:        info.email        || cData.email || "",
+              };
+              setClaimInfo(infoWithFallback);
+              setInfoEdit(infoWithFallback);
+              if (!adj.name && !adj.email && !adj.phone && cData.adjuster) {
+                setAdjuster(cData.adjuster); setAdjusterEdit(cData.adjuster);
+              }
+              if (!data.portalSections && cData.portalSections) {
+                setPortalSections({ ...PORTAL_DEFAULTS, ...cData.portalSections });
+              }
+              if (!data.companyCamProjectId && cData.companyCamProjectId) {
+                setCompanyCamProjectId(cData.companyCamProjectId);
+                if (cData.companyCamProjectName) setCompanyCamProjectName(cData.companyCamProjectName);
+                if (cData.selectedPhotoIds) setClientPhotoIds(cData.selectedPhotoIds);
+              }
             }
           } catch {}
         }
@@ -252,13 +272,15 @@ export default function ClientPortal() {
       .catch(console.error);
   }, [user]);
 
-  // Merge pre-login docs and todos uploaded/created by contractor before the client logged in
+  // Merge pre-login docs, todos, selections, and budget created by contractor before the client logged in
   useEffect(() => {
     if (!clientDocId || !orgId) return;
     Promise.all([
-      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "documents"), orderBy("uploadedAt", "desc"))).catch(() => null),
-      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"), orderBy("createdAt", "asc"))).catch(() => null),
-    ]).then(([docsSnap, todosSnap]) => {
+      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "documents"),  orderBy("uploadedAt", "desc"))).catch(() => null),
+      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"),      orderBy("createdAt",  "asc"))).catch(() => null),
+      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "selections"), orderBy("addedAt",    "asc"))).catch(() => null),
+      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "budget"),     orderBy("addedAt",    "asc"))).catch(() => null),
+    ]).then(([docsSnap, todosSnap, selectionsSnap, budgetSnap]) => {
       if (docsSnap?.docs.length > 0) {
         const preLoginDocs = docsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() }));
         setDocuments(prev => {
@@ -273,6 +295,20 @@ export default function ClientPortal() {
         setTodos(prev => {
           const existingIds = new Set(prev.map(t => t.id));
           return [...prev, ...preLoginTodos.filter(t => !existingIds.has(t.id))];
+        });
+      }
+      if (selectionsSnap?.docs.length > 0) {
+        const preLoginSels = selectionsSnap.docs.map(d => ({ id: d.id, _isOrgSel: true, ...d.data() }));
+        setSelections(prev => {
+          const existingIds = new Set(prev.map(s => s.id));
+          return [...prev, ...preLoginSels.filter(s => !existingIds.has(s.id))];
+        });
+      }
+      if (budgetSnap?.docs.length > 0) {
+        const preLoginBudget = budgetSnap.docs.map(d => ({ id: d.id, _isOrgBudget: true, ...d.data() }));
+        setBudgetItems(prev => {
+          const existingIds = new Set(prev.map(b => b.id));
+          return [...prev, ...preLoginBudget.filter(b => !existingIds.has(b.id))];
         });
       }
     }).catch(console.error);
@@ -327,7 +363,7 @@ export default function ClientPortal() {
     const nowDone = !todo.completed;
     const update = { completed:nowDone, ...(nowDone ? { completedAt:serverTimestamp() } : { completedAt:null }) };
     try {
-      await updateDoc(doc(db,"users",user.uid,"todos",todo.id), update);
+      await setDoc(doc(db,"users",user.uid,"todos",todo.id), update, { merge:true });
       setTodos(p => p.map(t => t.id===todo.id ? { ...t, ...update } : t));
       await logActivity(nowDone?"todo_completed":"todo_uncompleted", `${nowDone?"Completed":"Reopened"} task: "${todo.label||todo.text||""}"`);
     } catch (err) { console.error(err); }
@@ -340,11 +376,11 @@ export default function ClientPortal() {
       const payload = { category:selCategory, product:selProduct.trim(), url:selUrl.trim()||null, notes:selNotes.trim()||null, addedAt:serverTimestamp(), addedBy:"client", status:"approved" };
       if (fromTodoId) payload.fromTodoId = fromTodoId;
       await addDoc(collection(db,"users",user.uid,"selections"), payload);
-      if (swapId) await updateDoc(doc(db,"users",user.uid,"selections",swapId), { status:"rejected" });
+      if (swapId) await setDoc(doc(db,"users",user.uid,"selections",swapId), { status:"rejected" }, { merge:true });
       // Auto-complete the linked todo when client fulfills a selection request
       if (fromTodoId) {
         const todoUpd = { completed: true, completedAt: serverTimestamp() };
-        await updateDoc(doc(db,"users",user.uid,"todos",fromTodoId), todoUpd);
+        await setDoc(doc(db,"users",user.uid,"todos",fromTodoId), todoUpd, { merge:true });
         setTodos(p => p.map(t => t.id===fromTodoId ? { ...t, ...todoUpd } : t));
       }
       const snap = await getDocs(query(collection(db,"users",user.uid,"selections"), orderBy("addedAt","asc")));
@@ -362,21 +398,21 @@ export default function ClientPortal() {
       const trimmedUrl = (urlOverride||"").trim();
       if (trimmedUrl) updates.url = trimmedUrl;
       if (notesOverride !== null) updates.notes = (notesOverride||"").trim()||null;
-      await updateDoc(doc(db,"users",user.uid,"selections",sel.id), updates);
+      await setDoc(doc(db,"users",user.uid,"selections",sel.id), updates, { merge:true });
       setSelections(p => p.map(s => s.id===sel.id ? { ...s, ...updates } : s));
       await logActivity("selection_approved", `Approved selection: "${sel.product}" (${sel.category})`);
       const linked = todos.find(t => t.linkedSelectionId===sel.id && !t.completed);
-      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await updateDoc(doc(db,"users",user.uid,"todos",linked.id), u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
+      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await setDoc(doc(db,"users",user.uid,"todos",linked.id), u, { merge:true }); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
     } catch (err) { console.error(err); }
   };
 
   const rejectSelection = async (sel) => {
     try {
-      await updateDoc(doc(db,"users",user.uid,"selections",sel.id), { status:"rejected" });
+      await setDoc(doc(db,"users",user.uid,"selections",sel.id), { status:"rejected" }, { merge:true });
       setSelections(p => p.map(s => s.id===sel.id ? { ...s, status:"rejected" } : s));
       await logActivity("selection_rejected", `Rejected selection: "${sel.product}" (${sel.category})`);
       const linked = todos.find(t => t.linkedSelectionId===sel.id && !t.completed);
-      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await updateDoc(doc(db,"users",user.uid,"todos",linked.id), u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
+      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await setDoc(doc(db,"users",user.uid,"todos",linked.id), u, { merge:true }); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
     } catch (err) { console.error(err); }
   };
 
@@ -406,7 +442,7 @@ export default function ClientPortal() {
         category: editSelCategory,
         updatedAt: serverTimestamp(),
       };
-      await updateDoc(doc(db, "users", user.uid, "selections", editingSel.id), updates);
+      await setDoc(doc(db, "users", user.uid, "selections", editingSel.id), updates, { merge:true });
       setSelections(p => p.map(s => s.id === editingSel.id ? { ...s, ...updates } : s));
       await logActivity("selection_updated", `Updated selection: "${editSelProduct.trim()}" (${editSelCategory})`);
       setEditingSel(null);
@@ -426,7 +462,7 @@ export default function ClientPortal() {
     try {
       const updates = { completed: true, completedAt: serverTimestamp() };
       if (signedDocumentUrl) updates.signedDocumentUrl = signedDocumentUrl;
-      await updateDoc(doc(db, "users", user.uid, "todos", todo.id), updates);
+      await setDoc(doc(db, "users", user.uid, "todos", todo.id), updates, { merge:true });
       setTodos(p => p.map(t =>
         t.id === todo.id ? { ...t, completed: true, ...(signedDocumentUrl ? { signedDocumentUrl } : {}) } : t
       ));

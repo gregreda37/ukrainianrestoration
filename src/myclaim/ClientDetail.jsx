@@ -363,15 +363,19 @@ export default function ClientDetail() {
 
         if (uid) {
           setClientUid(uid);
-          const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap, preLoginDocsSnap, preLoginTodosSnap] = await Promise.all([
+          const preLoginSelsRef   = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "selections");
+          const preLoginBudgetRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "budget");
+          const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap, preLoginDocsSnap, preLoginTodosSnap, preLoginSelsSnap, preLoginBudgetSnap] = await Promise.all([
             getDoc(doc(db, "users", uid)),
             getDocs(query(collection(db, "users", uid, "todos"),     orderBy("createdAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "documents"), orderBy("uploadedAt", "desc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "selections"),orderBy("addedAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "budget"),    orderBy("addedAt", "asc"))).catch(() => null),
             getDocs(query(collection(db, "users", uid, "activity"),  orderBy("timestamp", "desc"))).catch(() => null),
-            getDocs(query(preLoginDocsRef,  orderBy("uploadedAt", "desc"))).catch(() => null),
-            getDocs(query(preLoginTodosRef, orderBy("createdAt",  "asc"))).catch(() => null),
+            getDocs(query(preLoginDocsRef,   orderBy("uploadedAt", "desc"))).catch(() => null),
+            getDocs(query(preLoginTodosRef,  orderBy("createdAt",  "asc"))).catch(() => null),
+            getDocs(query(preLoginSelsRef,   orderBy("addedAt",    "asc"))).catch(() => null),
+            getDocs(query(preLoginBudgetRef, orderBy("addedAt",    "asc"))).catch(() => null),
           ]);
           if (cancelled) return;
 
@@ -410,28 +414,68 @@ export default function ClientDetail() {
             setClientFields(fields);
             setClientFieldsEdit(fields);
           }
-          if (selSnap)      setSelections(selSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-          if (budgetSnap)   setBudgetItems(budgetSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           if (activitySnap) setActivityLog(activitySnap.docs.map(d => ({ id: d.id, ...d.data() })));
           // Merge user-path docs + any pre-login org-path docs
-          const userDocs     = docsSnap          ? docsSnap.docs.map(d          => ({ id: d.id, ...d.data() }))                       : [];
-          const preLoginDocs = preLoginDocsSnap  ? preLoginDocsSnap.docs.map(d  => ({ id: d.id, _isOrgDoc:  true, ...d.data() }))     : [];
+          const userDocs     = docsSnap          ? docsSnap.docs.map(d          => ({ id: d.id, ...d.data() }))                    : [];
+          const preLoginDocs = preLoginDocsSnap  ? preLoginDocsSnap.docs.map(d  => ({ id: d.id, _isOrgDoc:  true, ...d.data() })) : [];
           setDocs([...userDocs, ...preLoginDocs]);
           // Merge user-path todos + any pre-login org-path todos
-          const userTodos     = todosSnap         ? todosSnap.docs.map(d         => ({ id: d.id, ...d.data() }))                      : [];
-          const preLoginTodos = preLoginTodosSnap ? preLoginTodosSnap.docs.map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() }))    : [];
+          const userTodos     = todosSnap         ? todosSnap.docs.map(d         => ({ id: d.id, ...d.data() }))                   : [];
+          const preLoginTodos = preLoginTodosSnap ? preLoginTodosSnap.docs.map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() })) : [];
           setTodos([...userTodos, ...preLoginTodos]);
+          // Merge user-path selections + pre-login org-path selections
+          const userSels     = selSnap          ? selSnap.docs.map(d          => ({ id: d.id, ...d.data() }))                  : [];
+          const preLoginSels = preLoginSelsSnap ? preLoginSelsSnap.docs.map(d => ({ id: d.id, _isOrgSel: true, ...d.data() })) : [];
+          const seenSelIds   = new Set(userSels.map(s => s.id));
+          setSelections([...userSels, ...preLoginSels.filter(s => !seenSelIds.has(s.id))]);
+          // Merge user-path budget + pre-login org-path budget
+          const userBudget     = budgetSnap         ? budgetSnap.docs.map(d         => ({ id: d.id, ...d.data() }))                    : [];
+          const preLoginBudget = preLoginBudgetSnap ? preLoginBudgetSnap.docs.map(d => ({ id: d.id, _isOrgBudget: true, ...d.data() })) : [];
+          const seenBudgetIds  = new Set(userBudget.map(b => b.id));
+          setBudgetItems([...userBudget, ...preLoginBudget.filter(b => !seenBudgetIds.has(b.id))]);
+          // Scalar fallbacks from org client doc for fields not yet on the user doc
+          const uData = uDoc.exists() ? uDoc.data() : {};
+          if (!uData.adjuster && clientData.adjuster) { setAdjuster(clientData.adjuster); setAdjusterEdit(clientData.adjuster); }
+          if (!uData.portalSections && clientData.portalSections) setPortalSections(s => ({ ...s, ...clientData.portalSections }));
+          if (!uData.companyCamProjectId && clientData.companyCamProjectId) {
+            const projId = clientData.companyCamProjectId;
+            setCcProjectId(projId);
+            setCcProjectName(clientData.companyCamProjectName || "");
+            if (clientData.selectedPhotoIds) setSelectedPhotoIds(new Set(clientData.selectedPhotoIds));
+            setCcPhotoLoad(true);
+            user.getIdToken().then(token =>
+              fetch(`${API}/photos/companycam`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify({ projectId: projId, orgId }),
+              })
+                .then(r => r.json())
+                .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
+                .catch(() => {})
+                .finally(() => { if (!cancelled) setCcPhotoLoad(false); })
+            ).catch(() => { if (!cancelled) setCcPhotoLoad(false); });
+          }
         } else {
           // Client hasn't logged in yet — load all pre-login data from org client subcollections
-          const [preLoginDocsSnap, preLoginTodosSnap] = await Promise.all([
-            getDocs(query(preLoginDocsRef,  orderBy("uploadedAt", "desc"))).catch(() => null),
-            getDocs(query(preLoginTodosRef, orderBy("createdAt",  "asc"))).catch(() => null),
+          const preLoginSelsRef   = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "selections");
+          const preLoginBudgetRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "budget");
+          const [preLoginDocsSnap, preLoginTodosSnap, preLoginSelsSnap, preLoginBudgetSnap] = await Promise.all([
+            getDocs(query(preLoginDocsRef,   orderBy("uploadedAt", "desc"))).catch(() => null),
+            getDocs(query(preLoginTodosRef,  orderBy("createdAt",  "asc"))).catch(() => null),
+            getDocs(query(preLoginSelsRef,   orderBy("addedAt",    "asc"))).catch(() => null),
+            getDocs(query(preLoginBudgetRef, orderBy("addedAt",    "asc"))).catch(() => null),
           ]);
           if (preLoginDocsSnap) {
             setDocs(preLoginDocsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() })));
           }
           if (preLoginTodosSnap) {
             setTodos(preLoginTodosSnap.docs.map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() })));
+          }
+          if (preLoginSelsSnap) {
+            setSelections(preLoginSelsSnap.docs.map(d => ({ id: d.id, _isOrgSel: true, ...d.data() })));
+          }
+          if (preLoginBudgetSnap) {
+            setBudgetItems(preLoginBudgetSnap.docs.map(d => ({ id: d.id, _isOrgBudget: true, ...d.data() })));
           }
           // Progress stored on org client doc when no uid
           setMitStep(clientData.mitigationStep ?? -1);
@@ -444,6 +488,26 @@ export default function ClientDetail() {
           };
           setClientFields(fields);
           setClientFieldsEdit(fields);
+          if (clientData.adjuster) { setAdjuster(clientData.adjuster); setAdjusterEdit(clientData.adjuster); }
+          setPortalSections(s => ({ ...s, ...(clientData.portalSections || {}) }));
+          if (clientData.companyCamProjectId) {
+            const projId = clientData.companyCamProjectId;
+            setCcProjectId(projId);
+            setCcProjectName(clientData.companyCamProjectName || "");
+            if (clientData.selectedPhotoIds) setSelectedPhotoIds(new Set(clientData.selectedPhotoIds));
+            setCcPhotoLoad(true);
+            user.getIdToken().then(token =>
+              fetch(`${API}/photos/companycam`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify({ projectId: projId, orgId }),
+              })
+                .then(r => r.json())
+                .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
+                .catch(() => {})
+                .finally(() => { if (!cancelled) setCcPhotoLoad(false); })
+            ).catch(() => { if (!cancelled) setCcPhotoLoad(false); });
+          }
         }
 
         // Load Drive folder data from the org client doc (stored by create-client-folder)
@@ -848,7 +912,7 @@ export default function ClientDetail() {
   // ── Selections ────────────────────────────────────────────────────────
   const addSelection = async (e) => {
     e.preventDefault();
-    if (!clientUid || !selProduct.trim()) return;
+    if ((!clientUid && !clientDocId) || !selProduct.trim()) return;
     setSavingSel(true);
     try {
       const payload = {
@@ -856,29 +920,40 @@ export default function ClientDetail() {
         url: selUrl.trim() || null, notes: selNotes.trim() || null,
         status: "needs_approval", addedAt: serverTimestamp(), addedBy: "contractor",
       };
-      const docRef = await addDoc(collection(db, "users", clientUid, "selections"), payload);
-      setSelections(prev => [...prev, { id: docRef.id, ...payload }]);
+      const colRef = clientUid
+        ? collection(db, "users", clientUid, "selections")
+        : collection(db, "organization_data", orgId, "clients", clientDocId, "selections");
+      const docRef = await addDoc(colRef, payload);
+      setSelections(prev => [...prev, { id: docRef.id, _isOrgSel: !clientUid, ...payload }]);
       setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelCategory(SELECTION_CATEGORIES[0]); setShowSelForm(false);
     } catch (err) { console.error("addSelection error:", err); }
     finally { setSavingSel(false); }
   };
 
   const updateSelStatus = async (id, status) => {
-    if (!clientUid) return;
+    const sel = selections.find(s => s.id === id);
+    if (!sel) return;
     setSelections(prev => prev.map(s => s.id === id ? { ...s, status } : s));
-    await updateDoc(doc(db, "users", clientUid, "selections", id), { status }).catch(console.error);
+    const selRef = sel._isOrgSel
+      ? doc(db, "organization_data", orgId, "clients", clientDocId, "selections", id)
+      : doc(db, "users", clientUid, "selections", id);
+    await updateDoc(selRef, { status }).catch(console.error);
   };
 
   const deleteSel = async (id) => {
-    if (!clientUid) return;
+    const sel = selections.find(s => s.id === id);
+    if (!sel) return;
     setSelections(prev => prev.filter(s => s.id !== id));
-    await deleteDoc(doc(db, "users", clientUid, "selections", id)).catch(console.error);
+    const selRef = sel._isOrgSel
+      ? doc(db, "organization_data", orgId, "clients", clientDocId, "selections", id)
+      : doc(db, "users", clientUid, "selections", id);
+    await deleteDoc(selRef).catch(console.error);
   };
 
   // ── Budget ────────────────────────────────────────────────────────────
   const addBudgetItem = async (e) => {
     e.preventDefault();
-    if (!clientUid || !selectedBudgetItem || !budgetPrice) return;
+    if ((!clientUid && !clientDocId) || !selectedBudgetItem || !budgetPrice) return;
     setAddingBudget(true);
     try {
       const price = parseFloat(budgetPrice) || 0;
@@ -889,8 +964,11 @@ export default function ClientDetail() {
         price, priceType: budgetPriceType, qty, total,
         description: budgetDesc.trim() || null, addedAt: serverTimestamp(),
       };
-      const docRef = await addDoc(collection(db, "users", clientUid, "budget"), payload);
-      setBudgetItems(prev => [...prev, { id: docRef.id, ...payload }]);
+      const colRef = clientUid
+        ? collection(db, "users", clientUid, "budget")
+        : collection(db, "organization_data", orgId, "clients", clientDocId, "budget");
+      const docRef = await addDoc(colRef, payload);
+      setBudgetItems(prev => [...prev, { id: docRef.id, _isOrgBudget: !clientUid, ...payload }]);
       setBudgetSearch(""); setSelectedBudgetItem(null); setBudgetPrice(""); setBudgetQty("1");
       setBudgetDesc(""); setShowBudgetForm(false);
     } catch (err) { console.error("addBudgetItem error:", err); }
@@ -898,9 +976,13 @@ export default function ClientDetail() {
   };
 
   const deleteBudgetItem = async (id) => {
-    if (!clientUid) return;
+    const item = budgetItems.find(b => b.id === id);
+    if (!item) return;
     setBudgetItems(prev => prev.filter(b => b.id !== id));
-    await deleteDoc(doc(db, "users", clientUid, "budget", id)).catch(console.error);
+    const itemRef = item._isOrgBudget
+      ? doc(db, "organization_data", orgId, "clients", clientDocId, "budget", id)
+      : doc(db, "users", clientUid, "budget", id);
+    await deleteDoc(itemRef).catch(console.error);
   };
 
   const budgetTotal = budgetItems.reduce((s, b) => s + (b.total || 0), 0);
@@ -908,10 +990,13 @@ export default function ClientDetail() {
   // ── Adjuster ──────────────────────────────────────────────────────────
   const saveAdjuster = async (e) => {
     e.preventDefault();
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     setSavingAdjuster(true);
     try {
-      await updateDoc(doc(db, "users", clientUid), { adjuster: adjusterEdit, updatedAt: serverTimestamp() });
+      const adjRef = clientUid
+        ? doc(db, "users", clientUid)
+        : doc(db, "organization_data", orgId, "clients", clientDocId);
+      await setDoc(adjRef, { adjuster: adjusterEdit, updatedAt: serverTimestamp() }, { merge: true });
       setAdjuster({ ...adjusterEdit });
       setEditingAdjuster(false);
     } catch (err) { console.error("saveAdjuster error:", err); }
@@ -920,25 +1005,27 @@ export default function ClientDetail() {
 
   // ── Portal sections ───────────────────────────────────────────────────
   const toggleSection = async (key) => {
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     const updated = { ...portalSections, [key]: !portalSections[key] };
     setPortalSections(updated);
     setSavingPortal(true);
-    await updateDoc(doc(db, "users", clientUid), { portalSections: updated }).catch(console.error);
+    const secRef = clientUid
+      ? doc(db, "users", clientUid)
+      : doc(db, "organization_data", orgId, "clients", clientDocId);
+    await setDoc(secRef, { portalSections: updated }, { merge: true }).catch(console.error);
     setSavingPortal(false);
   };
 
   // ── Claim number ──────────────────────────────────────────────────────
   const saveClaimNumber = async (e) => {
     e.preventDefault();
-    if (!clientUid || !clientDocId) return;
+    if (!clientDocId) return;
     setSavingClaim(true);
     try {
       const nums = editClaimValue.trim() ? [editClaimValue.trim()] : [];
-      await Promise.all([
-        updateDoc(doc(db, "users", clientUid), { claimNumbers: nums, updatedAt: serverTimestamp() }),
-        setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { claimNumbers: nums }, { merge: true }),
-      ]);
+      const saves = [setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { claimNumbers: nums }, { merge: true })];
+      if (clientUid) saves.push(updateDoc(doc(db, "users", clientUid), { claimNumbers: nums, updatedAt: serverTimestamp() }));
+      await Promise.all(saves);
       setClaimNumber(editClaimValue.trim());
       setEditingClaim(false);
     } catch (err) { console.error("saveClaimNumber error:", err); }
@@ -948,7 +1035,7 @@ export default function ClientDetail() {
   // ── Client fields (contractor editable) ──────────────────────────────
   const saveClientFields = async (e) => {
     e.preventDefault();
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     setSavingClientFields(true); setClientFieldsError("");
     try {
       const addressVal = (addressInputRef.current?.value ?? clientFieldsEdit.address).trim();
@@ -959,11 +1046,11 @@ export default function ClientDetail() {
         claimNumbers: clientFieldsEdit.claimNumber.trim()  ? [clientFieldsEdit.claimNumber.trim()] : [],
         updatedAt:    serverTimestamp(),
       };
-      await updateDoc(doc(db, "users", clientUid), payload);
+      if (clientUid) await updateDoc(doc(db, "users", clientUid), payload);
       if (clientDocId) {
         await setDoc(
           doc(db, "organization_data", orgId, "clients", clientDocId),
-          { claimNumbers: payload.claimNumbers, address: payload.address },
+          { claimNumbers: payload.claimNumbers, address: payload.address, policyNumber: payload.policyNumber, email: payload.email },
           { merge: true }
         );
       }
@@ -1034,7 +1121,7 @@ export default function ClientDetail() {
   };
 
   const linkCCProject = async (project) => {
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     setShowCCPicker(false);
     setCcSearch("");
     setCcProjectId(project.id);
@@ -1043,15 +1130,21 @@ export default function ClientDetail() {
     setCcPhotos([]);
     setClassifyResults(null);
     const payload = { companyCamProjectId: project.id, companyCamProjectName: project.name };
-    await setDoc(doc(db, "users", clientUid), payload, { merge: true }).catch(console.error);
+    const ccDocRef = clientUid
+      ? doc(db, "users", clientUid)
+      : doc(db, "organization_data", orgId, "clients", clientDocId);
+    await setDoc(ccDocRef, payload, { merge: true }).catch(console.error);
     fetchCcPhotos(project.id);
   };
 
   const unlinkCcProject = async () => {
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     setCcProjectId(""); setCcProjectName(""); setCcPhotos([]); setSelectedPhotoIds(null);
     setClassifyResults(null); setClassifyError("");
-    await setDoc(doc(db, "users", clientUid),
+    const ccDocRef = clientUid
+      ? doc(db, "users", clientUid)
+      : doc(db, "organization_data", orgId, "clients", clientDocId);
+    await setDoc(ccDocRef,
       { companyCamProjectId: null, companyCamProjectName: null, selectedPhotoIds: null },
       { merge: true }
     ).catch(console.error);
@@ -1079,25 +1172,34 @@ export default function ClientDetail() {
   };
 
   const togglePhotoSelection = async (photoId) => {
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     const base = selectedPhotoIds ?? new Set(ccPhotos.map(p => p.id));
     const next = new Set(base);
     if (next.has(photoId)) next.delete(photoId); else next.add(photoId);
     setSelectedPhotoIds(next);
-    await setDoc(doc(db, "users", clientUid), { selectedPhotoIds: [...next] }, { merge: true });
+    const photoDocRef = clientUid
+      ? doc(db, "users", clientUid)
+      : doc(db, "organization_data", orgId, "clients", clientDocId);
+    await setDoc(photoDocRef, { selectedPhotoIds: [...next] }, { merge: true });
   };
 
   const shareAllPhotos = async () => {
-    if (!clientUid || ccPhotos.length === 0) return;
+    if ((!clientUid && !clientDocId) || ccPhotos.length === 0) return;
     const all = new Set(ccPhotos.map(p => p.id));
     setSelectedPhotoIds(all);
-    await setDoc(doc(db, "users", clientUid), { selectedPhotoIds: [...all] }, { merge: true });
+    const photoDocRef = clientUid
+      ? doc(db, "users", clientUid)
+      : doc(db, "organization_data", orgId, "clients", clientDocId);
+    await setDoc(photoDocRef, { selectedPhotoIds: [...all] }, { merge: true });
   };
 
   const clearAllPhotos = async () => {
-    if (!clientUid) return;
+    if (!clientUid && !clientDocId) return;
     setSelectedPhotoIds(new Set());
-    await setDoc(doc(db, "users", clientUid), { selectedPhotoIds: [] }, { merge: true });
+    const photoDocRef = clientUid
+      ? doc(db, "users", clientUid)
+      : doc(db, "organization_data", orgId, "clients", clientDocId);
+    await setDoc(photoDocRef, { selectedPhotoIds: [] }, { merge: true });
   };
 
   const handleClassify = async () => {

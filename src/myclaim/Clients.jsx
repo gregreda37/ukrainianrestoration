@@ -196,12 +196,13 @@ export default function Clients() {
     try {
       const existing = await getDoc(doc(db, "client_phones", normalizedPhone));
       if (existing.exists()) { setSaveError("A client with this phone number is already registered."); setSaving(false); return; }
-      await addDoc(collection(db, "organization_data", organizationName, "clients"), {
+      const clientDocRef = await addDoc(collection(db, "organization_data", organizationName, "clients"), {
         name: clientName.trim() || null, address, phone: normalizedPhone,
         addedBy: userDetails?.email || null, addedAt: serverTimestamp(),
       });
       await setDoc(doc(db, "client_phones", normalizedPhone), {
-        orgId: organizationName, name: clientName.trim() || null, address, registeredAt: serverTimestamp(),
+        orgId: organizationName, clientDocId: clientDocRef.id,
+        name: clientName.trim() || null, address, registeredAt: serverTimestamp(),
       }, { merge: true });
       setSaved(true);
       await refreshClients(organizationName);

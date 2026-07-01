@@ -172,16 +172,9 @@ export default function ClientPortal() {
     catch {}
   };
 
-  // Write item to user path — if it came from the org (pre-login) path, write full data so
-  // the item is complete after a page reload (minimal-delta writes lose non-updated fields).
-  const syncToUserPath = async (collName, item, updates) => {
-    const ref = doc(db, "users", user.uid, collName, item.id);
-    if (item._isOrgSel || item._isOrgTodo) {
-      const { _isOrgSel:_a, _isOrgTodo:_b, id:_id, ...data } = item;
-      await setDoc(ref, { ...data, ...updates });
-    } else {
-      await setDoc(ref, updates, { merge: true });
-    }
+  const syncToOrgPath = async (collName, item, updates) => {
+    if (!orgId || !clientDocId) return;
+    await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId, collName, item.id), updates, { merge: true });
   };
 
   // ── Load claim data ───────────────────────────────────────────────────────
@@ -204,21 +197,23 @@ export default function ClientPortal() {
         if (data.companyCamProjectName) setCompanyCamProjectName(data.companyCamProjectName);
         if (data.selectedPhotoIds != null) setClientPhotoIds(data.selectedPhotoIds);
         let oid = data.organizationId;
+        let preloadedClientDocId = data.clientDocId || null;
         if (!oid && phone) {
           const cpSnap = await getDoc(doc(db,"client_phones",phone));
           if (cpSnap.exists()) {
             const cpData = cpSnap.data();
             oid = cpData.orgId || null;
+            if (!preloadedClientDocId) preloadedClientDocId = cpData.clientDocId || null;
             if (oid) await setDoc(doc(db,"users",user.uid), { organizationId:oid }, { merge:true });
             if (cpData.driveExternalFolderId) setDriveExternalFolderId(cpData.driveExternalFolderId);
           }
         }
         if (!oid) return;
         setOrgId(oid);
-        const [orgSnap, ctorSnap, budgetSnap] = await Promise.all([
+        if (preloadedClientDocId) setClientDocId(preloadedClientDocId);
+        const [orgSnap, ctorSnap] = await Promise.all([
           getDoc(doc(db,"organization_data",oid)),
           getDocs(collection(db,"organization_data",oid,"contractors")),
-          getDocs(query(collection(db,"users",user.uid,"budget"), orderBy("addedAt","asc"))).catch(()=>null),
         ]);
         if (orgSnap.exists()) {
           setOrgInfo(orgSnap.data());
@@ -231,29 +226,22 @@ export default function ClientPortal() {
               if (n) setCustomerName(n);
               setClientDocId(cSnap.docs[0].id);
               if (cData.driveExternalFolderId) setDriveExternalFolderId(cData.driveExternalFolderId);
-              // Fall back to org client doc for progress fields when user doc doesn't have them
-              if (cData.mitigationStep != null || cData.constructionStep != null) {
-                setClaimProgress(prev => ({
-                  mitigationStep:   prev.mitigationStep  === -1 ? (cData.mitigationStep  ?? -1) : prev.mitigationStep,
-                  constructionStep: prev.constructionStep === -1 ? (cData.constructionStep ?? -1) : prev.constructionStep,
-                }));
-              }
-              // Fall back to org client doc for scalar fields not yet on the user doc
-              const infoWithFallback = {
-                claimNumber:  info.claimNumber  || cData.claimNumbers?.[0] || cData.claimNumber || "",
-                policyNumber: info.policyNumber || cData.policyNumber || "",
-                address:      info.address      || cData.address || "",
-                email:        info.email        || cData.email || "",
+              // Org client doc is the single source of truth for all claim data
+              setClaimProgress({
+                mitigationStep:   cData.mitigationStep  ?? -1,
+                constructionStep: cData.constructionStep ?? -1,
+              });
+              const infoFromOrg = {
+                claimNumber:  cData.claimNumbers?.[0] || cData.claimNumber || info.claimNumber || "",
+                policyNumber: cData.policyNumber || info.policyNumber || "",
+                address:      cData.address || info.address || "",
+                email:        cData.email || info.email || "",
               };
-              setClaimInfo(infoWithFallback);
-              setInfoEdit(infoWithFallback);
-              if (!adj.name && !adj.email && !adj.phone && cData.adjuster) {
-                setAdjuster(cData.adjuster); setAdjusterEdit(cData.adjuster);
-              }
-              if (!data.portalSections && cData.portalSections) {
-                setPortalSections({ ...PORTAL_DEFAULTS, ...cData.portalSections });
-              }
-              if (!data.companyCamProjectId && cData.companyCamProjectId) {
+              setClaimInfo(infoFromOrg);
+              setInfoEdit(infoFromOrg);
+              if (cData.adjuster) { setAdjuster(cData.adjuster); setAdjusterEdit(cData.adjuster); }
+              if (cData.portalSections) setPortalSections({ ...PORTAL_DEFAULTS, ...cData.portalSections });
+              if (cData.companyCamProjectId) {
                 setCompanyCamProjectId(cData.companyCamProjectId);
                 if (cData.companyCamProjectName) setCompanyCamProjectName(cData.companyCamProjectName);
                 if (cData.selectedPhotoIds) setClientPhotoIds(cData.selectedPhotoIds);
@@ -272,19 +260,11 @@ export default function ClientPortal() {
           if (isAdminRole || isAssigned) ctors.push(data);
         });
         setContractors(ctors);
-        if (budgetSnap) setBudgetItems(budgetSnap.docs.map(d => ({ id:d.id, ...d.data() })));
       } catch (err) { console.error("Error loading claim data:", err); }
     })();
   }, [user]);
 
-  useEffect(() => {
-    if (!user) return;
-    getDocs(query(collection(db,"users",user.uid,"todos"), orderBy("createdAt","asc")))
-      .then(s => setTodos(s.docs.map(d => ({ id:d.id, ...d.data() })).filter(t => t.assignedTo !== "contractor")))
-      .catch(console.error);
-  }, [user]);
-
-  // Merge pre-login docs, todos, selections, and budget created by contractor before the client logged in
+  // Load all subcollections from org path — single source of truth
   useEffect(() => {
     if (!clientDocId || !orgId) return;
     Promise.all([
@@ -293,54 +273,25 @@ export default function ClientPortal() {
       getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "selections"), orderBy("addedAt",    "asc"))).catch(() => null),
       getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "budget"),     orderBy("addedAt",    "asc"))).catch(() => null),
     ]).then(([docsSnap, todosSnap, selectionsSnap, budgetSnap]) => {
-      if (docsSnap?.docs.length > 0) {
-        const preLoginDocs = docsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() }));
-        setDocuments(prev => {
-          const existingIds = new Set(prev.map(d => d.id));
-          return [...prev, ...preLoginDocs.filter(d => !existingIds.has(d.id))];
-        });
-      }
-      if (todosSnap?.docs.length > 0) {
-        const preLoginTodos = todosSnap.docs
-          .map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() }))
-          .filter(t => t.assignedTo !== "contractor");
-        setTodos(prev => {
-          const existingIds = new Set(prev.map(t => t.id));
-          return [...prev, ...preLoginTodos.filter(t => !existingIds.has(t.id))];
-        });
-      }
-      if (selectionsSnap?.docs.length > 0) {
-        const preLoginSels = selectionsSnap.docs.map(d => ({ id: d.id, _isOrgSel: true, ...d.data() }));
-        setSelections(prev => {
-          const existingIds = new Set(prev.map(s => s.id));
-          return [...prev, ...preLoginSels.filter(s => !existingIds.has(s.id))];
-        });
-      }
-      if (budgetSnap?.docs.length > 0) {
-        const preLoginBudget = budgetSnap.docs.map(d => ({ id: d.id, _isOrgBudget: true, ...d.data() }));
-        setBudgetItems(prev => {
-          const existingIds = new Set(prev.map(b => b.id));
-          return [...prev, ...preLoginBudget.filter(b => !existingIds.has(b.id))];
-        });
-      }
+      if (docsSnap) setDocuments(docsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      if (todosSnap) setTodos(todosSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.assignedTo !== "contractor"));
+      if (selectionsSnap) setSelections(selectionsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      if (budgetSnap) setBudgetItems(budgetSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     }).catch(console.error);
   }, [clientDocId, orgId]);
 
   useEffect(() => {
-    if (!user) return;
-    getDocs(query(collection(db,"users",user.uid,"selections"), orderBy("addedAt","asc")))
-      .then(s => setSelections(s.docs.map(d => ({ id:d.id, ...d.data() }))))
-      .catch(console.error);
-  }, [user]);
-
-  useEffect(() => {
-    if (!companyCamProjectId || !orgId) return;
+    if (!companyCamProjectId || !orgId || !user) return;
     setPhotosLoading(true); setPhotosError("");
-    axios.post(`${API}/photos/companycam`, { projectId:companyCamProjectId, orgId })
+    user.getIdToken()
+      .then(token => axios.post(`${API}/photos/companycam`,
+        { projectId: companyCamProjectId, orgId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      ))
       .then(r => { if (r.data.error) throw new Error(r.data.error); setPhotos(r.data.photos||[]); })
       .catch(e => setPhotosError(e.response?.data?.error || e.message || "Could not load photos."))
       .finally(() => setPhotosLoading(false));
-  }, [companyCamProjectId, orgId]);
+  }, [companyCamProjectId, orgId, user]);
 
   useEffect(() => {
     const urls = [...new Set(selections.map(s=>s.url).filter(Boolean))];
@@ -375,7 +326,7 @@ export default function ClientPortal() {
     const nowDone = !todo.completed;
     const update = { completed:nowDone, ...(nowDone ? { completedAt:serverTimestamp() } : { completedAt:null }) };
     try {
-      await syncToUserPath("todos", todo, update);
+      await syncToOrgPath("todos", todo, update);
       setTodos(p => p.map(t => t.id===todo.id ? { ...t, ...update } : t));
       await logActivity(nowDone?"todo_completed":"todo_uncompleted", `${nowDone?"Completed":"Reopened"} task: "${todo.label||todo.text||""}"`);
     } catch (err) { console.error(err); }
@@ -387,20 +338,18 @@ export default function ClientPortal() {
     try {
       const payload = { category:selCategory, product:selProduct.trim(), url:selUrl.trim()||null, notes:selNotes.trim()||null, addedAt:serverTimestamp(), addedBy:"client", status:"approved" };
       if (fromTodoId) payload.fromTodoId = fromTodoId;
-      await addDoc(collection(db,"users",user.uid,"selections"), payload);
+      const newRef = await addDoc(collection(db,"organization_data",orgId,"clients",clientDocId,"selections"), payload);
       if (swapId) {
         const swapSel = selections.find(s => s.id === swapId);
-        if (swapSel) await syncToUserPath("selections", swapSel, { status:"rejected" });
+        if (swapSel) await syncToOrgPath("selections", swapSel, { status:"rejected" });
       }
-      // Auto-complete the linked todo when client fulfills a selection request
       if (fromTodoId) {
         const todoUpd = { completed: true, completedAt: serverTimestamp() };
         const fromTodo = todos.find(t => t.id === fromTodoId);
-        if (fromTodo) await syncToUserPath("todos", fromTodo, todoUpd);
+        if (fromTodo) await syncToOrgPath("todos", fromTodo, todoUpd);
         setTodos(p => p.map(t => t.id===fromTodoId ? { ...t, ...todoUpd } : t));
       }
-      const snap = await getDocs(query(collection(db,"users",user.uid,"selections"), orderBy("addedAt","asc")));
-      setSelections(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+      setSelections(p => [...p, { id: newRef.id, ...payload }]);
       await logActivity("selection_added", `Added selection: "${selProduct.trim()}" (${selCategory})`);
       setShowAddSel(false); setSwapTargetId(null); setPickTodoId(null);
       setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelCategory(SELECTION_CATEGORIES[0]);
@@ -414,21 +363,21 @@ export default function ClientPortal() {
       const trimmedUrl = (urlOverride||"").trim();
       if (trimmedUrl) updates.url = trimmedUrl;
       if (notesOverride !== null) updates.notes = (notesOverride||"").trim()||null;
-      await syncToUserPath("selections", sel, updates);
+      await syncToOrgPath("selections", sel, updates);
       setSelections(p => p.map(s => s.id===sel.id ? { ...s, ...updates } : s));
       await logActivity("selection_approved", `Approved selection: "${sel.product}" (${sel.category})`);
       const linked = todos.find(t => t.linkedSelectionId===sel.id && !t.completed);
-      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await syncToUserPath("todos", linked, u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
+      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await syncToOrgPath("todos", linked, u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
     } catch (err) { console.error(err); }
   };
 
   const rejectSelection = async (sel) => {
     try {
-      await syncToUserPath("selections", sel, { status:"rejected" });
+      await syncToOrgPath("selections", sel, { status:"rejected" });
       setSelections(p => p.map(s => s.id===sel.id ? { ...s, status:"rejected" } : s));
       await logActivity("selection_rejected", `Rejected selection: "${sel.product}" (${sel.category})`);
       const linked = todos.find(t => t.linkedSelectionId===sel.id && !t.completed);
-      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await syncToUserPath("todos", linked, u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
+      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await syncToOrgPath("todos", linked, u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
     } catch (err) { console.error(err); }
   };
 
@@ -458,7 +407,7 @@ export default function ClientPortal() {
         category: editSelCategory,
         updatedAt: serverTimestamp(),
       };
-      await syncToUserPath("selections", editingSel, updates);
+      await syncToOrgPath("selections", editingSel, updates);
       setSelections(p => p.map(s => s.id === editingSel.id ? { ...s, ...updates } : s));
       await logActivity("selection_updated", `Updated selection: "${editSelProduct.trim()}" (${editSelCategory})`);
       setEditingSel(null);
@@ -467,18 +416,21 @@ export default function ClientPortal() {
   };
 
   const fetchDocuments = async () => {
-    if (!user) return; setDocError("");
-    try { const s = await getDocs(collection(db,"users",user.uid,"documents")); setDocuments(s.docs.map(d => ({ id:d.id, ...d.data() }))); }
+    if (!orgId || !clientDocId) return; setDocError("");
+    try {
+      const s = await getDocs(query(collection(db,"organization_data",orgId,"clients",clientDocId,"documents"), orderBy("uploadedAt","desc")));
+      setDocuments(s.docs.map(d => ({ id:d.id, ...d.data() })));
+    }
     catch (err) { setDocError(err.message||"Could not load documents."); }
   };
-  useEffect(() => { if (user) fetchDocuments(); }, [user]); // eslint-disable-line
+  useEffect(() => { if (orgId && clientDocId) fetchDocuments(); }, [orgId, clientDocId]); // eslint-disable-line
 
   const markSigned = async (todo, signedDocumentUrl) => {
     if (!todo) return;
     try {
       const updates = { completed: true, completedAt: serverTimestamp() };
       if (signedDocumentUrl) updates.signedDocumentUrl = signedDocumentUrl;
-      await syncToUserPath("todos", todo, updates);
+      await syncToOrgPath("todos", todo, updates);
       setTodos(p => p.map(t =>
         t.id === todo.id ? { ...t, completed: true, ...(signedDocumentUrl ? { signedDocumentUrl } : {}) } : t
       ));
@@ -501,13 +453,24 @@ export default function ClientPortal() {
       const ext = pendingFile.name.includes(".") ? pendingFile.name.slice(pendingFile.name.lastIndexOf(".")) : "";
       const label = pendingFileName.trim() || pendingFile.name.replace(/\.[^.]+$/,"");
       const fileName = label + ext;
-      const sRef = ref(storage,`users/${user.uid}/documents/${Date.now()}_${pendingFile.name}`);
+      const storagePath = orgId && clientDocId
+        ? `users/${orgId}/documents/clients/${clientDocId}/${Date.now()}_${pendingFile.name}`
+        : `users/${user.uid}/documents/${Date.now()}_${pendingFile.name}`;
+      const sRef = ref(storage, storagePath);
       await uploadBytes(sRef, pendingFile);
       const downloadURL = await getDownloadURL(sRef);
-      const docRef = await addDoc(collection(db,"users",user.uid,"documents"), {
-        name: fileName, storagePath: sRef.fullPath, downloadURL,
-        size: pendingFile.size, folder: "client", uploadedAt: serverTimestamp(),
-      });
+      let docRef;
+      if (orgId && clientDocId) {
+        docRef = await addDoc(collection(db,"organization_data",orgId,"clients",clientDocId,"documents"), {
+          name: fileName, storagePath: sRef.fullPath, downloadURL,
+          size: pendingFile.size, folder: "client", uploadedAt: serverTimestamp(), uploadedBy: "client",
+        });
+      } else {
+        docRef = await addDoc(collection(db,"users",user.uid,"documents"), {
+          name: fileName, storagePath: sRef.fullPath, downloadURL,
+          size: pendingFile.size, folder: "client", uploadedAt: serverTimestamp(),
+        });
+      }
       await logActivity("document_uploaded", `Uploaded document: "${fileName}"`);
 
       // Mirror to Google Drive (client uploads always go to External Files)
@@ -528,8 +491,8 @@ export default function ClientPortal() {
         })
           .then(r => r.json())
           .then(d => {
-            if (d.driveFileId) {
-              updateDoc(doc(db, 'users', user.uid, 'documents', docRef.id), {
+            if (d.driveFileId && orgId && clientDocId) {
+              updateDoc(doc(db, 'organization_data', orgId, 'clients', clientDocId, 'documents', docRef.id), {
                 driveFileId:  d.driveFileId,
                 driveFileUrl: d.driveFileUrl,
               }).catch(() => {});
@@ -546,8 +509,12 @@ export default function ClientPortal() {
 
   const handleDelete = async (document) => {
     try {
-      await deleteObject(ref(storage, document.storagePath));
-      await deleteDoc(doc(db,"users",user.uid,"documents",document.id));
+      if (document.storagePath) await deleteObject(ref(storage, document.storagePath)).catch(() => {});
+      if (orgId && clientDocId) {
+        await deleteDoc(doc(db,"organization_data",orgId,"clients",clientDocId,"documents",document.id));
+      } else {
+        await deleteDoc(doc(db,"users",user.uid,"documents",document.id));
+      }
       setDocuments(p => p.filter(d => d.id!==document.id));
       await logActivity("document_deleted", `Deleted document: "${document.name}"`);
     } catch (err) { console.error(err); }
@@ -561,6 +528,9 @@ export default function ClientPortal() {
       const adj = { name:adjusterEdit.name.trim()||null, company:adjusterEdit.company.trim()||null, phone:adjusterEdit.phone.trim()||null, email:adjusterEdit.email.trim()||null };
       const payload = { policyNumber:infoEdit.policyNumber.trim()||null, address:addressVal||null, email:infoEdit.email.trim()||null, claimNumbers:infoEdit.claimNumber.trim() ? [infoEdit.claimNumber.trim()] : [], adjuster:adj, updatedAt:serverTimestamp() };
       await setDoc(doc(db,"users",user.uid), payload, { merge:true });
+      if (orgId && clientDocId) {
+        setDoc(doc(db,"organization_data",orgId,"clients",clientDocId), { policyNumber:payload.policyNumber, address:payload.address, email:payload.email, claimNumbers:payload.claimNumbers, adjuster:adj }, { merge:true }).catch(()=>{});
+      }
       const saved = { claimNumber:infoEdit.claimNumber.trim(), policyNumber:infoEdit.policyNumber.trim(), address:addressVal, email:infoEdit.email.trim() };
       const savedAdj = { name:adj.name||"", company:adj.company||"", phone:adj.phone||"", email:adj.email||"" };
       setClaimInfo(saved); setAdjuster(savedAdj); setEditingInfo(false);

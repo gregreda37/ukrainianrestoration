@@ -146,6 +146,8 @@ export default function ClientDetail() {
   const [clientUid,   setClientUid]   = useState(null);
   const [userDoc,     setUserDoc]     = useState(null);
   const [loading,     setLoading]     = useState(true);
+  // Only show full-page spinner on first load — prevent re-load flash from Firebase auth refresh
+  const initialLoadDone = useRef(false);
 
   // Client editable fields
   const [clientFields,       setClientFields]       = useState({ claimNumber: "", policyNumber: "", address: "", email: "" });
@@ -328,7 +330,8 @@ export default function ClientDetail() {
   useEffect(() => {
     if (!orgId || !phone) return;
     let cancelled = false;
-    setLoading(true);
+    // Only show full-page spinner on first load; re-loads (auth refresh) stay silent
+    if (!initialLoadDone.current) setLoading(true);
     (async () => {
       try {
         // 1. Find client in org clients collection by phone
@@ -368,157 +371,66 @@ export default function ClientDetail() {
         }
         if (cancelled) return;
 
-        const preLoginDocsRef  = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "documents");
-        const preLoginTodosRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "todos");
-
         if (uid) {
           setClientUid(uid);
-          const preLoginSelsRef   = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "selections");
-          const preLoginBudgetRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "budget");
-          const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap, preLoginDocsSnap, preLoginTodosSnap, preLoginSelsSnap, preLoginBudgetSnap] = await Promise.all([
-            getDoc(doc(db, "users", uid)),
-            getDocs(query(collection(db, "users", uid, "todos"),     orderBy("createdAt", "asc"))).catch(() => null),
-            getDocs(query(collection(db, "users", uid, "documents"), orderBy("uploadedAt", "desc"))).catch(() => null),
-            getDocs(query(collection(db, "users", uid, "selections"),orderBy("addedAt", "asc"))).catch(() => null),
-            getDocs(query(collection(db, "users", uid, "budget"),    orderBy("addedAt", "asc"))).catch(() => null),
-            getDocs(query(collection(db, "users", uid, "activity"),  orderBy("timestamp", "desc"))).catch(() => null),
-            getDocs(query(preLoginDocsRef,   orderBy("uploadedAt", "desc"))).catch(() => null),
-            getDocs(query(preLoginTodosRef,  orderBy("createdAt",  "asc"))).catch(() => null),
-            getDocs(query(preLoginSelsRef,   orderBy("addedAt",    "asc"))).catch(() => null),
-            getDocs(query(preLoginBudgetRef, orderBy("addedAt",    "asc"))).catch(() => null),
-          ]);
-          if (cancelled) return;
-
-          if (uDoc.exists()) {
-            const u = uDoc.data();
-            setUserDoc({ uid, ...u });
-            setMitStep(u.mitigationStep ?? -1);
-            setConStep(u.constructionStep ?? -1);
-            setPortalSections(s => ({ ...s, ...(u.portalSections || {}) }));
-            if (u.adjuster) { setAdjuster(u.adjuster); setAdjusterEdit(u.adjuster); }
-            if (u.companyCamProjectId) {
-              const projId = u.companyCamProjectId;
-              setCcProjectId(projId);
-              setCcProjectName(u.companyCamProjectName || "");
-              if (u.selectedPhotoIds) setSelectedPhotoIds(new Set(u.selectedPhotoIds));
-              setCcPhotoLoad(true);
-              user.getIdToken().then(token =>
-                fetch(`${API}/photos/companycam`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                  body: JSON.stringify({ projectId: projId, orgId }),
-                })
-                  .then(r => r.json())
-                  .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
-                  .catch(() => {})
-                  .finally(() => { if (!cancelled) setCcPhotoLoad(false); })
-              ).catch(() => { if (!cancelled) setCcPhotoLoad(false); });
-            }
-            if (u.claimNumbers?.[0]) setClaimNumber(u.claimNumbers[0]);
-            const fields = {
-              claimNumber:  u.claimNumbers?.[0] || u.claimNumber || "",
-              policyNumber: u.policyNumber || "",
-              address:      u.address || clientData.address || "",
-              email:        u.email || "",
-            };
-            setClientFields(fields);
-            setClientFieldsEdit(fields);
-          }
-          if (activitySnap) setActivityLog(activitySnap.docs.map(d => ({ id: d.id, ...d.data() })));
-          // Merge user-path docs + any pre-login org-path docs
-          const userDocs     = docsSnap          ? docsSnap.docs.map(d          => ({ id: d.id, ...d.data() }))                    : [];
-          const preLoginDocs = preLoginDocsSnap  ? preLoginDocsSnap.docs.map(d  => ({ id: d.id, _isOrgDoc:  true, ...d.data() })) : [];
-          setDocs([...userDocs, ...preLoginDocs]);
-          // Merge user-path todos + any pre-login org-path todos
-          const userTodos     = todosSnap         ? todosSnap.docs.map(d         => ({ id: d.id, ...d.data() }))                   : [];
-          const preLoginTodos = preLoginTodosSnap ? preLoginTodosSnap.docs.map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() })) : [];
-          setTodos([...userTodos, ...preLoginTodos]);
-          // Merge user-path selections + pre-login org-path selections
-          const userSels     = selSnap          ? selSnap.docs.map(d          => ({ id: d.id, ...d.data() }))                  : [];
-          const preLoginSels = preLoginSelsSnap ? preLoginSelsSnap.docs.map(d => ({ id: d.id, _isOrgSel: true, ...d.data() })) : [];
-          const seenSelIds   = new Set(userSels.map(s => s.id));
-          setSelections([...userSels, ...preLoginSels.filter(s => !seenSelIds.has(s.id))]);
-          // Merge user-path budget + pre-login org-path budget
-          const userBudget     = budgetSnap         ? budgetSnap.docs.map(d         => ({ id: d.id, ...d.data() }))                    : [];
-          const preLoginBudget = preLoginBudgetSnap ? preLoginBudgetSnap.docs.map(d => ({ id: d.id, _isOrgBudget: true, ...d.data() })) : [];
-          const seenBudgetIds  = new Set(userBudget.map(b => b.id));
-          setBudgetItems([...userBudget, ...preLoginBudget.filter(b => !seenBudgetIds.has(b.id))]);
-          // Scalar fallbacks from org client doc for fields not yet on the user doc
-          const uData = uDoc.exists() ? uDoc.data() : {};
-          if (!uData.adjuster && clientData.adjuster) { setAdjuster(clientData.adjuster); setAdjusterEdit(clientData.adjuster); }
-          if (!uData.portalSections && clientData.portalSections) setPortalSections(s => ({ ...s, ...clientData.portalSections }));
-          if (!uData.companyCamProjectId && clientData.companyCamProjectId) {
-            const projId = clientData.companyCamProjectId;
-            setCcProjectId(projId);
-            setCcProjectName(clientData.companyCamProjectName || "");
-            if (clientData.selectedPhotoIds) setSelectedPhotoIds(new Set(clientData.selectedPhotoIds));
-            setCcPhotoLoad(true);
-            user.getIdToken().then(token =>
-              fetch(`${API}/photos/companycam`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ projectId: projId, orgId }),
-              })
-                .then(r => r.json())
-                .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
-                .catch(() => {})
-                .finally(() => { if (!cancelled) setCcPhotoLoad(false); })
-            ).catch(() => { if (!cancelled) setCcPhotoLoad(false); });
-          }
-        } else {
-          // Client hasn't logged in yet — load all pre-login data from org client subcollections
-          const preLoginSelsRef   = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "selections");
-          const preLoginBudgetRef = collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "budget");
-          const [preLoginDocsSnap, preLoginTodosSnap, preLoginSelsSnap, preLoginBudgetSnap] = await Promise.all([
-            getDocs(query(preLoginDocsRef,   orderBy("uploadedAt", "desc"))).catch(() => null),
-            getDocs(query(preLoginTodosRef,  orderBy("createdAt",  "asc"))).catch(() => null),
-            getDocs(query(preLoginSelsRef,   orderBy("addedAt",    "asc"))).catch(() => null),
-            getDocs(query(preLoginBudgetRef, orderBy("addedAt",    "asc"))).catch(() => null),
-          ]);
-          if (preLoginDocsSnap) {
-            setDocs(preLoginDocsSnap.docs.map(d => ({ id: d.id, _isOrgDoc: true, ...d.data() })));
-          }
-          if (preLoginTodosSnap) {
-            setTodos(preLoginTodosSnap.docs.map(d => ({ id: d.id, _isOrgTodo: true, ...d.data() })));
-          }
-          if (preLoginSelsSnap) {
-            setSelections(preLoginSelsSnap.docs.map(d => ({ id: d.id, _isOrgSel: true, ...d.data() })));
-          }
-          if (preLoginBudgetSnap) {
-            setBudgetItems(preLoginBudgetSnap.docs.map(d => ({ id: d.id, _isOrgBudget: true, ...d.data() })));
-          }
-          // Progress stored on org client doc when no uid
-          setMitStep(clientData.mitigationStep ?? -1);
-          setConStep(clientData.constructionStep ?? -1);
-          const fields = {
-            claimNumber:  clientData.claimNumbers?.[0] || "",
-            policyNumber: clientData.policyNumber || "",
-            address:      clientData.address || "",
-            email:        clientData.email || "",
-          };
-          setClientFields(fields);
-          setClientFieldsEdit(fields);
-          if (clientData.adjuster) { setAdjuster(clientData.adjuster); setAdjusterEdit(clientData.adjuster); }
-          setPortalSections(s => ({ ...s, ...(clientData.portalSections || {}) }));
-          if (clientData.companyCamProjectId) {
-            const projId = clientData.companyCamProjectId;
-            setCcProjectId(projId);
-            setCcProjectName(clientData.companyCamProjectName || "");
-            if (clientData.selectedPhotoIds) setSelectedPhotoIds(new Set(clientData.selectedPhotoIds));
-            setCcPhotoLoad(true);
-            user.getIdToken().then(token =>
-              fetch(`${API}/photos/companycam`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ projectId: projId, orgId }),
-              })
-                .then(r => r.json())
-                .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
-                .catch(() => {})
-                .finally(() => { if (!cancelled) setCcPhotoLoad(false); })
-            ).catch(() => { if (!cancelled) setCcPhotoLoad(false); });
-          }
+          // Write clientDocId + orgId to users/{uid} so portal can find org path
+          setDoc(doc(db, "users", uid), { clientDocId: clientDocSnap.id, orgId }, { merge: true }).catch(() => {});
         }
+
+        // Always load all subcollections from org path — single source of truth
+        const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap] = await Promise.all([
+          uid ? getDoc(doc(db, "users", uid)).catch(() => null) : Promise.resolve(null),
+          getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "todos"), orderBy("createdAt", "asc"))).catch(() => null),
+          getDocs(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "documents")).catch(() => null),
+          getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "selections"), orderBy("addedAt", "asc"))).catch(() => null),
+          getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "budget"), orderBy("addedAt", "asc"))).catch(() => null),
+          uid ? getDocs(query(collection(db, "users", uid, "activity"), orderBy("timestamp", "desc"))).catch(() => null) : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+
+        if (uDoc?.exists()) setUserDoc({ uid, ...uDoc.data() });
+        if (activitySnap) setActivityLog(activitySnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // All scalar fields come from org client doc as single source of truth
+        setMitStep(clientData.mitigationStep ?? -1);
+        setConStep(clientData.constructionStep ?? -1);
+        const fields = {
+          claimNumber:  clientData.claimNumbers?.[0] || clientData.claimNumber || "",
+          policyNumber: clientData.policyNumber || "",
+          address:      clientData.address || "",
+          email:        clientData.email || "",
+        };
+        setClientFields(fields);
+        setClientFieldsEdit(fields);
+        if (clientData.claimNumbers?.[0]) setClaimNumber(clientData.claimNumbers[0]);
+        if (clientData.adjuster) { setAdjuster(clientData.adjuster); setAdjusterEdit(clientData.adjuster); }
+        setPortalSections(s => ({ ...s, ...(clientData.portalSections || {}) }));
+        if (clientData.companyCamProjectId) {
+          const projId = clientData.companyCamProjectId;
+          setCcProjectId(projId);
+          setCcProjectName(clientData.companyCamProjectName || "");
+          if (clientData.selectedPhotoIds) setSelectedPhotoIds(new Set(clientData.selectedPhotoIds));
+          setCcPhotoLoad(true);
+          user.getIdToken().then(token =>
+            fetch(`${API}/photos/companycam`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+              body: JSON.stringify({ projectId: projId, orgId }),
+            })
+              .then(r => r.json())
+              .then(d => { if (!cancelled) setCcPhotos(Array.isArray(d.photos) ? d.photos : []); })
+              .catch(() => {})
+              .finally(() => { if (!cancelled) setCcPhotoLoad(false); })
+          ).catch(() => { if (!cancelled) setCcPhotoLoad(false); });
+        }
+
+        // Subcollections — org path only, no merging needed
+        const allDocs = docsSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || [];
+        allDocs.sort((a, b) => (b.uploadedAt?.seconds ?? 0) - (a.uploadedAt?.seconds ?? 0));
+        setDocs(prev => allDocs.length > 0 ? allDocs : prev);
+        setTodos(todosSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || []);
+        setSelections(selSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || []);
+        setBudgetItems(budgetSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || []);
 
         // Load Drive folder data from the org client doc (stored by create-client-folder)
         const cd = clientData;
@@ -534,7 +446,10 @@ export default function ClientDetail() {
       } catch (err) {
         console.error("ClientDetail load error:", err);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          initialLoadDone.current = true;
+          setLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -576,9 +491,7 @@ export default function ClientDetail() {
   }, [editingClientFields]);
 
   // ── Progress ─────────────────────────────────────────────────────────
-  const _stepDocRef = () => clientUid
-    ? doc(db, "users", clientUid)
-    : doc(db, "organization_data", orgId, "clients", clientDocId);
+  const _stepDocRef = () => doc(db, "organization_data", orgId, "clients", clientDocId);
 
   const advanceStep = async (type) => {
     if (savingProg || (!clientUid && !clientDocId)) return;
@@ -672,7 +585,7 @@ export default function ClientDetail() {
           if (todoSignFile) {
             setTodoSignUploading(true);
             const safeName = todoSignFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-            const storageRef = ref(storage, `users/${clientUid}/documents/sign-requests/${Date.now()}_${safeName}`);
+            const storageRef = ref(storage, `users/${orgId}/documents/clients/${clientDocId}/sign-requests/${Date.now()}_${safeName}`);
             await uploadBytes(storageRef, todoSignFile);
             docUrl = await getDownloadURL(storageRef);
             setTodoSignUploading(false);
@@ -688,7 +601,7 @@ export default function ClientDetail() {
           };
         }
 
-        const docRef = await addDoc(collection(db, "users", clientUid, "todos"), payload);
+        const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"), payload);
         setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
         resetTodoForm();
       } catch (err) {
@@ -703,31 +616,23 @@ export default function ClientDetail() {
     if (!clientUid && !clientDocId) { setTodoError("No client record found."); return; }
     setAddingTodo(true);
     try {
-      const isOrgTodo = !clientUid;
       const payload = {
         label: todoLabel.trim(), type: todoType,
         assignedTo: todoAssigned, completed: false,
         createdAt: serverTimestamp(),
       };
       if (todoType === "add_selection") payload.selectionCategory = todoCategory;
-      const todosCol = isOrgTodo
-        ? collection(db, "organization_data", orgId, "clients", clientDocId, "todos")
-        : collection(db, "users", clientUid, "todos");
-      const docRef = await addDoc(todosCol, payload);
-      setTodos(prev => [...prev, { id: docRef.id, _isOrgTodo: isOrgTodo, ...payload }]);
+      const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"), payload);
+      setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
       resetTodoForm();
     } catch (err) { console.error("addTodo error:", err); setTodoError(err.message || "Could not add todo."); }
     finally { setAddingTodo(false); }
   };
 
   const toggleTodo = async (todo) => {
-    if (!clientUid && !todo._isOrgTodo) return;
     const upd = { completed: !todo.completed };
     setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, ...upd } : t));
-    const ref = todo._isOrgTodo
-      ? doc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id)
-      : doc(db, "users", clientUid, "todos", todo.id);
-    await updateDoc(ref, upd).catch(console.error);
+    await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id), upd).catch(console.error);
   };
 
   const toggleClaimStatus = async () => {
@@ -743,13 +648,8 @@ export default function ClientDetail() {
   };
 
   const deleteTodo = async (id) => {
-    const todo = todos.find(t => t.id === id);
-    if (!todo) return;
     setTodos(prev => prev.filter(t => t.id !== id));
-    const ref = todo._isOrgTodo
-      ? doc(db, "organization_data", orgId, "clients", clientDocId, "todos", id)
-      : doc(db, "users", clientUid, "todos", id);
-    await deleteDoc(ref).catch(console.error);
+    await deleteDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "todos", id)).catch(console.error);
   };
 
   // ── Google Drive helpers ───────────────────────────────────────────────
@@ -779,7 +679,7 @@ export default function ClientDetail() {
   };
 
   const syncFromDrive = async () => {
-    if (!orgId || !phone || !driveConnected || !driveFolderUrl || !clientUid) return;
+    if (!orgId || !phone || !driveConnected || !driveFolderUrl || !clientDocId) return;
     setDriveSyncing(true); setDriveSyncMessage('');
     try {
       const r = await fetch(`${API}/integrations/google-drive/list-client-files`, {
@@ -819,7 +719,7 @@ export default function ClientDetail() {
           uploadedBy: 'drive-sync',
           source: 'google_drive',
         };
-        const docRef = await addDoc(collection(db, 'users', clientUid, 'documents'), payload);
+        const docRef = await addDoc(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'documents'), payload);
         newDocs.push({ id: docRef.id, ...payload });
       }
 
@@ -837,18 +737,7 @@ export default function ClientDetail() {
     if (!file || (!clientUid && !clientDocId)) return;
     if (folder === "client") setUploading(true); else setContractorUploading(true);
     try {
-      // Store under org client path when the client hasn't logged in yet (no uid).
-      // We use users/{orgId}/documents/clients/... so the existing storage rule
-      // (any auth'd user may write to users/*/documents/**) covers this without
-      // requiring a separate rule deployment.
-      const isOrgDoc   = !clientUid;
-      const storagePath = isOrgDoc
-        ? `users/${orgId}/documents/clients/${clientDocId}/${Date.now()}_${file.name}`
-        : `users/${clientUid}/documents/${Date.now()}_${file.name}`;
-      const firestoreCol = isOrgDoc
-        ? collection(db, "organization_data", orgId, "clients", clientDocId, "documents")
-        : collection(db, "users", clientUid, "documents");
-
+      const storagePath = `users/${orgId}/documents/clients/${clientDocId}/${Date.now()}_${file.name}`;
       const storageRef = ref(storage, storagePath);
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
@@ -857,8 +746,8 @@ export default function ClientDetail() {
         size: file.size, folder, uploadedAt: serverTimestamp(),
         uploadedBy: user?.email || "contractor",
       };
-      const docRef = await addDoc(firestoreCol, payload);
-      setDocs(prev => [{ id: docRef.id, _isOrgDoc: isOrgDoc, ...payload }, ...prev]);
+      const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "documents"), payload);
+      setDocs(prev => [{ id: docRef.id, ...payload }, ...prev]);
 
       // Mirror to Drive using the already-saved Firebase Storage URL
       console.log('[Drive] driveConnected:', driveConnected, '| externalId:', driveExternalId, '| internalId:', driveInternalId, '| orgId:', orgId);
@@ -882,10 +771,7 @@ export default function ClientDetail() {
           const driveData = await dr.json();
           console.log('[Drive] Response status:', dr.status, '| body:', driveData);
           if (dr.ok && driveData.driveFileId) {
-            const updateRef = isOrgDoc
-              ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'documents', docRef.id)
-              : doc(db, 'users', clientUid, 'documents', docRef.id);
-            await updateDoc(updateRef, {
+            await updateDoc(doc(db, 'organization_data', orgId, 'clients', clientDocId, 'documents', docRef.id), {
               driveFileId: driveData.driveFileId,
               driveFileUrl: driveData.driveFileUrl,
             });
@@ -911,12 +797,9 @@ export default function ClientDetail() {
   };
 
   const deleteDocument = async (document) => {
-    if (!clientUid && !clientDocId) return;
+    if (!clientDocId) return;
     setDocs(prev => prev.filter(d => d.id !== document.id));
-    const docRef = document._isOrgDoc
-      ? doc(db, "organization_data", orgId, "clients", clientDocId, "documents", document.id)
-      : doc(db, "users", clientUid, "documents", document.id);
-    await deleteDoc(docRef).catch(console.error);
+    await deleteDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "documents", document.id)).catch(console.error);
   };
 
   // ── Selections ────────────────────────────────────────────────────────
@@ -930,34 +813,21 @@ export default function ClientDetail() {
         url: selUrl.trim() || null, notes: selNotes.trim() || null,
         status: "needs_approval", addedAt: serverTimestamp(), addedBy: "contractor",
       };
-      const colRef = clientUid
-        ? collection(db, "users", clientUid, "selections")
-        : collection(db, "organization_data", orgId, "clients", clientDocId, "selections");
-      const docRef = await addDoc(colRef, payload);
-      setSelections(prev => [...prev, { id: docRef.id, _isOrgSel: !clientUid, ...payload }]);
+      const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "selections"), payload);
+      setSelections(prev => [...prev, { id: docRef.id, ...payload }]);
       setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelCategory(SELECTION_CATEGORIES[0]); setShowSelForm(false);
     } catch (err) { console.error("addSelection error:", err); }
     finally { setSavingSel(false); }
   };
 
   const updateSelStatus = async (id, status) => {
-    const sel = selections.find(s => s.id === id);
-    if (!sel) return;
     setSelections(prev => prev.map(s => s.id === id ? { ...s, status } : s));
-    const selRef = sel._isOrgSel
-      ? doc(db, "organization_data", orgId, "clients", clientDocId, "selections", id)
-      : doc(db, "users", clientUid, "selections", id);
-    await updateDoc(selRef, { status }).catch(console.error);
+    await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "selections", id), { status }).catch(console.error);
   };
 
   const deleteSel = async (id) => {
-    const sel = selections.find(s => s.id === id);
-    if (!sel) return;
     setSelections(prev => prev.filter(s => s.id !== id));
-    const selRef = sel._isOrgSel
-      ? doc(db, "organization_data", orgId, "clients", clientDocId, "selections", id)
-      : doc(db, "users", clientUid, "selections", id);
-    await deleteDoc(selRef).catch(console.error);
+    await deleteDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "selections", id)).catch(console.error);
   };
 
   // ── Budget ────────────────────────────────────────────────────────────
@@ -974,11 +844,8 @@ export default function ClientDetail() {
         price, priceType: budgetPriceType, qty, total,
         description: budgetDesc.trim() || null, addedAt: serverTimestamp(),
       };
-      const colRef = clientUid
-        ? collection(db, "users", clientUid, "budget")
-        : collection(db, "organization_data", orgId, "clients", clientDocId, "budget");
-      const docRef = await addDoc(colRef, payload);
-      setBudgetItems(prev => [...prev, { id: docRef.id, _isOrgBudget: !clientUid, ...payload }]);
+      const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "budget"), payload);
+      setBudgetItems(prev => [...prev, { id: docRef.id, ...payload }]);
       setBudgetSearch(""); setSelectedBudgetItem(null); setBudgetPrice(""); setBudgetQty("1");
       setBudgetDesc(""); setShowBudgetForm(false);
     } catch (err) { console.error("addBudgetItem error:", err); }
@@ -986,13 +853,8 @@ export default function ClientDetail() {
   };
 
   const deleteBudgetItem = async (id) => {
-    const item = budgetItems.find(b => b.id === id);
-    if (!item) return;
     setBudgetItems(prev => prev.filter(b => b.id !== id));
-    const itemRef = item._isOrgBudget
-      ? doc(db, "organization_data", orgId, "clients", clientDocId, "budget", id)
-      : doc(db, "users", clientUid, "budget", id);
-    await deleteDoc(itemRef).catch(console.error);
+    await deleteDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "budget", id)).catch(console.error);
   };
 
   const budgetTotal = budgetItems.reduce((s, b) => s + (b.total || 0), 0);
@@ -1003,10 +865,7 @@ export default function ClientDetail() {
     if (!clientUid && !clientDocId) return;
     setSavingAdjuster(true);
     try {
-      const adjRef = clientUid
-        ? doc(db, "users", clientUid)
-        : doc(db, "organization_data", orgId, "clients", clientDocId);
-      await setDoc(adjRef, { adjuster: adjusterEdit, updatedAt: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { adjuster: adjusterEdit, updatedAt: serverTimestamp() }, { merge: true });
       setAdjuster({ ...adjusterEdit });
       setEditingAdjuster(false);
     } catch (err) { console.error("saveAdjuster error:", err); }
@@ -1019,10 +878,7 @@ export default function ClientDetail() {
     const updated = { ...portalSections, [key]: !portalSections[key] };
     setPortalSections(updated);
     setSavingPortal(true);
-    const secRef = clientUid
-      ? doc(db, "users", clientUid)
-      : doc(db, "organization_data", orgId, "clients", clientDocId);
-    await setDoc(secRef, { portalSections: updated }, { merge: true }).catch(console.error);
+    await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { portalSections: updated }, { merge: true }).catch(console.error);
     setSavingPortal(false);
   };
 
@@ -1056,14 +912,12 @@ export default function ClientDetail() {
         claimNumbers: clientFieldsEdit.claimNumber.trim()  ? [clientFieldsEdit.claimNumber.trim()] : [],
         updatedAt:    serverTimestamp(),
       };
-      if (clientUid) await updateDoc(doc(db, "users", clientUid), payload);
-      if (clientDocId) {
-        await setDoc(
-          doc(db, "organization_data", orgId, "clients", clientDocId),
-          { claimNumbers: payload.claimNumbers, address: payload.address, policyNumber: payload.policyNumber, email: payload.email },
-          { merge: true }
-        );
-      }
+      await setDoc(
+        doc(db, "organization_data", orgId, "clients", clientDocId),
+        { claimNumbers: payload.claimNumbers, address: payload.address, policyNumber: payload.policyNumber, email: payload.email, updatedAt: payload.updatedAt },
+        { merge: true }
+      );
+      if (clientUid) updateDoc(doc(db, "users", clientUid), payload).catch(() => {});
       const saved = {
         claimNumber:  clientFieldsEdit.claimNumber.trim(),
         policyNumber: clientFieldsEdit.policyNumber.trim(),
@@ -1140,10 +994,7 @@ export default function ClientDetail() {
     setCcPhotos([]);
     setClassifyResults(null);
     const payload = { companyCamProjectId: project.id, companyCamProjectName: project.name };
-    const ccDocRef = clientUid
-      ? doc(db, "users", clientUid)
-      : doc(db, "organization_data", orgId, "clients", clientDocId);
-    await setDoc(ccDocRef, payload, { merge: true }).catch(console.error);
+    await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), payload, { merge: true }).catch(console.error);
     fetchCcPhotos(project.id);
   };
 
@@ -1151,10 +1002,7 @@ export default function ClientDetail() {
     if (!clientUid && !clientDocId) return;
     setCcProjectId(""); setCcProjectName(""); setCcPhotos([]); setSelectedPhotoIds(null);
     setClassifyResults(null); setClassifyError("");
-    const ccDocRef = clientUid
-      ? doc(db, "users", clientUid)
-      : doc(db, "organization_data", orgId, "clients", clientDocId);
-    await setDoc(ccDocRef,
+    await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId),
       { companyCamProjectId: null, companyCamProjectName: null, selectedPhotoIds: null },
       { merge: true }
     ).catch(console.error);
@@ -1187,29 +1035,20 @@ export default function ClientDetail() {
     const next = new Set(base);
     if (next.has(photoId)) next.delete(photoId); else next.add(photoId);
     setSelectedPhotoIds(next);
-    const photoDocRef = clientUid
-      ? doc(db, "users", clientUid)
-      : doc(db, "organization_data", orgId, "clients", clientDocId);
-    await setDoc(photoDocRef, { selectedPhotoIds: [...next] }, { merge: true });
+    await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { selectedPhotoIds: [...next] }, { merge: true });
   };
 
   const shareAllPhotos = async () => {
-    if ((!clientUid && !clientDocId) || ccPhotos.length === 0) return;
+    if (!clientDocId || ccPhotos.length === 0) return;
     const all = new Set(ccPhotos.map(p => p.id));
     setSelectedPhotoIds(all);
-    const photoDocRef = clientUid
-      ? doc(db, "users", clientUid)
-      : doc(db, "organization_data", orgId, "clients", clientDocId);
-    await setDoc(photoDocRef, { selectedPhotoIds: [...all] }, { merge: true });
+    await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { selectedPhotoIds: [...all] }, { merge: true });
   };
 
   const clearAllPhotos = async () => {
-    if (!clientUid && !clientDocId) return;
+    if (!clientDocId) return;
     setSelectedPhotoIds(new Set());
-    const photoDocRef = clientUid
-      ? doc(db, "users", clientUid)
-      : doc(db, "organization_data", orgId, "clients", clientDocId);
-    await setDoc(photoDocRef, { selectedPhotoIds: [] }, { merge: true });
+    await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { selectedPhotoIds: [] }, { merge: true });
   };
 
   const handleClassify = async () => {
@@ -2536,7 +2375,7 @@ export default function ClientDetail() {
           user={user}
           onCounterSigned={async (todo, contractorSignedDocUrl, clientDocUrl) => {
             const { updateDoc, doc: firestoreDoc, serverTimestamp: st, addDoc, collection: col } = await import("firebase/firestore");
-            const todoRef = firestoreDoc(db, "users", clientUid, "todos", todo.id);
+            const todoRef = firestoreDoc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id);
             await updateDoc(todoRef, {
               contractorSigned: true,
               contractorSignedAt: st(),
@@ -2551,7 +2390,7 @@ export default function ClientDetail() {
                 uploadedAt:  st(),
                 type:        "signed_contract",
               };
-              const docRef = await addDoc(col(db, "users", clientUid, "documents"), newDocData);
+              const docRef = await addDoc(col(db, "organization_data", orgId, "clients", clientDocId, "documents"), newDocData);
               setDocs(prev => [{ id: docRef.id, ...newDocData }, ...prev]);
             } catch {}
             setTodos(prev => prev.map(t => t.id === todo.id

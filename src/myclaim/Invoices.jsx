@@ -103,6 +103,9 @@ export default function Invoices() {
         ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', inv.id)
         : doc(db, 'users', clientUid, 'invoices', inv.id)
       await deleteDoc(invDocRef)
+      if (orgId) {
+        await deleteDoc(doc(db, 'organization_data', orgId, 'invoice_summary', inv.id)).catch(() => {})
+      }
       setInvoices(prev => prev.filter(i => i.id !== inv.id))
     } finally {
       setDeleting(null)

@@ -324,8 +324,9 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
     setSaving(true)
     try {
       const totals = computeTotals(editForm)
+      const { id: _id, _isOrgSettlement: _flag, ...cleanForm } = editForm
       const updates = {
-        ...editForm,
+        ...cleanForm,
         totalEstimate: totals.Estimate,
         totalSettled:  totals.Settled,
         recoveryRate:  totals.recoveryRate,
@@ -336,13 +337,16 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
         ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id)
         : doc(db, 'users', clientUid, 'settlements', s.id)
       await updateDoc(settDocRef, updates)
+      // Update summary without blocking the editor close
       if (orgId) {
-        await setDoc(
+        setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', s.id),
           buildSummaryDoc(s.id, updates, totals, clientUid, clientName)
-        )
+        ).catch(e => console.warn('settlement_summary update:', e))
       }
       onSaved(updates)
+    } catch (e) {
+      console.error('Settlement save failed:', e)
     } finally {
       setSaving(false)
     }

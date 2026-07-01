@@ -172,6 +172,18 @@ export default function ClientPortal() {
     catch {}
   };
 
+  // Write item to user path — if it came from the org (pre-login) path, write full data so
+  // the item is complete after a page reload (minimal-delta writes lose non-updated fields).
+  const syncToUserPath = async (collName, item, updates) => {
+    const ref = doc(db, "users", user.uid, collName, item.id);
+    if (item._isOrgSel || item._isOrgTodo) {
+      const { _isOrgSel:_a, _isOrgTodo:_b, id:_id, ...data } = item;
+      await setDoc(ref, { ...data, ...updates });
+    } else {
+      await setDoc(ref, updates, { merge: true });
+    }
+  };
+
   // ── Load claim data ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
@@ -363,7 +375,7 @@ export default function ClientPortal() {
     const nowDone = !todo.completed;
     const update = { completed:nowDone, ...(nowDone ? { completedAt:serverTimestamp() } : { completedAt:null }) };
     try {
-      await setDoc(doc(db,"users",user.uid,"todos",todo.id), update, { merge:true });
+      await syncToUserPath("todos", todo, update);
       setTodos(p => p.map(t => t.id===todo.id ? { ...t, ...update } : t));
       await logActivity(nowDone?"todo_completed":"todo_uncompleted", `${nowDone?"Completed":"Reopened"} task: "${todo.label||todo.text||""}"`);
     } catch (err) { console.error(err); }
@@ -376,11 +388,15 @@ export default function ClientPortal() {
       const payload = { category:selCategory, product:selProduct.trim(), url:selUrl.trim()||null, notes:selNotes.trim()||null, addedAt:serverTimestamp(), addedBy:"client", status:"approved" };
       if (fromTodoId) payload.fromTodoId = fromTodoId;
       await addDoc(collection(db,"users",user.uid,"selections"), payload);
-      if (swapId) await setDoc(doc(db,"users",user.uid,"selections",swapId), { status:"rejected" }, { merge:true });
+      if (swapId) {
+        const swapSel = selections.find(s => s.id === swapId);
+        if (swapSel) await syncToUserPath("selections", swapSel, { status:"rejected" });
+      }
       // Auto-complete the linked todo when client fulfills a selection request
       if (fromTodoId) {
         const todoUpd = { completed: true, completedAt: serverTimestamp() };
-        await setDoc(doc(db,"users",user.uid,"todos",fromTodoId), todoUpd, { merge:true });
+        const fromTodo = todos.find(t => t.id === fromTodoId);
+        if (fromTodo) await syncToUserPath("todos", fromTodo, todoUpd);
         setTodos(p => p.map(t => t.id===fromTodoId ? { ...t, ...todoUpd } : t));
       }
       const snap = await getDocs(query(collection(db,"users",user.uid,"selections"), orderBy("addedAt","asc")));
@@ -398,21 +414,21 @@ export default function ClientPortal() {
       const trimmedUrl = (urlOverride||"").trim();
       if (trimmedUrl) updates.url = trimmedUrl;
       if (notesOverride !== null) updates.notes = (notesOverride||"").trim()||null;
-      await setDoc(doc(db,"users",user.uid,"selections",sel.id), updates, { merge:true });
+      await syncToUserPath("selections", sel, updates);
       setSelections(p => p.map(s => s.id===sel.id ? { ...s, ...updates } : s));
       await logActivity("selection_approved", `Approved selection: "${sel.product}" (${sel.category})`);
       const linked = todos.find(t => t.linkedSelectionId===sel.id && !t.completed);
-      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await setDoc(doc(db,"users",user.uid,"todos",linked.id), u, { merge:true }); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
+      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await syncToUserPath("todos", linked, u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
     } catch (err) { console.error(err); }
   };
 
   const rejectSelection = async (sel) => {
     try {
-      await setDoc(doc(db,"users",user.uid,"selections",sel.id), { status:"rejected" }, { merge:true });
+      await syncToUserPath("selections", sel, { status:"rejected" });
       setSelections(p => p.map(s => s.id===sel.id ? { ...s, status:"rejected" } : s));
       await logActivity("selection_rejected", `Rejected selection: "${sel.product}" (${sel.category})`);
       const linked = todos.find(t => t.linkedSelectionId===sel.id && !t.completed);
-      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await setDoc(doc(db,"users",user.uid,"todos",linked.id), u, { merge:true }); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
+      if (linked) { const u = { completed:true, completedAt:serverTimestamp() }; await syncToUserPath("todos", linked, u); setTodos(p => p.map(t => t.id===linked.id ? { ...t, completed:true } : t)); }
     } catch (err) { console.error(err); }
   };
 
@@ -442,7 +458,7 @@ export default function ClientPortal() {
         category: editSelCategory,
         updatedAt: serverTimestamp(),
       };
-      await setDoc(doc(db, "users", user.uid, "selections", editingSel.id), updates, { merge:true });
+      await syncToUserPath("selections", editingSel, updates);
       setSelections(p => p.map(s => s.id === editingSel.id ? { ...s, ...updates } : s));
       await logActivity("selection_updated", `Updated selection: "${editSelProduct.trim()}" (${editSelCategory})`);
       setEditingSel(null);
@@ -462,7 +478,7 @@ export default function ClientPortal() {
     try {
       const updates = { completed: true, completedAt: serverTimestamp() };
       if (signedDocumentUrl) updates.signedDocumentUrl = signedDocumentUrl;
-      await setDoc(doc(db, "users", user.uid, "todos", todo.id), updates, { merge:true });
+      await syncToUserPath("todos", todo, updates);
       setTodos(p => p.map(t =>
         t.id === todo.id ? { ...t, completed: true, ...(signedDocumentUrl ? { signedDocumentUrl } : {}) } : t
       ));

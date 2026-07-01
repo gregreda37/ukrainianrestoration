@@ -373,6 +373,165 @@ def _verify_firebase_token():
         return None
 
 
+def _delete_subcollection(col_ref, batch_size=400):
+    """Delete every document in col_ref, recursively clearing sub-collections first."""
+    docs = list(col_ref.limit(batch_size).stream())
+    for d in docs:
+        for sub in d.reference.collections():
+            _delete_subcollection(sub, batch_size)
+        d.reference.delete()
+    if len(docs) == batch_size:           # there may be more pages
+        _delete_subcollection(col_ref, batch_size)
+
+
+@app.route("/clients/permanent-delete", methods=["POST"])
+def permanent_delete_client():
+    """
+    Permanently erase all data for a single client.
+    Admin-only. Deletes:
+      - organization_data/{orgId}/clients/{clientDocId} + subcollections
+      - users/{clientUid} + ALL subcollections (if the client ever logged in)
+      - client_phones/{phone} + claims subcollection
+      - opt_in_records/{phone}
+      - AI caches (ai_context_cache, ai_photo_blocks, ai_photo_classifications)
+      - Firebase Storage files under the client's paths
+    """
+    token = _verify_firebase_token()
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data          = request.json or {}
+    org_id        = data.get("orgId", "").strip()
+    client_doc_id = data.get("clientDocId", "").strip()
+    if not org_id or not client_doc_id:
+        return jsonify({"error": "orgId and clientDocId are required"}), 400
+
+    caller_uid = token.get("uid", "")
+    db = admin_firestore.client()
+
+    # ── Verify the caller is an org admin ────────────────────────────────
+    is_owner = (caller_uid == org_id)
+    if not is_owner:
+        ctr_snap = db.collection("organization_data").document(org_id) \
+                     .collection("contractors").document(caller_uid).get()
+        if not ctr_snap.exists or ctr_snap.to_dict().get("role") != "admin":
+            return jsonify({"error": "Admin permission required"}), 403
+
+    # ── Fetch the org client record ───────────────────────────────────────
+    client_ref  = db.collection("organization_data").document(org_id) \
+                    .collection("clients").document(client_doc_id)
+    client_snap = client_ref.get()
+    if not client_snap.exists:
+        return jsonify({"error": "Client not found"}), 404
+
+    client_data = client_snap.to_dict()
+    phone       = client_data.get("phone", "")
+    client_uid  = client_data.get("uid", "")
+
+    # If uid was not cached on the client doc, look it up by phone
+    if not client_uid and phone:
+        for u in db.collection("users") \
+                   .where("phoneNumber", "==", phone).limit(1).stream():
+            client_uid = u.id
+            break
+
+    deleted = []
+    errors  = []
+
+    # ── 1. Org client subcollections + root doc ───────────────────────────
+    try:
+        for sub in ("documents", "todos"):
+            _delete_subcollection(client_ref.collection(sub))
+        client_ref.delete()
+        deleted.append(f"organization_data/{org_id}/clients/{client_doc_id}")
+    except Exception as exc:
+        errors.append(f"org_client: {exc}")
+
+    # ── 2. Firebase Auth user doc + all subcollections ────────────────────
+    if client_uid:
+        try:
+            user_ref = db.collection("users").document(client_uid)
+            for sub in ("todos", "documents", "selections", "budget", "activity",
+                        "settlements", "invoices", "jobs", "document_cache",
+                        "chat_history"):
+                _delete_subcollection(user_ref.collection(sub))
+            user_ref.delete()
+            deleted.append(f"users/{client_uid}")
+        except Exception as exc:
+            errors.append(f"user_doc: {exc}")
+
+    # ── 3. client_phones entry ────────────────────────────────────────────
+    if phone:
+        try:
+            phone_ref = db.collection("client_phones").document(phone)
+            if phone_ref.get().exists:
+                _delete_subcollection(phone_ref.collection("claims"))
+                phone_ref.delete()
+                deleted.append(f"client_phones/{phone}")
+        except Exception as exc:
+            errors.append(f"client_phones: {exc}")
+
+    # ── 4. SMS opt-in consent record ──────────────────────────────────────
+    if phone:
+        try:
+            opt_ref = db.collection("opt_in_records").document(phone)
+            if opt_ref.get().exists:
+                opt_ref.delete()
+                deleted.append(f"opt_in_records/{phone}")
+        except Exception as exc:
+            errors.append(f"opt_in_records: {exc}")
+
+    # ── 5. AI caches (all keyed by clientUid) ────────────────────────────
+    if client_uid:
+        for col_name in ("ai_context_cache", "ai_photo_blocks",
+                         "ai_photo_classifications"):
+            try:
+                snaps = db.collection(col_name) \
+                          .where("clientUid", "==", client_uid).stream()
+                count = 0
+                for snap in snaps:
+                    snap.reference.delete()
+                    count += 1
+                if count:
+                    deleted.append(f"{col_name} ({count} docs)")
+            except Exception as exc:
+                errors.append(f"{col_name}: {exc}")
+
+    # ── 6. Firebase Storage files ─────────────────────────────────────────
+    try:
+        from firebase_admin import storage as admin_storage
+        bucket = admin_storage.bucket()
+
+        def _rm_prefix(prefix):
+            try:
+                for blob in bucket.list_blobs(prefix=prefix):
+                    try:
+                        blob.delete()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if client_uid:
+            _rm_prefix(f"users/{client_uid}/documents/")
+            _rm_prefix(f"users/{client_uid}/sign-requests/")
+        # Pre-login uploads (current path)
+        _rm_prefix(f"users/{org_id}/documents/clients/{client_doc_id}/")
+        # Pre-login uploads (legacy path)
+        _rm_prefix(f"org_clients/{org_id}/{client_doc_id}/")
+        deleted.append("storage files")
+    except Exception as exc:
+        errors.append(f"storage: {exc}")
+
+    return jsonify({
+        "ok":       True,
+        "deleted":  deleted,
+        "errors":   errors,
+        "clientUid": client_uid,
+        "phone":    phone,
+    })
+
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "cors_origins": _cors_origins})

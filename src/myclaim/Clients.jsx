@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import { loadGoogleMaps } from "./loadMaps";
+
+const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 import {
   collection, getDocs, addDoc, setDoc, getDoc, deleteDoc, updateDoc,
   doc, serverTimestamp, query, where,
@@ -54,11 +56,14 @@ export default function Clients() {
   const [saving,           setSaving]           = useState(false);
   const [saved,            setSaved]            = useState(false);
   const [saveError,        setSaveError]        = useState("");
-  const [confirmDelete,    setConfirmDelete]    = useState(null);
-  const [deletingClient,   setDeletingClient]   = useState(false);
-  const [archivedClients,  setArchivedClients]  = useState([]);
-  const [showArchive,      setShowArchive]      = useState(false);
-  const [restoringId,      setRestoringId]      = useState(null);
+  const [confirmDelete,          setConfirmDelete]          = useState(null);
+  const [deletingClient,         setDeletingClient]         = useState(false);
+  const [archivedClients,        setArchivedClients]        = useState([]);
+  const [showArchive,            setShowArchive]            = useState(false);
+  const [restoringId,            setRestoringId]            = useState(null);
+  const [confirmPermDelete,      setConfirmPermDelete]      = useState(null);
+  const [permDeleting,           setPermDeleting]           = useState(false);
+  const [permDeleteError,        setPermDeleteError]        = useState("");
 
   const addressInputRef = useRef(null);
   const autocompleteRef = useRef(null);
@@ -234,6 +239,29 @@ export default function Clients() {
     } finally { setRestoringId(null); }
   };
 
+  const permanentDeleteClient = async () => {
+    if (!confirmPermDelete || !organizationName) return;
+    setPermDeleting(true);
+    setPermDeleteError("");
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${API}/clients/permanent-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ orgId: organizationName, clientDocId: confirmPermDelete.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Delete failed");
+      setArchivedClients(prev => prev.filter(c => c.id !== confirmPermDelete.id));
+      setConfirmPermDelete(null);
+    } catch (err) {
+      console.error("Permanent delete error:", err);
+      setPermDeleteError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setPermDeleting(false);
+    }
+  };
+
   const toggleClaimStatus = async (client, e) => {
     e.stopPropagation();
     const next = (client.claimStatus || "open") === "open" ? "closed" : "open";
@@ -385,6 +413,54 @@ export default function Clients() {
         </div>
       )}
 
+      {/* Permanent Delete Confirmation Modal — admin only */}
+      {confirmPermDelete && (
+        <div className="cl-modal-overlay" onClick={() => !permDeleting && setConfirmPermDelete(null)}>
+          <div className="cl-modal" onClick={e => e.stopPropagation()}>
+            <div className="cl-modal-header" style={{ background: "#fef2f2", borderBottom: "1px solid #fecaca" }}>
+              <h3 style={{ color: "#dc2626" }}>Permanently Delete Client</h3>
+              <button className="cl-modal-close" onClick={() => setConfirmPermDelete(null)} disabled={permDeleting}>✕</button>
+            </div>
+            <div className="cl-modal-form">
+              <p style={{ margin: "0 0 12px", fontSize: 14, color: "#111827", fontWeight: 600 }}>
+                This will permanently erase all data for{" "}
+                <strong>{confirmPermDelete.name || confirmPermDelete.phone}</strong>.
+              </p>
+              <p style={{ margin: "0 0 12px", fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
+                The following will be deleted and <strong>cannot be recovered</strong>:
+              </p>
+              <ul style={{ margin: "0 0 16px", paddingLeft: 18, fontSize: 13, color: "#6b7280", lineHeight: 1.8 }}>
+                <li>Client profile &amp; login account</li>
+                <li>All documents, todos, selections &amp; budget items</li>
+                <li>Claim progress &amp; activity history</li>
+                <li>Phone number lookup record (client_phones)</li>
+                <li>SMS opt-in record</li>
+                <li>All uploaded files in Firebase Storage</li>
+                <li>AI analysis caches</li>
+              </ul>
+              {permDeleteError && (
+                <p style={{ margin: "0 0 12px", fontSize: 13, color: "#dc2626", background: "#fef2f2", padding: "8px 12px", borderRadius: 6 }}>
+                  {permDeleteError}
+                </p>
+              )}
+              <div className="cl-modal-actions">
+                <button className="cl-btn-secondary" onClick={() => setConfirmPermDelete(null)} disabled={permDeleting}>
+                  Cancel
+                </button>
+                <button
+                  className="cl-btn-danger"
+                  onClick={permanentDeleteClient}
+                  disabled={permDeleting}
+                  style={{ background: "#dc2626" }}
+                >
+                  {permDeleting ? "Deleting…" : "Delete Permanently"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Archived Clients — admin only */}
       {userRole === "admin" && archivedClients.length > 0 && (
         <div style={{ marginTop: 32 }}>
@@ -421,6 +497,14 @@ export default function Clients() {
                       style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }}
                     >
                       {restoringId === client.id ? "Restoring…" : "↩ Restore"}
+                    </button>
+                    <button
+                      className="cl-delete-btn"
+                      onClick={() => { setConfirmPermDelete(client); setPermDeleteError(""); }}
+                      title="Permanently delete all client data"
+                      style={{ color: "#dc2626" }}
+                    >
+                      <TrashIcon />
                     </button>
                   </div>
                 </div>

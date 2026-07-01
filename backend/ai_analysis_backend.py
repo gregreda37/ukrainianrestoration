@@ -273,7 +273,8 @@ def _select_best_photos(photo_infos: list[dict], max_count: int = MAX_PHOTOS_LLM
 
 
 def _process_and_cache_photos(db, cache_key: str, photo_infos: list[dict],
-                               caller_uid: str, expires_at: str) -> int:
+                               caller_uid: str, expires_at: str,
+                               client_uid: str = "") -> int:
     """
     Pre-process CompanyCam photos during /context so /chat never does inline
     image fetching. Stores image blocks in ai_photo_blocks/{cache_key} to keep
@@ -289,6 +290,7 @@ def _process_and_cache_photos(db, cache_key: str, photo_infos: list[dict],
             "photoMeta":      photo_meta,
             "processedCount": len(image_blocks),
             "callerUid":      caller_uid,
+            "clientUid":      client_uid,
             "expiresAt":      expires_at,
             "processedAt":    admin_firestore.SERVER_TIMESTAMP,
         })
@@ -640,7 +642,7 @@ def classify_photos():
         # Process photos (resize, blur-filter, dedup) → stored in ai_photo_blocks
         expires_at = cache_doc.to_dict().get("expiresAt",
             (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
-        n = _process_and_cache_photos(db, cache_key, photo_infos, caller_uid, expires_at)
+        n = _process_and_cache_photos(db, cache_key, photo_infos, caller_uid, expires_at, client_uid)
         if n == 0:
             return jsonify({"error": "Photo processing failed — no usable images"}), 500
 

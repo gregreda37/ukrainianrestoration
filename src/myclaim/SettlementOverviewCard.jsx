@@ -102,6 +102,7 @@ export default function SettlementOverviewCard({ clientUid, clientName, orgId, p
 
   useEffect(() => {
     if (clientUid) load()
+    else setLoading(false)
   }, [clientUid])
 
   async function load() {

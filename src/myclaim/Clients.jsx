@@ -2,14 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import { loadGoogleMaps } from "./loadMaps";
-
-const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 import {
   collection, getDocs, addDoc, setDoc, getDoc, deleteDoc, updateDoc,
   doc, serverTimestamp, query, where,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import "./Clients.css";
+
+const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
 const formatDate = (ts) => {
   if (!ts) return null;

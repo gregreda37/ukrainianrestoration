@@ -33,13 +33,14 @@ export default function Invoices() {
   const navigate = useNavigate()
   const { user } = useAuth()
 
-  const [invoices, setInvoices]     = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [clientUid, setClientUid]   = useState(null)
-  const [clientName, setClientName] = useState('')
-  const [orgId, setOrgId]           = useState('')
-  const [deleting, setDeleting]     = useState(null)
-  const [confirmDel, setConfirmDel] = useState(null)
+  const [invoices, setInvoices]       = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [clientUid, setClientUid]     = useState(null)
+  const [clientDocId, setClientDocId] = useState('')
+  const [clientName, setClientName]   = useState('')
+  const [orgId, setOrgId]             = useState('')
+  const [deleting, setDeleting]       = useState(null)
+  const [confirmDel, setConfirmDel]   = useState(null)
 
   useEffect(() => {
     if (!user) return
@@ -61,15 +62,32 @@ export default function Invoices() {
       })
       if (!clientDoc) return
 
-      const uid = clientDoc.data().uid
+      const cdata = clientDoc.data()
+      const docId = clientDoc.id
+      const uid   = cdata.uid
       setClientUid(uid)
-      setClientName(clientDoc.data().name || '')
+      setClientDocId(docId)
+      setClientName(cdata.name || '')
 
-      if (!uid) { setLoading(false); return }
+      const orgInvQuery = query(
+        collection(db, 'organization_data', oid, 'clients', docId, 'invoices'),
+        orderBy('createdAt', 'desc')
+      )
 
-      const q = query(collection(db, 'users', uid, 'invoices'), orderBy('createdAt', 'desc'))
-      const snap = await getDocs(q)
-      setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      if (!uid) {
+        const snap = await getDocs(orgInvQuery).catch(() => null)
+        setInvoices(snap?.docs.map(d => ({ id: d.id, _isOrgInvoice: true, ...d.data() })) || [])
+        return
+      }
+
+      const [userInvSnap, orgInvSnap] = await Promise.all([
+        getDocs(query(collection(db, 'users', uid, 'invoices'), orderBy('createdAt', 'desc'))),
+        getDocs(orgInvQuery).catch(() => null),
+      ])
+      const userInvs = userInvSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const orgInvs  = orgInvSnap?.docs.map(d => ({ id: d.id, _isOrgInvoice: true, ...d.data() })) || []
+      const seenIds  = new Set(userInvs.map(i => i.id))
+      setInvoices([...userInvs, ...orgInvs.filter(i => !seenIds.has(i.id))])
     } catch (e) {
       console.error(e)
     } finally {
@@ -78,10 +96,13 @@ export default function Invoices() {
   }
 
   async function doDelete(inv) {
-    if (!clientUid) return
+    if (!clientUid && !clientDocId) return
     setDeleting(inv.id)
     try {
-      await deleteDoc(doc(db, 'users', clientUid, 'invoices', inv.id))
+      const invDocRef = (inv._isOrgInvoice || !clientUid)
+        ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', inv.id)
+        : doc(db, 'users', clientUid, 'invoices', inv.id)
+      await deleteDoc(invDocRef)
       setInvoices(prev => prev.filter(i => i.id !== inv.id))
     } finally {
       setDeleting(null)

@@ -373,6 +373,7 @@ export default function InvoiceEditor() {
 
   // ── Client / company snapshot ──
   const [clientUid,     setClientUid]     = useState(null)
+  const [clientDocId,   setClientDocId]   = useState('')
   const [clientName,    setClientName]    = useState('')
   const [clientAddress, setClientAddress] = useState('')
   const [clientPhone,   setClientPhone]   = useState('')
@@ -438,8 +439,10 @@ export default function InvoiceEditor() {
       if (!clientDoc) return
 
       const cdata = clientDoc.data()
-      const uid = cdata.uid
+      const docId = clientDoc.id
+      const uid   = cdata.uid
       setClientUid(uid)
+      setClientDocId(docId)
 
       // Enrich from users doc
       if (uid) {
@@ -456,6 +459,7 @@ export default function InvoiceEditor() {
         setClientName(cdata.name || '')
         setClientAddress(cdata.address || '')
         setClientPhone(cdata.phone || '')
+        setClaimNumbers(cdata.claimNumbers || [])
       }
 
       // Pre-fill from navigation state (e.g. Generate Receipt from settlement)
@@ -476,8 +480,11 @@ export default function InvoiceEditor() {
       }
 
       // Load existing invoice if editing
-      if (!isNew && uid) {
-        const invSnap = await getDoc(doc(db, 'users', uid, 'invoices', invoiceId))
+      if (!isNew) {
+        const invRef = uid
+          ? doc(db, 'users', uid, 'invoices', invoiceId)
+          : doc(db, 'organization_data', oid, 'clients', docId, 'invoices', invoiceId)
+        const invSnap = await getDoc(invRef)
         if (invSnap.exists()) {
           const inv = invSnap.data()
           setType(inv.type || 'invoice')
@@ -549,11 +556,12 @@ export default function InvoiceEditor() {
   }
 
   // Mirror key fields to org-level collection for reporting
-  async function writeSummary(docId, invStatus, paidAmountOverride) {
-    if (!orgId || !docId || !clientUid) return
+  async function writeSummary(invDocId, invStatus, paidAmountOverride) {
+    if (!orgId || !invDocId) return
     const data = {
-      invoiceId:     docId,
-      clientUid,
+      invoiceId:     invDocId,
+      clientUid:     clientUid || null,
+      clientDocId:   clientDocId || null,
       clientName,
       clientPhone,
       type,
@@ -567,7 +575,7 @@ export default function InvoiceEditor() {
     }
     if (paidAmountOverride !== null) data.paidAmount = paidAmountOverride
     await setDoc(
-      doc(db, 'organization_data', orgId, 'invoice_summary', docId),
+      doc(db, 'organization_data', orgId, 'invoice_summary', invDocId),
       data,
       { merge: true }
     )
@@ -586,7 +594,7 @@ export default function InvoiceEditor() {
   }
 
   async function doSave(statusOverride) {
-    if (!clientUid || !orgId) return
+    if (!orgId || (!clientUid && !clientDocId)) return
     setSaving(true); setSaveMsg('')
     try {
       let num = invNumber
@@ -596,14 +604,21 @@ export default function InvoiceEditor() {
       }
       const inv = buildInvoice({ invoiceNumber: num, status: statusOverride || status })
 
+      const invColRef = clientUid
+        ? collection(db, 'users', clientUid, 'invoices')
+        : collection(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices')
+
       if (isNew) {
         inv.createdAt = serverTimestamp()
         inv.createdBy = user.uid
-        const newRef = await addDoc(collection(db, 'users', clientUid, 'invoices'), inv)
+        const newRef = await addDoc(invColRef, inv)
         await writeSummary(newRef.id, inv.status, 0)
         navigate(`/myclaim/clients/${encodeURIComponent(phone)}/invoices/${newRef.id}`, { replace: true })
       } else {
-        await updateDoc(doc(db, 'users', clientUid, 'invoices', invoiceId), inv)
+        const invDocRef = clientUid
+          ? doc(db, 'users', clientUid, 'invoices', invoiceId)
+          : doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', invoiceId)
+        await updateDoc(invDocRef, inv)
         await writeSummary(invoiceId, inv.status, null)
         if (statusOverride) setStatus(statusOverride)
       }
@@ -618,7 +633,7 @@ export default function InvoiceEditor() {
   // ── Convert estimate → invoice ────────────────────────────────────────────
 
   async function convertToInvoice() {
-    if (!clientUid || !orgId || type !== 'estimate') return
+    if ((!clientUid && !clientDocId) || !orgId || type !== 'estimate') return
     setSaving(true)
     try {
       const invNum = await getNextNumber(orgId, 'invoice')
@@ -632,11 +647,17 @@ export default function InvoiceEditor() {
         createdBy: user.uid,
         convertedFromEstimateId: isNew ? null : invoiceId,
       })
-      const newRef = await addDoc(collection(db, 'users', clientUid, 'invoices'), newInv)
+      const invColRef = clientUid
+        ? collection(db, 'users', clientUid, 'invoices')
+        : collection(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices')
+      const newRef = await addDoc(invColRef, newInv)
 
       // Mark estimate as converted
       if (!isNew) {
-        await updateDoc(doc(db, 'users', clientUid, 'invoices', invoiceId), {
+        const estDocRef = clientUid
+          ? doc(db, 'users', clientUid, 'invoices', invoiceId)
+          : doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', invoiceId)
+        await updateDoc(estDocRef, {
           status: 'converted',
           convertedInvoiceId: newRef.id,
           updatedAt: serverTimestamp(),
@@ -667,7 +688,7 @@ export default function InvoiceEditor() {
   // ── Add PDF to client's document library ─────────────────────────────────
 
   async function addToClientDocs() {
-    if (!clientUid) return
+    if (!clientUid && !clientDocId) return
     setAddingDoc(true)
     try {
       const inv = buildInvoice()
@@ -675,15 +696,20 @@ export default function InvoiceEditor() {
       const blob = pdf.output('blob')
       const label = inv.invoiceNumber || (type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice')
       const filename = `${label}-${Date.now()}.pdf`
-      const path = `users/${clientUid}/documents/${filename}`
+      const storagePath = clientUid
+        ? `users/${clientUid}/documents/${filename}`
+        : `organization_data/${orgId}/clients/${clientDocId}/documents/${filename}`
 
-      const sRef = storageRef(storage, path)
+      const sRef = storageRef(storage, storagePath)
       await uploadBytes(sRef, blob, { contentType: 'application/pdf' })
       const downloadURL = await getDownloadURL(sRef)
 
-      await addDoc(collection(db, 'users', clientUid, 'documents'), {
+      const docsColRef = clientUid
+        ? collection(db, 'users', clientUid, 'documents')
+        : collection(db, 'organization_data', orgId, 'clients', clientDocId, 'documents')
+      await addDoc(docsColRef, {
         name:        `${label}.pdf`,
-        storagePath: path,
+        storagePath,
         downloadURL,
         size:        blob.size,
         folder:      'client',
@@ -711,7 +737,7 @@ export default function InvoiceEditor() {
   const [markingPaid, setMarkingPaid]     = useState(false)
 
   async function doMarkPaid() {
-    if (!clientUid) return
+    if (!clientUid && !clientDocId) return
     setMarkingPaid(true)
     try {
       const updates = {
@@ -725,7 +751,10 @@ export default function InvoiceEditor() {
       if (isNew) {
         await doSave('paid')
       } else {
-        await updateDoc(doc(db, 'users', clientUid, 'invoices', invoiceId), updates)
+        const invDocRef = clientUid
+          ? doc(db, 'users', clientUid, 'invoices', invoiceId)
+          : doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', invoiceId)
+        await updateDoc(invDocRef, updates)
         await writeSummary(invoiceId, 'paid', updates.paidAmount)
         setStatus('paid')
       }
@@ -774,7 +803,7 @@ export default function InvoiceEditor() {
             ↓ Download PDF
           </button>
           <button className="ied-btn ied-btn--teal" onClick={addToClientDocs}
-            disabled={addingDoc || !clientUid} title="Upload PDF to client's document portal">
+            disabled={addingDoc || (!clientUid && !clientDocId)} title="Upload PDF to client's document portal">
             {addingDoc ? 'Uploading…' : docAdded ? '✓ Added to Docs' : '📎 Add to Client Docs'}
           </button>
           <button className="ied-btn ied-btn--primary" onClick={() => doSave()} disabled={saving}>
@@ -992,7 +1021,7 @@ export default function InvoiceEditor() {
               ↓ Download PDF
             </button>
             <button className="ied-btn ied-btn--teal ied-btn--block" onClick={addToClientDocs}
-              disabled={addingDoc || !clientUid}>
+              disabled={addingDoc || (!clientUid && !clientDocId)}>
               {addingDoc ? 'Uploading…' : docAdded ? '✓ Added to Docs' : '📎 Add to Client Docs'}
             </button>
             {isEstimate && status !== 'converted' && (

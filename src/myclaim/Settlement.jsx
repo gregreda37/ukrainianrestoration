@@ -110,6 +110,7 @@ export default function Settlement() {
 
   const [loading,      setLoading]      = useState(true)
   const [clientUid,    setClientUid]    = useState(null)
+  const [clientDocId,  setClientDocId]  = useState(null)
   const [clientName,   setClientName]   = useState('')
   const [orgId,        setOrgId]        = useState(null)
   const [claimNumbers, setClaimNumbers] = useState([])
@@ -137,22 +138,37 @@ export default function Settlement() {
       })
       if (!clientDoc) return
 
-      const uid = clientDoc.data().uid
+      const cdata = clientDoc.data()
+      const docId = clientDoc.id
+      const uid   = cdata.uid
       setClientUid(uid)
+      setClientDocId(docId)
+
+      const orgSettSnap = await getDocs(
+        query(collection(db, 'organization_data', oid, 'clients', docId, 'settlements'), orderBy('createdAt', 'desc'))
+      ).catch(() => null)
+      const orgSetts = orgSettSnap?.docs.map(d => ({ id: d.id, _isOrgSettlement: true, ...d.data() })) || []
 
       if (uid) {
-        const uSnap = await getDoc(doc(db, 'users', uid))
+        const [uSnap, userSettSnap] = await Promise.all([
+          getDoc(doc(db, 'users', uid)),
+          getDocs(query(collection(db, 'users', uid, 'settlements'), orderBy('createdAt', 'desc'))),
+        ])
         if (uSnap.exists()) {
           const ud = uSnap.data()
-          setClientName(ud.displayName || clientDoc.data().name || '')
+          setClientName(ud.displayName || cdata.name || '')
           setClaimNumbers(ud.claimNumbers || [])
         }
-        const snap = await getDocs(
-          query(collection(db, 'users', uid, 'settlements'), orderBy('createdAt', 'desc'))
-        )
-        const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        setSettlements(loaded)
-        if (loaded.length > 0) setExpanded(loaded[0].id)
+        const userSetts = userSettSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const seenIds   = new Set(userSetts.map(s => s.id))
+        const merged    = [...userSetts, ...orgSetts.filter(s => !seenIds.has(s.id))]
+        setSettlements(merged)
+        if (merged.length > 0) setExpanded(merged[0].id)
+      } else {
+        setClientName(cdata.name || '')
+        setClaimNumbers(cdata.claimNumbers || [])
+        setSettlements(orgSetts)
+        if (orgSetts.length > 0) setExpanded(orgSetts[0].id)
       }
     } finally {
       setLoading(false)
@@ -160,7 +176,7 @@ export default function Settlement() {
   }
 
   async function saveNew() {
-    if (!clientUid) return
+    if (!clientUid && !(orgId && clientDocId)) return
     setSavingNew(true)
     try {
       const totals = computeTotals(newForm)
@@ -174,14 +190,17 @@ export default function Settlement() {
         updatedAt:       serverTimestamp(),
         createdBy:       user.uid,
       }
-      const ref = await addDoc(collection(db, 'users', clientUid, 'settlements'), data)
+      const settColRef = clientUid
+        ? collection(db, 'users', clientUid, 'settlements')
+        : collection(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements')
+      const ref = await addDoc(settColRef, data)
       if (orgId) {
         await setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', ref.id),
           buildSummaryDoc(ref.id, data, totals, clientUid, clientName)
         )
       }
-      setSettlements(prev => [{ id: ref.id, ...data }, ...prev])
+      setSettlements(prev => [{ id: ref.id, ...data, ...(!clientUid && { _isOrgSettlement: true }) }, ...prev])
       setShowNew(false)
       setNewForm(EMPTY_FORM())
       setExpanded(ref.id)
@@ -242,6 +261,7 @@ export default function Settlement() {
             key={s.id}
             settlement={s}
             clientUid={clientUid}
+            clientDocId={clientDocId}
             clientName={clientName}
             orgId={orgId}
             phone={phone}
@@ -266,7 +286,7 @@ export default function Settlement() {
 
 // ── Settlement record (summary + expandable detail) ───────────────────────────
 
-function SettlementRecord({ settlement: s, clientUid, clientName, orgId, phone, userId, userEmail, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete }) {
+function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete }) {
   const navigate = useNavigate()
   const totals = computeTotals(s)
   const sm = STATUS_META[s.status] || STATUS_META.estimating
@@ -289,9 +309,10 @@ function SettlementRecord({ settlement: s, clientUid, clientName, orgId, phone, 
   async function loadLog() {
     setLoadingLog(true)
     try {
-      const snap = await getDocs(
-        query(collection(db, 'users', clientUid, 'settlements', s.id, 'log'), orderBy('date', 'asc'))
-      )
+      const logColl = (s._isOrgSettlement || !clientUid)
+        ? collection(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id, 'log')
+        : collection(db, 'users', clientUid, 'settlements', s.id, 'log')
+      const snap = await getDocs(query(logColl, orderBy('date', 'asc')))
       setLog(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     } finally {
       setLoadingLog(false)
@@ -311,7 +332,10 @@ function SettlementRecord({ settlement: s, clientUid, clientName, orgId, phone, 
         gap:           totals.gap,
         updatedAt:     serverTimestamp(),
       }
-      await updateDoc(doc(db, 'users', clientUid, 'settlements', s.id), updates)
+      const settDocRef = (s._isOrgSettlement || !clientUid)
+        ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id)
+        : doc(db, 'users', clientUid, 'settlements', s.id)
+      await updateDoc(settDocRef, updates)
       if (orgId) {
         await setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', s.id),
@@ -327,7 +351,10 @@ function SettlementRecord({ settlement: s, clientUid, clientName, orgId, phone, 
   async function doDelete() {
     setDeleting(true)
     try {
-      await deleteDoc(doc(db, 'users', clientUid, 'settlements', s.id))
+      const settDocRef = (s._isOrgSettlement || !clientUid)
+        ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id)
+        : doc(db, 'users', clientUid, 'settlements', s.id)
+      await deleteDoc(settDocRef)
       if (orgId) {
         await deleteDoc(doc(db, 'organization_data', orgId, 'settlement_summary', s.id))
       }
@@ -530,6 +557,9 @@ function SettlementRecord({ settlement: s, clientUid, clientName, orgId, phone, 
             {showLogForm && (
               <LogEntryForm
                 clientUid={clientUid}
+                orgId={orgId}
+                clientDocId={clientDocId}
+                isOrgSettlement={s._isOrgSettlement || !clientUid}
                 settlementId={s.id}
                 userEmail={userEmail}
                 onAdded={entry => {
@@ -745,7 +775,7 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
 
 // ── Log entry form ────────────────────────────────────────────────────────────
 
-function LogEntryForm({ clientUid, settlementId, userEmail, onAdded }) {
+function LogEntryForm({ clientUid, orgId, clientDocId, isOrgSettlement, settlementId, userEmail, onAdded }) {
   const [type,        setType]        = useState('insurance_response')
   const [date,        setDate]        = useState(todayStr())
   const [description, setDescription] = useState('')
@@ -764,10 +794,10 @@ function LogEntryForm({ clientUid, settlementId, userEmail, onAdded }) {
         createdAt: serverTimestamp(),
         createdBy: userEmail,
       }
-      const ref = await addDoc(
-        collection(db, 'users', clientUid, 'settlements', settlementId, 'log'),
-        entry
-      )
+      const logColl = isOrgSettlement
+        ? collection(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', settlementId, 'log')
+        : collection(db, 'users', clientUid, 'settlements', settlementId, 'log')
+      const ref = await addDoc(logColl, entry)
       onAdded({ id: ref.id, ...entry })
     } finally {
       setSaving(false)

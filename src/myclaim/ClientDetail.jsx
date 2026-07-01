@@ -1563,6 +1563,7 @@ export default function ClientDetail() {
             {/* Insurance Settlement */}
             <SettlementOverviewCard
               clientUid={clientUid}
+              clientDocId={clientDocId}
               clientName={client?.name || ''}
               orgId={orgId}
               phone={phone}

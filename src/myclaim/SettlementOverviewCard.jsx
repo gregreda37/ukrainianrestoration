@@ -68,7 +68,7 @@ function buildEmptyForm(prefill) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function SettlementOverviewCard({ clientUid, clientName, orgId, phone, prefill = {} }) {
+export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {} }) {
   const navigate = useNavigate()
   const prevPrefillRef = useRef(null)
 
@@ -101,24 +101,40 @@ export default function SettlementOverviewCard({ clientUid, clientName, orgId, p
   }, [prefill.claimNumber, prefill.insuranceCompany, prefill.adjusterName, prefill.policyNumber])
 
   useEffect(() => {
-    if (clientUid) load()
+    if (clientUid || (orgId && clientDocId)) load()
     else setLoading(false)
-  }, [clientUid])
+  }, [clientUid, clientDocId, orgId])
 
   async function load() {
     setLoading(true)
     try {
-      const snap = await getDocs(
-        query(collection(db, 'users', clientUid, 'settlements'), orderBy('createdAt', 'desc'))
-      )
-      setSettlements(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      if (clientUid) {
+        // Post-login: load from user path + merge any pre-login org-path settlements
+        const promises = [
+          getDocs(query(collection(db, 'users', clientUid, 'settlements'), orderBy('createdAt', 'desc'))),
+          orgId && clientDocId
+            ? getDocs(query(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements'), orderBy('createdAt', 'desc'))).catch(() => null)
+            : Promise.resolve(null),
+        ]
+        const [userSnap, orgSnap] = await Promise.all(promises)
+        const userSets = userSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const orgSets  = orgSnap?.docs.map(d => ({ id: d.id, _isOrgSettlement: true, ...d.data() })) || []
+        const seenIds  = new Set(userSets.map(s => s.id))
+        setSettlements([...userSets, ...orgSets.filter(s => !seenIds.has(s.id))])
+      } else {
+        // Pre-login: load only from org path
+        const snap = await getDocs(
+          query(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements'), orderBy('createdAt', 'desc'))
+        ).catch(() => null)
+        setSettlements(snap?.docs.map(d => ({ id: d.id, _isOrgSettlement: true, ...d.data() })) || [])
+      }
     } finally {
       setLoading(false)
     }
   }
 
   async function doSave() {
-    if (!clientUid) return
+    if (!clientUid && !(orgId && clientDocId)) return
     setSaving(true)
     try {
       const totals = computeTotals(form)
@@ -131,12 +147,15 @@ export default function SettlementOverviewCard({ clientUid, clientName, orgId, p
         createdAt:      serverTimestamp(),
         updatedAt:      serverTimestamp(),
       }
-      const ref = await addDoc(collection(db, 'users', clientUid, 'settlements'), data)
+      const colRef = clientUid
+        ? collection(db, 'users', clientUid, 'settlements')
+        : collection(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements')
+      const ref = await addDoc(colRef, data)
       if (orgId) {
         const rp = n(data.recoupPercent) || 100
         await setDoc(doc(db, 'organization_data', orgId, 'settlement_summary', ref.id), {
           settlementId:           ref.id,
-          clientUid,
+          clientUid:              clientUid || '',
           clientName:             clientName || '',
           claimNumber:            data.claimNumber            || '',
           insuranceCompany:       data.insuranceCompany       || '',
@@ -158,7 +177,7 @@ export default function SettlementOverviewCard({ clientUid, clientName, orgId, p
           updatedAt:              serverTimestamp(),
         })
       }
-      setSettlements(prev => [{ id: ref.id, ...data }, ...prev])
+      setSettlements(prev => [{ id: ref.id, _isOrgSettlement: !clientUid, ...data }, ...prev])
       setShowForm(false)
       setForm(buildEmptyForm(prefill))
     } finally {

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import { loadGoogleMaps } from "./loadMaps";
@@ -10,6 +10,186 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import "./ContractorWelcome.css";
+import "./OrgInvoices.css";
+
+function fmtMoney(n) {
+  return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+function fmtDate(str) {
+  if (!str) return '—'
+  const d = new Date(str + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function SettlementPaymentsSection({ items, total, navigate }) {
+  const [view, setView] = useState('full')
+
+  const coNetTotal = items.reduce((sum, s) => {
+    const settled = parseFloat(s.totalSettled)    || 0
+    const fee     = parseFloat(s.partnerFee)      || 0
+    const paid    = parseFloat(s.totalPaidAmount) || 0
+    const coNet   = Math.max(0, settled - fee)
+    return sum + Math.max(0, coNet - paid)
+  }, 0)
+
+  const displayTotal = view === 'net' ? coNetTotal : total
+
+  return (
+    <div className="oil-section">
+      <div className="oil-section-header" style={{ borderLeftColor: '#d97706' }}>
+        <div className="oil-section-left">
+          <span className="oil-section-title" style={{ color: '#d97706' }}>⏳ Awaiting Settlement Payment</span>
+          <span className="oil-section-count" style={{ background: '#fffbeb', color: '#d97706' }}>
+            {items.length}
+          </span>
+          <div className="oil-sett-view-tabs">
+            <button
+              className={`oil-sett-tab${view === 'full' ? ' oil-sett-tab--active' : ''}`}
+              onClick={() => setView('full')}
+            >
+              Full Settlement
+            </button>
+            <button
+              className={`oil-sett-tab${view === 'net' ? ' oil-sett-tab--active' : ''}`}
+              onClick={() => setView('net')}
+            >
+              Co. Receivables
+            </button>
+          </div>
+        </div>
+        <span className="oil-section-total">
+          {fmtMoney(displayTotal)}
+          <span className="oil-sett-total-label">
+            {view === 'net' ? ' co. outstanding' : ' outstanding'}
+          </span>
+        </span>
+      </div>
+
+      <div className="oil-table-wrap">
+        {view === 'full' ? (
+          <table className="oil-table">
+            <thead>
+              <tr>
+                <th className="oil-th">Client</th>
+                <th className="oil-th">Claim #</th>
+                <th className="oil-th">Insurance Co.</th>
+                <th className="oil-th oil-th--right">Settled</th>
+                <th className="oil-th oil-th--right">Received</th>
+                <th className="oil-th oil-th--right">Outstanding</th>
+                <th className="oil-th">Date Settled</th>
+                <th className="oil-th" />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(s => {
+                const settled     = parseFloat(s.totalSettled)     || 0
+                const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
+                const outstanding = parseFloat(s.totalOutstanding) ?? Math.max(0, settled - totalPaid)
+                const href = s.clientPhone
+                  ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
+                  : null
+                return (
+                  <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+                    <td className="oil-td oil-td--client">{s.clientName || '—'}</td>
+                    <td className="oil-td oil-td--num">{s.claimNumber || '—'}</td>
+                    <td className="oil-td">{s.insuranceCompany || '—'}</td>
+                    <td className="oil-td oil-td--amount">{fmtMoney(settled)}</td>
+                    <td className="oil-td oil-td--amount" style={{ color: totalPaid > 0 ? '#0891b2' : '#94a3b8' }}>
+                      {totalPaid > 0 ? fmtMoney(totalPaid) : '—'}
+                    </td>
+                    <td className="oil-td oil-td--amount">
+                      <span className="oil-outstanding-val">{fmtMoney(outstanding)}</span>
+                    </td>
+                    <td className="oil-td oil-td--date">{fmtDate(s.settlementDate)}</td>
+                    <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+                      {href ? '→' : ''}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="oil-total-row">
+                <td colSpan={3} />
+                <td className="oil-td oil-td--amount"><strong>{fmtMoney(items.reduce((s2, r) => s2 + (parseFloat(r.totalSettled) || 0), 0))}</strong></td>
+                <td className="oil-td oil-td--amount" style={{ color: '#0891b2' }}><strong>{fmtMoney(items.reduce((s2, r) => s2 + (parseFloat(r.totalPaidAmount) || 0), 0))}</strong></td>
+                <td className="oil-td oil-td--amount"><strong className="oil-outstanding-val">{fmtMoney(total)}</strong></td>
+                <td /><td />
+              </tr>
+            </tfoot>
+          </table>
+        ) : (
+          <table className="oil-table">
+            <thead>
+              <tr>
+                <th className="oil-th">Client</th>
+                <th className="oil-th">Claim #</th>
+                <th className="oil-th oil-th--right">Settled</th>
+                <th className="oil-th oil-th--right">Referral Fee</th>
+                <th className="oil-th oil-th--right">Co. Net (after referral fee)</th>
+                <th className="oil-th oil-th--right">Received</th>
+                <th className="oil-th oil-th--right">Co. Outstanding</th>
+                <th className="oil-th" />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(s => {
+                const settled  = parseFloat(s.totalSettled)    || 0
+                const fee      = parseFloat(s.partnerFee)      || 0
+                const paid     = parseFloat(s.totalPaidAmount) || 0
+                const coNet    = Math.max(0, settled - fee)
+                const coOuts   = Math.max(0, coNet - paid)
+                const href = s.clientPhone
+                  ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
+                  : null
+                return (
+                  <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+                    <td className="oil-td oil-td--client">
+                      <div>{s.clientName || '—'}</div>
+                      {fee > 0 && (
+                        <span className="oil-fee-basis-chip">
+                          fee {s.partnerFeeOnNet ? 'on net' : 'on gross'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="oil-td oil-td--num">{s.claimNumber || '—'}</td>
+                    <td className="oil-td oil-td--amount">{fmtMoney(settled)}</td>
+                    <td className="oil-td oil-td--amount" style={{ color: fee > 0 ? '#7c3aed' : '#94a3b8' }}>
+                      {fee > 0 ? `– ${fmtMoney(fee)}` : '—'}
+                    </td>
+                    <td className="oil-td oil-td--amount" style={{ color: '#0f172a', fontWeight: 700 }}>
+                      {fmtMoney(coNet)}
+                    </td>
+                    <td className="oil-td oil-td--amount" style={{ color: paid > 0 ? '#0891b2' : '#94a3b8' }}>
+                      {paid > 0 ? fmtMoney(paid) : '—'}
+                    </td>
+                    <td className="oil-td oil-td--amount">
+                      <span className="oil-outstanding-val">{fmtMoney(coOuts)}</span>
+                    </td>
+                    <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+                      {href ? '→' : ''}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="oil-total-row">
+                <td colSpan={2} />
+                <td className="oil-td oil-td--amount"><strong>{fmtMoney(items.reduce((s2, r) => s2 + (parseFloat(r.totalSettled) || 0), 0))}</strong></td>
+                <td className="oil-td oil-td--amount" style={{ color: '#7c3aed' }}><strong>– {fmtMoney(items.reduce((s2, r) => s2 + (parseFloat(r.partnerFee) || 0), 0))}</strong></td>
+                <td className="oil-td oil-td--amount"><strong>{fmtMoney(items.reduce((s2, r) => s2 + Math.max(0, (parseFloat(r.totalSettled) || 0) - (parseFloat(r.partnerFee) || 0)), 0))}</strong></td>
+                <td className="oil-td oil-td--amount" style={{ color: '#0891b2' }}><strong>{fmtMoney(items.reduce((s2, r) => s2 + (parseFloat(r.totalPaidAmount) || 0), 0))}</strong></td>
+                <td className="oil-td oil-td--amount"><strong className="oil-outstanding-val">{fmtMoney(coNetTotal)}</strong></td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const AVATAR_COLORS = [
   ["#eff6ff","#2563eb"],["#ecfeff","#0891b2"],["#f0fdf4","#16a34a"],
@@ -57,6 +237,7 @@ export default function Dashboard() {
   const [role,             setRole]             = useState(null);
   const [recentClients,    setRecentClients]    = useState([]);
   const [recentLoading,    setRecentLoading]    = useState(true);
+  const [settRows,         setSettRows]         = useState([]);
   const [showModal,        setShowModal]        = useState(false);
   const [clientName,       setClientName]       = useState("");
   const [clientPhone,      setClientPhone]      = useState("");
@@ -82,10 +263,11 @@ export default function Dashboard() {
         const oid = userSnap.data()?.organizationId;
         if (!oid) return;
         setOrganizationName(oid);
-        const [orgSnap, clientsSnap, contractorSnap] = await Promise.all([
+        const [orgSnap, clientsSnap, contractorSnap, settSnap] = await Promise.all([
           getDoc(doc(db, "organization_data", oid)),
           getDocs(collection(db, "organization_data", oid, "clients")),
           getDoc(doc(db, "organization_data", oid, "contractors", user.uid)),
+          getDocs(collection(db, "organization_data", oid, "settlement_summary")).catch(() => ({ docs: [] })),
         ]);
         if (cancelled) return;
         if (orgSnap.exists()) {
@@ -103,6 +285,24 @@ export default function Dashboard() {
           .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
         setRecentClients(all.slice(0, 6));
+
+        const rawSetts = settSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const missing  = rawSetts.filter(s => !s.clientPhone && (s.clientDocId || s.clientUid))
+        let phoneMap   = {}
+        if (missing.length > 0) {
+          const fetches = missing.map(s =>
+            s.clientDocId
+              ? getDoc(doc(db, 'organization_data', oid, 'clients', s.clientDocId))
+              : getDoc(doc(db, 'users', s.clientUid))
+          )
+          const snaps = await Promise.all(fetches)
+          missing.forEach((s, i) => {
+            const data = snaps[i].data()
+            const phone = data?.phone || data?.phoneNumber || null
+            if (phone) phoneMap[s.id] = phone
+          })
+        }
+        setSettRows(rawSetts.map(s => phoneMap[s.id] ? { ...s, clientPhone: phoneMap[s.id] } : s))
       } catch (err) {
         console.error("Dashboard load error:", err);
       } finally {
@@ -155,6 +355,19 @@ export default function Dashboard() {
   }, [editingOrg]);
 
   const firstName = userDetails?.displayName?.split(" ")[0] || userDetails?.email?.split("@")[0] || "there";
+
+  const awaitingSettlements = useMemo(() => {
+    return settRows
+      .filter(s => (parseFloat(s.totalSettled) || 0) > 0 && !s.paid)
+      .sort((a, b) => (a.settlementDate || '') < (b.settlementDate || '') ? -1 : 1)
+  }, [settRows])
+
+  const awaitingSettlementTotal = awaitingSettlements.reduce((sum, s) => {
+    const settled     = parseFloat(s.totalSettled)     || 0
+    const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
+    const outstanding = parseFloat(s.totalOutstanding) ?? (settled - totalPaid)
+    return sum + Math.max(0, outstanding)
+  }, 0)
 
   const saveOrg = async (e) => {
     e.preventDefault();
@@ -354,6 +567,17 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Awaiting Settlement Payment */}
+        {awaitingSettlements.length > 0 && (
+          <div style={{ marginTop: 28 }}>
+            <SettlementPaymentsSection
+              items={awaitingSettlements}
+              total={awaitingSettlementTotal}
+              navigate={navigate}
+            />
+          </div>
+        )}
 
         {/* Feature grid */}
         <div className="cw-section-label">Quick Access</div>

@@ -21,6 +21,86 @@ function fmtDate(str) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const PIPELINE_STATUS_META = {
+  submitted:     { label: 'Submitted',     color: '#2563eb', bg: '#eff6ff' },
+  negotiating:   { label: 'Negotiating',   color: '#d97706', bg: '#fffbeb' },
+  supplementing: { label: 'Supplementing', color: '#ea580c', bg: '#fff7ed' },
+  estimating:    { label: 'Estimating',    color: '#7c3aed', bg: '#f5f3ff' },
+}
+
+function OpenClaimsPipelineSection({ items, navigate }) {
+  const totalExposure = items.reduce((s, x) => s + (parseFloat(x.totalEstimate) || 0), 0)
+  const statusGroups = Object.keys(PIPELINE_STATUS_META)
+    .map(key => ({ key, ...PIPELINE_STATUS_META[key], count: items.filter(i => (i.status || 'estimating') === key).length }))
+    .filter(g => g.count > 0)
+
+  return (
+    <div className="oil-section">
+      <div className="oil-section-header" style={{ borderLeftColor: '#2563eb' }}>
+        <div className="oil-section-left">
+          <span className="oil-section-title" style={{ color: '#2563eb' }}>📋 Open Claims Pipeline</span>
+          <span className="oil-section-count" style={{ background: '#eff6ff', color: '#2563eb' }}>{items.length}</span>
+          {statusGroups.map(g => (
+            <span key={g.key} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: g.bg, color: g.color, fontWeight: 600 }}>
+              {g.label}: {g.count}
+            </span>
+          ))}
+        </div>
+        <span className="oil-section-total">
+          {fmtMoney(totalExposure)}
+          <span className="oil-sett-total-label"> estimated exposure</span>
+        </span>
+      </div>
+      <div className="oil-table-wrap">
+        <table className="oil-table">
+          <thead>
+            <tr>
+              <th className="oil-th">Client</th>
+              <th className="oil-th">Claim #</th>
+              <th className="oil-th">Insurance Co.</th>
+              <th className="oil-th">Status</th>
+              <th className="oil-th oil-th--right">Estimate</th>
+              <th className="oil-th" />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(s => {
+              const statusKey = s.status || 'estimating'
+              const meta = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
+              const href = s.clientPhone
+                ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
+                : null
+              return (
+                <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+                  <td className="oil-td oil-td--client">{s.clientName || '—'}</td>
+                  <td className="oil-td oil-td--num">{s.claimNumber || '—'}</td>
+                  <td className="oil-td">{s.insuranceCompany || '—'}</td>
+                  <td className="oil-td">
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: meta.bg, color: meta.color, fontWeight: 600 }}>
+                      {meta.label}
+                    </span>
+                  </td>
+                  <td className="oil-td oil-td--amount">{fmtMoney(parseFloat(s.totalEstimate) || 0)}</td>
+                  <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+                    {href ? '→' : ''}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="oil-total-row">
+              <td colSpan={4} />
+              <td className="oil-td oil-td--amount"><strong>{fmtMoney(totalExposure)}</strong></td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function SettlementPaymentsSection({ items, total, navigate }) {
   const [view, setView] = useState('full')
 
@@ -356,6 +436,18 @@ export default function Dashboard() {
 
   const firstName = userDetails?.displayName?.split(" ")[0] || userDetails?.email?.split("@")[0] || "there";
 
+  const openClaims = useMemo(() => {
+    const OPEN = new Set(['estimating', 'submitted', 'negotiating', 'supplementing'])
+    const priority = { submitted: 0, negotiating: 1, supplementing: 2, estimating: 3 }
+    return settRows
+      .filter(s => OPEN.has(s.status || 'estimating'))
+      .sort((a, b) => {
+        const pa = priority[a.status] ?? 4
+        const pb = priority[b.status] ?? 4
+        return pa !== pb ? pa - pb : (parseFloat(b.totalEstimate) || 0) - (parseFloat(a.totalEstimate) || 0)
+      })
+  }, [settRows])
+
   const awaitingSettlements = useMemo(() => {
     return settRows
       .filter(s => (parseFloat(s.totalSettled) || 0) > 0 && !s.paid)
@@ -567,6 +659,13 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Open Claims Pipeline */}
+        {openClaims.length > 0 && (
+          <div style={{ marginTop: 28 }}>
+            <OpenClaimsPipelineSection items={openClaims} navigate={navigate} />
+          </div>
+        )}
 
         {/* Awaiting Settlement Payment */}
         {awaitingSettlements.length > 0 && (

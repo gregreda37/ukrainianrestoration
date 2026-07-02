@@ -167,10 +167,13 @@ const sn = v => parseFloat(v) || 0
   }), [settlements, selectedYear, selectedQ])
 
   // ── Settlement KPI buckets ──
-  const settledClaims      = filteredSettlements.filter(s => sn(s.totalSettled) > 0)
-  const pendingClaims      = filteredSettlements.filter(s => !sn(s.totalSettled))
-  const settTotalSubmitted = settledClaims.reduce((s, x) => s + sn(x.totalEstimate), 0)
-  const settTotalSettled   = settledClaims.reduce((s, x) => s + sn(x.totalSettled),  0)
+  const settledClaims         = filteredSettlements.filter(s => sn(s.totalSettled) > 0)
+  // All non-settled claims regardless of date (no settlementDate until they close)
+  const pendingClaims         = settlements.filter(s => !sn(s.totalSettled))
+  // All claims with any estimate — this is the true "submitted" pipeline
+  const allSubmittedEstimates = settlements.filter(s => sn(s.totalEstimate) > 0)
+  const settTotalSubmitted    = allSubmittedEstimates.reduce((s, x) => s + sn(x.totalEstimate), 0)
+  const settTotalSettled      = settledClaims.reduce((s, x) => s + sn(x.totalSettled),  0)
   const settTotalGap          = settledClaims.reduce((s, x) => s + sn(x.gap),           0)
   const settTotalRecoup       = settledClaims.reduce((s, x) => s + sn(x.companyRecoup), 0)
   const settTotalPartnerFees  = settledClaims.reduce((s, x) => s + sn(x.partnerFee),    0)
@@ -346,26 +349,26 @@ const sn = v => parseFloat(v) || 0
     ? Math.round(paidWithDates.reduce((s, i) => s + (i.paidAt.toDate() - new Date(i.issueDate + 'T12:00:00')) / 86400000, 0) / paidWithDates.length)
     : null
 
-  // ── Settlement category data (settled claims only) ──
+  // ── Settlement category data (submitted = full pipeline, settled = date-filtered closed claims) ──
   const settCatData = [
     {
       label: 'Dry Cleaning / Contents',
-      submitted: settledClaims.reduce((s, x) => s + sn(x.dryCleanEstimate), 0),
+      submitted: allSubmittedEstimates.reduce((s, x) => s + sn(x.dryCleanEstimate), 0),
       settled:   settledClaims.reduce((s, x) => s + sn(x.dryCleanSettled),  0),
     },
     {
       label: 'Mitigation',
-      submitted: settledClaims.reduce((s, x) => s + sn(x.mitigationEstimate), 0),
+      submitted: allSubmittedEstimates.reduce((s, x) => s + sn(x.mitigationEstimate), 0),
       settled:   settledClaims.reduce((s, x) => s + sn(x.mitigationSettled),  0),
     },
     {
       label: 'Reconstruction',
-      submitted: settledClaims.reduce((s, x) => s + sn(x.reconstructionEstimate), 0),
+      submitted: allSubmittedEstimates.reduce((s, x) => s + sn(x.reconstructionEstimate), 0),
       settled:   settledClaims.reduce((s, x) => s + sn(x.reconstructionSettled),  0),
     },
     {
       label: 'Packout',
-      submitted: settledClaims.reduce((s, x) => s + sn(x.packoutEstimate), 0),
+      submitted: allSubmittedEstimates.reduce((s, x) => s + sn(x.packoutEstimate), 0),
       settled:   settledClaims.reduce((s, x) => s + sn(x.packoutSettled),  0),
     },
   ]
@@ -606,12 +609,15 @@ const sn = v => parseFloat(v) || 0
       )}
 
       {/* ── Insurance settlement performance ── */}
-      {filteredSettlements.length > 0 && (
+      {settlements.length > 0 && (
         <div className="ir-section ir-section--settlement">
           <div className="ir-stream-label">🏛️ Insurance Job Detail</div>
           <div className="ir-section-title-row">
             <div className="ir-section-title">Settlement Performance</div>
-            <div className="ir-section-sub">{settledClaims.length} settled claim{settledClaims.length !== 1 ? 's' : ''}</div>
+            <div className="ir-section-sub">
+              {allSubmittedEstimates.length} claim{allSubmittedEstimates.length !== 1 ? 's' : ''} in pipeline
+              {settledClaims.length > 0 && ` · ${settledClaims.length} settled`}
+            </div>
           </div>
 
           {/* Category filter pills */}
@@ -631,7 +637,7 @@ const sn = v => parseFloat(v) || 0
           </div>
 
           <div className="ir-kpi-row ir-kpi-row--5">
-            <KPICard label="Total Submitted"   value={fmtMoney(settTotalSubmitted)} sub="to insurance"                                   color="#0f172a" />
+            <KPICard label="Total Submitted"   value={fmtMoney(settTotalSubmitted)} sub={`${allSubmittedEstimates.length} claims · full pipeline`} color="#0f172a" />
             <KPICard label="Total Settled"     value={fmtMoney(settTotalSettled)}   sub={`${settAvgRecovery.toFixed(1)}% recovery`}       color="#16a34a" />
             <KPICard label="Written Off"       value={fmtMoney(settTotalGap)}       sub="uncollected gap"                                 color={settTotalGap > 0 ? '#dc2626' : '#94a3b8'} />
             <KPICard label="Referral Fees Paid" value={fmtMoney(settTotalPartnerFees)}                    sub="paid to partners"    color="#7c3aed" />

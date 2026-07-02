@@ -79,7 +79,6 @@ export default function InvoiceReport() {
   const [orgName,         setOrgName]         = useState('')
   const [selectedYear,    setSelectedYear]    = useState(new Date().getFullYear())
   const [selectedQ,       setSelectedQ]       = useState(null)
-  const [paidInvOpen,     setPaidInvOpen]     = useState(false)
   const [insurerSearch,   setInsurerSearch]   = useState('')
   const [claimSearch,     setClaimSearch]     = useState('')
   const [fullView,        setFullView]        = useState(null) // null | 'insurers' | 'claims'
@@ -131,14 +130,6 @@ const sn = v => parseFloat(v) || 0
     if (selectedQ && getQuarter(s) !== selectedQ) return false
     return true
   }), [summaries, selectedYear, selectedQ])
-
-  // ── Paid invoices (year + Q filtered) ──
-  const paidInvoiceList = useMemo(() => summaries
-    .filter(s => s.type === 'invoice' && s.status === 'paid' && getYear(s) === selectedYear && (!selectedQ || getQuarter(s) === selectedQ))
-    .sort((a, b) => (a.paidDate || a.issueDate || '') > (b.paidDate || b.issueDate || '') ? -1 : 1)
-  , [summaries, selectedYear, selectedQ])
-
-  const paidInvoiceTotal = paidInvoiceList.reduce((s, i) => s + (i.total || 0), 0)
 
   // ── Estimates: year-filtered for funnel, lifetime for conversion rate ──
   const allEstimates         = useMemo(() => summaries.filter(s => s.type === 'estimate' && getYear(s) === selectedYear), [summaries, selectedYear])
@@ -508,7 +499,7 @@ const sn = v => parseFloat(v) || 0
           {filtered.length} cash job{filtered.length !== 1 ? 's' : ''}
           {settledClaims.length > 0 && ` · ${settledClaims.length} insurance claim${settledClaims.length !== 1 ? 's' : ''}`}
         </div>
-        {totalRevenue > 0 && (
+        {companyNet > 0 && (
           <>
             <div className="ir-split-bar">
               {totalCollected > 0 && <div className="ir-split-seg ir-split-seg--cash" style={{ flex: totalCollected }} title={`Cash: ${fmtMoney(totalCollected)}`} />}

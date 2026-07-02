@@ -671,8 +671,8 @@ def get_company_context():
         # Clients overview
         clients    = [d.to_dict() for d in cli_snaps]
         active_cli = [c for c in clients if not c.get("archived")]
-        open_cli   = [c for c in active_cli if c.get("claimStatus") == "open"]
         closed_cli = [c for c in active_cli if c.get("claimStatus") == "closed"]
+        open_cli   = [c for c in active_cli if c not in closed_cli]
 
         lines.append("## COMPANY OVERVIEW")
         lines.append(f"Total Active Clients: {len(active_cli)}")

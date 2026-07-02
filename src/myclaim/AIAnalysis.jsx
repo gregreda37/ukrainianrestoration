@@ -235,6 +235,8 @@ export default function AIAnalysis() {
   const scrollContainerRef = useRef(null)
   const isNearBottomRef = useRef(true)
   const scrollRafRef = useRef(null)
+  const latestAssistantMsgRef = useRef(null)
+  const isFirstTokenRef = useRef(false)
   const inputRef = useRef(null)
   const abortControllerRef = useRef(null)
 
@@ -278,10 +280,25 @@ export default function AIAnalysis() {
     return () => { cancelled = true }
   }, [orgId, user])
 
-  // ── Auto-scroll — direct scrollTop to avoid competing smooth-scroll animations ──
+  // ── Auto-scroll ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!scrollContainerRef.current || !isNearBottomRef.current) return
+    if (!scrollContainerRef.current) return
     if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current)
+
+    // First real token of a new response: pin to the top of the assistant message
+    // so the user reads from the beginning rather than being dropped at the bottom.
+    if (isFirstTokenRef.current && latestAssistantMsgRef.current?.textContent) {
+      isFirstTokenRef.current = false
+      const container = scrollContainerRef.current
+      const msgEl = latestAssistantMsgRef.current
+      scrollRafRef.current = requestAnimationFrame(() => {
+        container.scrollTop = msgEl.offsetTop - 8
+      })
+      return
+    }
+
+    // Otherwise only follow to bottom if the user is already near the bottom.
+    if (!isNearBottomRef.current) return
     scrollRafRef.current = requestAnimationFrame(() => {
       if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
@@ -479,8 +496,14 @@ export default function AIAnalysis() {
 
     setInput('')
     setStreamError('')
-    isNearBottomRef.current = true
+    // Scroll to show the user's outgoing message, then pin to the top of the
+    // AI response when the first token arrives (isFirstTokenRef).
+    isNearBottomRef.current = false
+    isFirstTokenRef.current = true
     setShowScrollFab(false)
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
 
     const userMsg = { role: 'user', content: msg, label: opts.label || null }
     const nextMessages = [...activeMsgs, userMsg]
@@ -963,7 +986,11 @@ export default function AIAnalysis() {
             onScroll={handleMessagesScroll}
           >
             {activeMessages.map((msg, idx) => (
-              <div key={idx} className={`aa-message aa-message--${msg.role}${msg.error ? ' aa-message--error' : ''}${msg.streaming ? ' aa-message--streaming' : ''}`}>
+              <div
+                key={idx}
+                className={`aa-message aa-message--${msg.role}${msg.error ? ' aa-message--error' : ''}${msg.streaming ? ' aa-message--streaming' : ''}`}
+                ref={msg.role === 'assistant' && idx === activeMessages.length - 1 ? latestAssistantMsgRef : null}
+              >
 
                 {msg.role === 'user' ? (
                   <>

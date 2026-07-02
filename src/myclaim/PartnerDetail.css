@@ -72,7 +72,7 @@
 /* ── KPI strip ── */
 .pd-kpi-row {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 32px;
 }
@@ -81,8 +81,9 @@
   background: #fff;
   border: 1.5px solid #e2e8f0;
   border-radius: 12px;
-  padding: 16px 14px;
+  padding: 18px 16px;
   text-align: center;
+  min-width: 0;
 }
 
 .pd-kpi--green { border-color: #bbf7d0; background: #f0fdf4; }
@@ -99,10 +100,13 @@
 }
 
 .pd-kpi-val {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 800;
   color: #0f172a;
   margin-bottom: 3px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.2;
 }
 
 .pd-kpi--green  .pd-kpi-val  { color: #15803d; }
@@ -294,6 +298,6 @@
 @media (max-width: 700px) {
   .pd-root { padding: 18px 14px 60px; }
   .pd-kpi-row { grid-template-columns: repeat(2, 1fr); }
-  .pd-kpi:last-child { grid-column: 1 / -1; }
+  .pd-kpi:nth-child(5) { grid-column: 1 / -1; }
   .pd-card { padding: 16px 16px 14px; }
 }

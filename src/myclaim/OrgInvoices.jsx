@@ -105,50 +105,53 @@ function PartnersOverview() {
         </div>
       )}
 
-      <div className="po-grid">
+      <div className="po-list">
+        <div className="po-list-header">
+          <span className="po-lh-name">Partner</span>
+          <span className="po-lh-num">Jobs</span>
+          <span className="po-lh-num">Submitted</span>
+          <span className="po-lh-num">Settled</span>
+          <span className="po-lh-num">Fees Paid</span>
+          <span className="po-lh-num">Co. Net</span>
+          <span className="po-lh-action" />
+        </div>
+
         {partners.map(p => {
           const st  = statsMap[p.id] || { claims: 0, submitted: 0, settled: 0, fee: 0 }
           const net = st.settled - st.fee
-          const hasJobs = st.claims > 0
 
           return (
-            <div key={p.id} className="po-card" onClick={() => navigate(`/myclaim/partners/${p.id}`)}>
-              <div className="po-card-head">
-                <div className="po-avatar">👤</div>
-                <div className="po-card-name-wrap">
-                  <div className="po-card-name">{p.name}</div>
-                  {p.email && <div className="po-card-contact">{p.email}</div>}
-                  {p.phone && <div className="po-card-contact">{p.phone}</div>}
+            <div key={p.id} className="po-list-row" onClick={() => navigate(`/myclaim/partners/${p.id}`)}>
+              <div className="po-lr-name">
+                <div className="po-lr-avatar">👤</div>
+                <div>
+                  <div className="po-lr-label">{p.name}</div>
+                  {p.email && <div className="po-lr-contact">{p.email}</div>}
+                  {p.phone && <div className="po-lr-contact">{p.phone}</div>}
                 </div>
-                <span className="po-arrow">→</span>
               </div>
 
-              {hasJobs ? (
-                <div className="po-card-stats">
-                  <div className="po-stat">
-                    <span className="po-stat-label">Jobs</span>
-                    <span className="po-stat-val">{st.claims}</span>
-                  </div>
-                  <div className="po-stat">
-                    <span className="po-stat-label">Submitted</span>
-                    <span className="po-stat-val">{fmtMoney(st.submitted)}</span>
-                  </div>
-                  <div className="po-stat">
-                    <span className="po-stat-label">Settled</span>
-                    <span className="po-stat-val" style={{ color: '#15803d' }}>{fmtMoney(st.settled)}</span>
-                  </div>
-                  <div className="po-stat">
-                    <span className="po-stat-label">Fees Paid</span>
-                    <span className="po-stat-val" style={{ color: '#7c3aed' }}>{st.fee > 0 ? fmtMoney(st.fee) : '—'}</span>
-                  </div>
-                  <div className="po-stat">
-                    <span className="po-stat-label">Co. Net</span>
-                    <span className="po-stat-val" style={{ color: '#1d4ed8', fontWeight: 700 }}>{fmtMoney(net)}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="po-card-no-jobs">No jobs referred yet</p>
-              )}
+              <div className="po-lr-num">
+                <div className="po-lr-val">{st.claims || '—'}</div>
+                <div className="po-lr-sub">referred</div>
+              </div>
+              <div className="po-lr-num">
+                <div className="po-lr-val">{st.submitted > 0 ? fmtMoney(st.submitted) : '—'}</div>
+                <div className="po-lr-sub">to insurance</div>
+              </div>
+              <div className="po-lr-num">
+                <div className="po-lr-val" style={{ color: '#15803d' }}>{st.settled > 0 ? fmtMoney(st.settled) : '—'}</div>
+                <div className="po-lr-sub">from insurer</div>
+              </div>
+              <div className="po-lr-num">
+                <div className="po-lr-val" style={{ color: '#7c3aed' }}>{st.fee > 0 ? fmtMoney(st.fee) : '—'}</div>
+                <div className="po-lr-sub">referral fee</div>
+              </div>
+              <div className="po-lr-num">
+                <div className="po-lr-val" style={{ color: '#1d4ed8', fontWeight: 800 }}>{net > 0 ? fmtMoney(net) : '—'}</div>
+                <div className="po-lr-sub">after fee</div>
+              </div>
+              <div className="po-lr-action">→</div>
             </div>
           )
         })}

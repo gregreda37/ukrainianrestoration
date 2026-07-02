@@ -12,8 +12,8 @@ const ALL_NAV = [
   { to: '/myclaim/clients',       label: 'Clients',     icon: '👥' },
   { to: '/myclaim/open-work',     label: 'Invoices',    icon: '🧾' },
   { to: '/myclaim/invoices',      label: 'Sales Report', icon: '📊' },
+  { to: '/myclaim/partners',       label: 'Partners',    icon: '🤝' },
   { to: '/myclaim/ai',            label: 'AI Analysis', icon: '🤖', pmBlocked: true },
-  { to: '/myclaim/team',          label: 'Team',        icon: '👤', adminOnly: true },
   { to: '/myclaim/settings',      label: 'Settings',    icon: '⚙️' },
 ]
 

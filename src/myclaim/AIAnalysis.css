@@ -29,16 +29,42 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 16px 12px;
+  gap: 8px;
+  padding: 10px 12px;
   border-bottom: 1px solid #f1f5f9;
   flex-shrink: 0;
 }
 
-.aa-sidebar-title {
-  font-size: 14px;
-  font-weight: 700;
+/* Mode tabs */
+.aa-mode-tabs {
+  display: flex;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+  flex: 1;
+}
+
+.aa-mode-tab {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+
+.aa-mode-tab:hover { color: #0f172a; }
+
+.aa-mode-tab--active {
+  background: #fff;
   color: #0f172a;
-  letter-spacing: -0.01em;
+  box-shadow: 0 1px 3px rgba(0,0,0,.1);
 }
 
 .aa-model-badge {
@@ -1002,6 +1028,65 @@
   border-radius: 50%;
   animation: aa-spin .7s linear infinite;
   vertical-align: middle;
+}
+
+.aa-btn-spinner--dark {
+  border-color: rgba(0,0,0,.12);
+  border-top-color: #2563eb;
+}
+
+/* ── Company AI panel ──────────────────────────────────────────────────────── */
+
+.aa-company-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 20px;
+}
+
+.aa-co-kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+
+.aa-co-kpi {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  text-align: center;
+}
+
+.aa-co-kpi-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1;
+}
+
+.aa-co-kpi-lbl {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+/* Green orb variant for Company AI */
+.aa-empty-orb--green {
+  background: linear-gradient(135deg, #16a34a, #0891b2);
+}
+
+.aa-ai-orb--green {
+  background: linear-gradient(135deg, #16a34a, #0891b2);
+}
+
+.aa-welcome-icon--green {
+  background: #dcfce7;
+  color: #16a34a;
 }
 
 /* ── Photo classification panel ─────────────────────────────────────────── */

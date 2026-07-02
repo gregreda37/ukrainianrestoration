@@ -23,20 +23,10 @@ const QUICK_PROMPTS = [
     prompt: 'Provide a comprehensive claim summary for this client. Include: claim and policy numbers, current mitigation progress stage and what it means, current construction progress stage, all pending tasks and who they are assigned to, outstanding documents or approvals needed, budget overview with total, adjuster contact information, and any risks or blockers. Format with clear section headers.',
   },
   {
-    icon: '📦', label: 'Inventory List', requiresPhotos: true,
-    prompt: 'You are being provided with CompanyCam site photos from this property damage claim. Carefully examine every photo and create a complete inventory list of all visible items — furniture, appliances, personal belongings, building materials, and anything else present.\n\nFormat the output as a markdown table with these exact columns:\n\n| Item | Room | Wrapped | Cleaned |\n\nRules:\n- Item: specific name (e.g. "Sectional sofa", "55\\" Samsung TV", "Wooden dining chair")\n- Room: room it appears in based on photo context\n- Wrapped: Yes or No based on whether it is visibly wrapped or protected\n- Cleaned: Yes by default; only mark No if the item is visibly dirty or clearly uncleaned\n\nAfter the table, note any areas that were not clearly photographed.',
-  },
-  {
-    icon: '🔨', label: 'Labor Logs', requiresPhotos: true, needsInput: true,
-    inputLabel: 'Which workers were on site?', inputPlaceholder: 'e.g. John, Maria, Steve', inputRows: 1,
-    buildPrompt: (workers) =>
-      `Using the CompanyCam photo timestamps as evidence of on-site presence, generate a labor log for: ${workers}.\n\nAssume standard hours 9:00 AM – 5:00 PM (8 hrs/worker) unless timestamps suggest otherwise. If photos show activity outside those hours, use those as actual times.\n\nFormat as a markdown table:\n\n| Worker | Date | Start Time | End Time | Total Hours | Notes |\n\nProvide a total labor hours summary at the bottom. Reference CompanyCam timestamps where available.`,
-  },
-  {
     icon: '📧', label: 'Adjuster Reply', needsInput: true,
-    inputLabel: "Paste the adjuster's question:", inputPlaceholder: 'Paste the adjuster\'s question here…', inputRows: 5,
+    inputLabel: "Paste the adjuster's question:", inputPlaceholder: "Paste the adjuster's question here…", inputRows: 5,
     buildPrompt: (question) =>
-      `An insurance adjuster has sent the following question:\n\n---\n${question}\n---\n\nUsing the complete client case file, write a thorough, professional response. Include specific facts, dates, and figures from the case file. Reference documents or photos where relevant. The response should be ready to send directly to the adjuster.`,
+      `An insurance adjuster has sent the following question:\n\n---\n${question}\n---\n\nUsing the complete client case file, write a thorough, professional response. Include specific facts, dates, and figures from the case file. The response should be ready to send directly to the adjuster.`,
   },
   {
     icon: '⚠️', label: 'Risk Assessment',
@@ -45,6 +35,29 @@ const QUICK_PROMPTS = [
   {
     icon: '💰', label: 'Settlement Gap',
     prompt: 'Review the financial data in this claim and calculate any settlement gap. Compare the estimate totals against what has been approved or settled so far. Identify which line items are under-approved and suggest documentation or supplemental claims that could close the gap. Show all numbers clearly.',
+  },
+]
+
+const COMPANY_QUICK_PROMPTS = [
+  {
+    icon: '💰', label: 'Revenue Overview',
+    prompt: 'Give me a complete revenue overview. Show: total estimate pipeline, total insurance settlements, company receivables (recoup), total referral fees paid, amount collected, and what is still outstanding. What is our overall settlement rate versus our estimates? Include key takeaways.',
+  },
+  {
+    icon: '🤝', label: 'Partner Rankings',
+    prompt: 'Rank our referral partners by performance. For each partner show: number of claims, total estimate, total insurance settlement, company receivable, referral fees paid, and net to company after fees. Who are our top performers and are there underperforming relationships?',
+  },
+  {
+    icon: '📋', label: 'Pipeline Status',
+    prompt: 'Give me the current pipeline status. How many claims have no insurance settlement yet? What is the total estimate value at risk? Which open claims are the largest and should be prioritized for follow-up? What percentage of our pipeline has converted to settled?',
+  },
+  {
+    icon: '🏢', label: 'Insurer Analysis',
+    prompt: 'Analyze performance by insurance company. For each insurer: number of claims, total estimates, total settled, and settlement rate. Which insurers settle the best? Which are the hardest to collect from? Any patterns worth knowing?',
+  },
+  {
+    icon: '📈', label: 'Business Insights',
+    prompt: 'Based on all our data — clients, partners, settlements, and revenue — give me the top business insights. Where are we performing well? Where are the gaps? What should we focus on to increase revenue, improve settlement rates, or grow the business?',
   },
 ]
 
@@ -114,11 +127,12 @@ const THINKING_PHRASES = [
   'Scanning document history…',
   'Preparing your response…',
 ]
-const PHOTO_THINKING_PHRASES = [
-  'Loading selected photos…',
-  'Analyzing site imagery…',
-  'Cross-referencing with documents…',
-  'Identifying damage patterns…',
+
+const COMPANY_THINKING_PHRASES = [
+  'Analyzing settlement data…',
+  'Reviewing partner performance…',
+  'Calculating revenue metrics…',
+  'Scanning insurer data…',
   'Preparing your response…',
 ]
 
@@ -129,7 +143,6 @@ function TypewriterStatus({ phrases }) {
   const [displayed, setDisplayed] = useState('')
   const [ready, setReady] = useState(false)
 
-  // Small delay so it doesn't flash if first token arrives immediately
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 200)
     return () => clearTimeout(t)
@@ -142,7 +155,6 @@ function TypewriterStatus({ phrases }) {
       const t = setTimeout(() => setDisplayed(current.slice(0, displayed.length + 1)), 40)
       return () => clearTimeout(t)
     }
-    // Phrase fully typed — pause then advance
     const t = setTimeout(() => {
       setPhraseIdx(i => i + 1)
       setDisplayed('')
@@ -154,30 +166,8 @@ function TypewriterStatus({ phrases }) {
   return (
     <div className="aa-typewriter">
       <span className="aa-typewriter-icon">▸</span>
-      <span className="aa-typewriter-text">{displayed || ' '}</span>
+      <span className="aa-typewriter-text">{displayed || ' '}</span>
       <span className="aa-typewriter-cur" />
-    </div>
-  )
-}
-
-// ── Context loading steps ─────────────────────────────────────────────────────
-
-function LoadingSteps({ includePhotos }) {
-  const steps = [
-    'Connecting to case file',
-    'Loading claim information',
-    'Reviewing todos & documents',
-    ...(includePhotos ? ['Processing CompanyCam photos', 'Quality-checking imagery'] : []),
-    'Building AI context',
-  ]
-  return (
-    <div className="aa-load-steps">
-      {steps.map((s, i) => (
-        <div key={i} className="aa-load-step" style={{ animationDelay: `${i * 0.55}s` }}>
-          <span className="aa-load-step-dot" style={{ animationDelay: `${i * 0.55 + 0.35}s` }} />
-          <span className="aa-load-step-text">{s}</span>
-        </div>
-      ))}
     </div>
   )
 }
@@ -191,7 +181,7 @@ const fmtPhone = (p = '') => {
   return p
 }
 const fmtCurrency = (n) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0)
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n || 0)
 
 const AVATAR_COLORS = [
   ['#eff6ff','#2563eb'], ['#ecfeff','#0891b2'], ['#f0fdf4','#16a34a'],
@@ -203,46 +193,43 @@ const avatarColor = (str = '') => {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
 }
 
-function timeAgo(isoString) {
-  if (!isoString) return ''
-  const ms = Date.now() - new Date(isoString).getTime()
-  const mins = Math.floor(ms / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  return `${Math.floor(mins / 60)}h ago`
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function AIAnalysis() {
   const { user, isAdmin } = useAuth()
   const collapseNav = useContext(NavCollapseContext)
 
+  // Mode: 'client' | 'company'
+  const [mode, setMode] = useState('client')
+
+  // Org + clients
   const [orgId, setOrgId] = useState('')
   const [clients, setClients] = useState([])
   const [clientsLoading, setClientsLoading] = useState(true)
   const [filter, setFilter] = useState('')
 
+  // Client AI state
   const [clientView, setClientView] = useState('list')
   const [selectedClient, setSelectedClient] = useState(null)
-
   const [contextFlags, setContextFlags] = useState(DEFAULT_FLAGS)
   const [contextLoading, setContextLoading] = useState(false)
   const [contextLoaded, setContextLoaded] = useState(false)
   const [clientContext, setClientContext] = useState(null)
-  const [photoClassifications, setPhotoClassifications] = useState(null)
-  const [classifyStatus, setClassifyStatus] = useState('idle')  // idle|loading|ready|error
-  const [selectedPhotoCategory, setSelectedPhotoCategory] = useState(null)
-
   const [messages, setMessages] = useState([])
+
+  // Company AI state
+  const [companyContextLoading, setCompanyContextLoading] = useState(false)
+  const [companyContextLoaded, setCompanyContextLoaded] = useState(false)
+  const [companyContext, setCompanyContext] = useState(null)
+  const [companyMessages, setCompanyMessages] = useState([])
+
+  // Shared chat state
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [streamError, setStreamError] = useState('')
   const [selectedModel, setSelectedModel] = useState('claude-haiku-4-5-20251001')
-
   const [activeQuickPrompt, setActiveQuickPrompt] = useState(null)
   const [quickInputText, setQuickInputText] = useState('')
-
   const [copiedIdx, setCopiedIdx] = useState(null)
 
   const chatBottomRef = useRef(null)
@@ -290,7 +277,7 @@ export default function AIAnalysis() {
   // ── Auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, companyMessages])
 
   // ── Auto-resize textarea ──────────────────────────────────────────────────
   useEffect(() => {
@@ -312,6 +299,16 @@ export default function AIAnalysis() {
     )
   })
 
+  // ── Switch mode ───────────────────────────────────────────────────────────
+  const handleSwitchMode = useCallback((newMode) => {
+    if (newMode === mode) return
+    abortControllerRef.current?.abort()
+    setMode(newMode)
+    setInput('')
+    setStreamError('')
+    setActiveQuickPrompt(null)
+  }, [mode])
+
   // ── Select client ─────────────────────────────────────────────────────────
   const handleSelectClient = useCallback((client) => {
     setSelectedClient(client)
@@ -320,9 +317,6 @@ export default function AIAnalysis() {
     setClientContext(null)
     setMessages([])
     setStreamError('')
-    setPhotoClassifications(null)
-    setClassifyStatus('idle')
-    setSelectedPhotoCategory(null)
     collapseNav?.()
   }, [collapseNav])
 
@@ -335,13 +329,10 @@ export default function AIAnalysis() {
     setClientContext(null)
     setMessages([])
     setStreamError('')
-    setPhotoClassifications(null)
-    setClassifyStatus('idle')
-    setSelectedPhotoCategory(null)
     setFilter('')
   }, [])
 
-  // ── Load context ──────────────────────────────────────────────────────────
+  // ── Load client context ───────────────────────────────────────────────────
   const handleLoadContext = useCallback(async () => {
     if (!selectedClient || !orgId) return
     setContextLoading(true)
@@ -374,37 +365,32 @@ export default function AIAnalysis() {
     }
   }, [selectedClient, orgId, contextFlags])
 
-  // Auto-load context whenever a new client (with uid) is selected
-  useEffect(() => {
-    if (!selectedClient?.uid || !orgId) return
-    handleLoadContext()
-  }, [selectedClient?.uid, orgId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleClassifyPhotos = useCallback(async () => {
-    if (!selectedClient || !orgId || !clientContext) return
-    setClassifyStatus('loading')
+  // ── Load company context ──────────────────────────────────────────────────
+  const handleLoadCompanyContext = useCallback(async () => {
+    if (!orgId) return
+    setCompanyContextLoading(true)
+    setCompanyContextLoaded(false)
+    setCompanyMessages([])
+    setStreamError('')
     try {
       const idToken = await auth.currentUser.getIdToken()
-      const res = await fetch(`${API}/ai/classify-photos`, {
+      const res = await fetch(`${API}/ai/company-context`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          idToken,
-          cacheKey: clientContext.cacheKey,
-          orgId,
-          clientUid: selectedClient.uid,
-        }),
+        body: JSON.stringify({ orgId, idToken }),
       })
       let data
-      try { data = await res.json() } catch { throw new Error(`HTTP ${res.status}`) }
+      try { data = await res.json() }
+      catch { throw new Error(`Server returned an error (HTTP ${res.status}) — please try again`) }
       if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
-      setPhotoClassifications({ categories: data.categories || {}, total: data.total || 0 })
-      setClassifyStatus('ready')
+      setCompanyContext(data)
+      setCompanyContextLoaded(true)
     } catch (err) {
-      setClassifyStatus('error')
-      setStreamError(`Photo classification failed: ${err.message}`)
+      setStreamError(`Failed to load company data: ${err.message}`)
+    } finally {
+      setCompanyContextLoading(false)
     }
-  }, [selectedClient, orgId, clientContext])
+  }, [orgId])
 
   // ── Stop streaming ────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
@@ -422,18 +408,24 @@ export default function AIAnalysis() {
 
   // ── Send message ──────────────────────────────────────────────────────────
   const handleSend = useCallback(async (text, opts = {}) => {
+    const isCompany         = mode === 'company'
+    const activeContextLoaded = isCompany ? companyContextLoaded : contextLoaded
+    const activeContext       = isCompany ? companyContext       : clientContext
+    const activeMsgs          = isCompany ? companyMessages      : messages
+    const setActiveMsgs       = isCompany ? setCompanyMessages   : setMessages
+
     const msg = (text || input).trim()
-    if (!msg || streaming || !contextLoaded) return
+    if (!msg || streaming || !activeContextLoaded) return
 
     setInput('')
     setStreamError('')
 
     const userMsg = { role: 'user', content: msg, label: opts.label || null }
-    const nextMessages = [...messages, userMsg]
-    setMessages(nextMessages)
+    const nextMessages = [...activeMsgs, userMsg]
+    setActiveMsgs(nextMessages)
     const apiMessages = nextMessages.map(({ role, content }) => ({ role, content }))
 
-    setMessages(prev => [...prev, { role: 'assistant', content: '', streaming: true }])
+    setActiveMsgs(prev => [...prev, { role: 'assistant', content: '', streaming: true }])
     setStreaming(true)
 
     const controller = new AbortController()
@@ -446,12 +438,10 @@ export default function AIAnalysis() {
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: apiMessages,
-          cacheKey: clientContext.cacheKey,
-          photoCategory: opts.forcePhotos && classifyStatus === 'ready'
-            ? (selectedPhotoCategory || '__all__')
-            : (selectedPhotoCategory || ''),
-          model: selectedModel,
+          messages:     apiMessages,
+          cacheKey:     activeContext.cacheKey,
+          photoCategory: '',
+          model:        selectedModel,
           idToken,
         }),
       })
@@ -459,9 +449,14 @@ export default function AIAnalysis() {
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         if (errData.error === 'context_expired') {
-          setContextLoaded(false)
-          setClientContext(null)
-          throw new Error('Context expired after 30 min — click Reload Context to continue.')
+          if (isCompany) {
+            setCompanyContextLoaded(false)
+            setCompanyContext(null)
+          } else {
+            setContextLoaded(false)
+            setClientContext(null)
+          }
+          throw new Error('Context expired — click Reload to continue.')
         }
         throw new Error(errData.error || `HTTP ${res.status}`)
       }
@@ -485,7 +480,7 @@ export default function AIAnalysis() {
             try {
               const parsed = JSON.parse(payload)
               if (parsed.text) {
-                setMessages(prev => {
+                setActiveMsgs(prev => {
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
                   updated[updated.length - 1] = { ...last, content: last.content + parsed.text }
@@ -494,7 +489,7 @@ export default function AIAnalysis() {
               }
               if (parsed.error) {
                 setStreamError(parsed.error)
-                setMessages(prev => {
+                setActiveMsgs(prev => {
                   const updated = [...prev]
                   updated[updated.length - 1] = { ...updated[updated.length - 1], error: true, content: `Error: ${parsed.error}` }
                   return updated
@@ -506,25 +501,22 @@ export default function AIAnalysis() {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        // User stopped generation — mark the partial message as complete
-        setMessages(prev => {
+        setActiveMsgs(prev => {
           const updated = [...prev]
           const last = updated[updated.length - 1]
-          if (last?.streaming) {
-            updated[updated.length - 1] = { ...last, stopped: true }
-          }
+          if (last?.streaming) updated[updated.length - 1] = { ...last, stopped: true }
           return updated
         })
       } else {
         setStreamError(err.message)
-        setMessages(prev => {
+        setActiveMsgs(prev => {
           const updated = [...prev]
           updated[updated.length - 1] = { ...updated[updated.length - 1], error: true, content: `Connection error: ${err.message}` }
           return updated
         })
       }
     } finally {
-      setMessages(prev => {
+      setActiveMsgs(prev => {
         const updated = [...prev]
         if (updated[updated.length - 1]?.streaming) {
           updated[updated.length - 1] = { ...updated[updated.length - 1], streaming: false }
@@ -534,7 +526,8 @@ export default function AIAnalysis() {
       setStreaming(false)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [input, messages, streaming, contextLoaded, clientContext, contextFlags, selectedPhotoCategory, classifyStatus, selectedModel])
+  }, [input, messages, companyMessages, streaming, contextLoaded, companyContextLoaded,
+      clientContext, companyContext, selectedModel, mode])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -542,27 +535,31 @@ export default function AIAnalysis() {
 
   const handleQuickPrompt = useCallback((q) => {
     if (q.needsInput) { setActiveQuickPrompt(q); setQuickInputText('') }
-    else handleSend(q.prompt, { label: `${q.icon} ${q.label}`, forcePhotos: !!q.requiresPhotos })
+    else handleSend(q.prompt, { label: `${q.icon} ${q.label}` })
   }, [handleSend])
 
   const handleQuickInputSubmit = useCallback(() => {
     if (!activeQuickPrompt || !quickInputText.trim()) return
     const fullPrompt = activeQuickPrompt.buildPrompt(quickInputText.trim())
     const label = `${activeQuickPrompt.icon} ${activeQuickPrompt.label}`
-    const forcePhotos = !!activeQuickPrompt.requiresPhotos
     setActiveQuickPrompt(null)
     setQuickInputText('')
-    handleSend(fullPrompt, { label, forcePhotos })
+    handleSend(fullPrompt, { label })
   }, [activeQuickPrompt, quickInputText, handleSend])
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const summary = clientContext?.clientSummary
-  const stats = clientContext?.stats
-  const mitLabel = summary ? (MITIGATION_LABELS[summary.mitigationStep] || 'Not started') : null
-  const conLabel = summary ? (CONSTRUCTION_LABELS[summary.constructionStep] || 'Not started') : null
+  const summary    = clientContext?.clientSummary
+  const stats      = clientContext?.stats
+  const mitLabel   = summary ? (MITIGATION_LABELS[summary.mitigationStep] || 'Not started') : null
+  const conLabel   = summary ? (CONSTRUCTION_LABELS[summary.constructionStep] || 'Not started') : null
   const [avatarBg, avatarFg] = avatarColor(summary?.name || selectedClient?.name || '')
-
   const userInitial = (user?.displayName || user?.email || 'U')[0].toUpperCase()
+
+  const activeMessages       = mode === 'company' ? companyMessages      : messages
+  const activeContextLoaded  = mode === 'company' ? companyContextLoaded : contextLoaded
+  const activeContextLoading = mode === 'company' ? companyContextLoading : contextLoading
+  const currentPrompts       = mode === 'company' ? COMPANY_QUICK_PROMPTS : QUICK_PROMPTS
+  const companySummary       = companyContext?.companySummary
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -571,199 +568,234 @@ export default function AIAnalysis() {
       {/* ── Left sidebar ── */}
       <aside className="aa-sidebar">
         <div className="aa-sidebar-header">
-          <span className="aa-sidebar-title">AI Analysis</span>
+          <div className="aa-mode-tabs">
+            <button
+              className={`aa-mode-tab${mode === 'client' ? ' aa-mode-tab--active' : ''}`}
+              onClick={() => handleSwitchMode('client')}
+            >
+              Client AI
+            </button>
+            <button
+              className={`aa-mode-tab${mode === 'company' ? ' aa-mode-tab--active' : ''}`}
+              onClick={() => handleSwitchMode('company')}
+            >
+              Company AI
+            </button>
+          </div>
           <span className="aa-model-badge">
             {selectedModel === 'claude-sonnet-4-6' ? 'Sonnet' : 'Haiku'}
           </span>
         </div>
 
-        {/* LIST VIEW */}
-        {clientView === 'list' && (
-          <div className="aa-client-list-panel">
-            <div className="aa-list-filter-wrap">
-              <input
-                className="aa-list-filter"
-                placeholder={clientsLoading ? 'Loading…' : `Search ${clients.length} clients…`}
-                value={filter}
-                onChange={e => setFilter(e.target.value)}
-                disabled={clientsLoading}
-              />
-            </div>
-            <div className="aa-client-list">
-              {clientsLoading ? (
-                <div className="aa-list-loading"><span className="aa-btn-spinner" /></div>
-              ) : filteredClients.length === 0 ? (
-                <div className="aa-list-empty">No clients found</div>
-              ) : filteredClients.map(c => {
-                const [bg, fg] = avatarColor(c.name || c.phone || '')
-                return (
-                  <button
-                    key={c.docId}
-                    className={`aa-client-row${selectedClient?.docId === c.docId ? ' aa-client-row--active' : ''}`}
-                    onClick={() => handleSelectClient(c)}
-                  >
-                    <div className="aa-client-row-avatar" style={{ background: bg, color: fg }}>
-                      {(c.name || c.phone || '?')[0].toUpperCase()}
-                    </div>
-                    <div className="aa-client-row-info">
-                      <div className="aa-client-row-name">{c.name || c.phone || '—'}</div>
-                      {c.address && <div className="aa-client-row-addr">{c.address}</div>}
-                    </div>
-                    {c.claimStatus === 'open' && <span className="aa-client-row-badge">Open</span>}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* DETAIL VIEW */}
-        {clientView === 'detail' && selectedClient && (
-          <div className="aa-detail-panel">
-            <div className="aa-detail-topbar">
-              <button className="aa-back-btn" onClick={() => { setClientView('list'); setFilter('') }}>
-                ← Clients
-              </button>
-              <button className="aa-terminate-btn" onClick={handleTerminateSession} title="End session">
-                End Session
-              </button>
-            </div>
-
-            <div className="aa-selected-card">
-              <div className="aa-client-avatar" style={{ background: avatarBg, color: avatarFg }}>
-                {(selectedClient.name || selectedClient.phone || '?')[0].toUpperCase()}
-              </div>
-              <div className="aa-client-info">
-                <div className="aa-client-name">{selectedClient.name || '—'}</div>
-                <div className="aa-client-detail">{fmtPhone(selectedClient.phone)}</div>
-                {selectedClient.address && <div className="aa-client-detail aa-client-addr">{selectedClient.address}</div>}
-              </div>
-            </div>
-
-            <div className="aa-section">
-              <div className="aa-section-label">Include in context</div>
-              <div className="aa-flags">
-                {Object.entries(FLAG_LABELS).map(([key, label]) => (
-                  <label key={key} className="aa-flag-row">
-                    <input type="checkbox" checked={contextFlags[key]}
-                      onChange={() => setContextFlags(prev => ({ ...prev, [key]: !prev[key] }))} />
-                    <span>{label}</span>
-                  </label>
-                ))}
-              </div>
-              <button
-                className="aa-load-btn"
-                onClick={handleLoadContext}
-                disabled={contextLoading || !selectedClient.uid}
-              >
-                {contextLoading
-                  ? <><span className="aa-btn-spinner" /> Loading context…</>
-                  : '↺ Reload Context'}
-              </button>
-            </div>
-
-            {contextLoaded && stats && summary && (
-              <div className="aa-section">
-                <div className="aa-section-label">Context loaded · {timeAgo(clientContext?.expiresAt ? new Date(new Date(clientContext.expiresAt).getTime() - 30 * 60 * 1000).toISOString() : null)}</div>
-
-                {summary.claimNumbers?.length > 0 && (
-                  <div className="aa-stat-row">
-                    <span className="aa-stat-label">Claim #</span>
-                    <span className="aa-stat-val">{summary.claimNumbers[0]}</span>
-                  </div>
-                )}
-
-                <div className="aa-progress-section">
-                  <div className="aa-progress-label">Mitigation</div>
-                  <div className="aa-progress-bar-wrap">
-                    <div className="aa-progress-bar" style={{ width: `${Math.max(0, ((summary.mitigationStep + 1) / 5) * 100)}%`, background: '#2563eb' }} />
-                  </div>
-                  <div className="aa-progress-text">{mitLabel}</div>
-                  <div className="aa-progress-label" style={{ marginTop: 8 }}>Construction</div>
-                  <div className="aa-progress-bar-wrap">
-                    <div className="aa-progress-bar" style={{ width: `${Math.max(0, ((summary.constructionStep + 1) / 4) * 100)}%`, background: '#16a34a' }} />
-                  </div>
-                  <div className="aa-progress-text">{conLabel}</div>
+        {/* ── CLIENT AI SIDEBAR ── */}
+        {mode === 'client' && (
+          <>
+            {clientView === 'list' && (
+              <div className="aa-client-list-panel">
+                <div className="aa-list-filter-wrap">
+                  <input
+                    className="aa-list-filter"
+                    placeholder={clientsLoading ? 'Loading…' : `Search ${clients.length} clients…`}
+                    value={filter}
+                    onChange={e => setFilter(e.target.value)}
+                    disabled={clientsLoading}
+                  />
                 </div>
-
-                <div className="aa-stats-grid">
-                  <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.pendingTodos ?? 0}</div><div className="aa-stat-chip-lbl">Tasks</div></div>
-                  <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.documentCount ?? 0}</div><div className="aa-stat-chip-lbl">Documents</div></div>
-                  <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.selectionCount ?? 0}</div><div className="aa-stat-chip-lbl">Selections</div></div>
-                  <div className="aa-stat-chip"><div className="aa-stat-chip-val">{photoClassifications?.total ?? stats.photoCount ?? 0}</div><div className="aa-stat-chip-lbl">Photos</div></div>
-                </div>
-
-                {stats.budgetTotal > 0 && (
-                  <div className="aa-budget-total">
-                    <span className="aa-stat-label">Budget</span>
-                    <span className="aa-budget-amount">{fmtCurrency(stats.budgetTotal)}</span>
-                  </div>
-                )}
-
-                {summary.adjuster?.name && (
-                  <div className="aa-adjuster-block">
-                    <div className="aa-section-label" style={{ marginBottom: 4 }}>Adjuster</div>
-                    <div className="aa-adjuster-name">{summary.adjuster.name}</div>
-                    {summary.adjuster.company && <div className="aa-adjuster-detail">{summary.adjuster.company}</div>}
-                  </div>
-                )}
-
-                {stats.hasPhotos && (
-                  <div className="aa-photos-section">
-                    <div className="aa-section-label" style={{ marginTop: 12 }}>CompanyCam Photos</div>
-                    {classifyStatus === 'idle' && (
-                      <button className="aa-load-btn" onClick={handleClassifyPhotos}>
-                        Analyze &amp; Classify Photos
+                <div className="aa-client-list">
+                  {clientsLoading ? (
+                    <div className="aa-list-loading"><span className="aa-btn-spinner aa-btn-spinner--dark" /></div>
+                  ) : filteredClients.length === 0 ? (
+                    <div className="aa-list-empty">No clients found</div>
+                  ) : filteredClients.map(c => {
+                    const [bg, fg] = avatarColor(c.name || c.phone || '')
+                    return (
+                      <button
+                        key={c.docId}
+                        className={`aa-client-row${selectedClient?.docId === c.docId ? ' aa-client-row--active' : ''}`}
+                        onClick={() => handleSelectClient(c)}
+                      >
+                        <div className="aa-client-row-avatar" style={{ background: bg, color: fg }}>
+                          {(c.name || c.phone || '?')[0].toUpperCase()}
+                        </div>
+                        <div className="aa-client-row-info">
+                          <div className="aa-client-row-name">{c.name || c.phone || '—'}</div>
+                          {c.address && <div className="aa-client-row-addr">{c.address}</div>}
+                        </div>
+                        {c.claimStatus === 'open' && <span className="aa-client-row-badge">Open</span>}
                       </button>
-                    )}
-                    {classifyStatus === 'loading' && (
-                      <div className="aa-classify-loading">
-                        <span className="aa-btn-spinner" /> Classifying photos…
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {clientView === 'detail' && selectedClient && (
+              <div className="aa-detail-panel">
+                <div className="aa-detail-topbar">
+                  <button className="aa-back-btn" onClick={() => { setClientView('list'); setFilter('') }}>
+                    ← Clients
+                  </button>
+                  <button className="aa-terminate-btn" onClick={handleTerminateSession}>
+                    End Session
+                  </button>
+                </div>
+
+                <div className="aa-selected-card">
+                  <div className="aa-client-avatar" style={{ background: avatarBg, color: avatarFg }}>
+                    {(selectedClient.name || selectedClient.phone || '?')[0].toUpperCase()}
+                  </div>
+                  <div className="aa-client-info">
+                    <div className="aa-client-name">{selectedClient.name || '—'}</div>
+                    <div className="aa-client-detail">{fmtPhone(selectedClient.phone)}</div>
+                    {selectedClient.address && <div className="aa-client-detail aa-client-addr">{selectedClient.address}</div>}
+                  </div>
+                </div>
+
+                <div className="aa-section">
+                  <div className="aa-section-label">Include in context</div>
+                  <div className="aa-flags">
+                    {Object.entries(FLAG_LABELS).map(([key, label]) => (
+                      <label key={key} className="aa-flag-row">
+                        <input type="checkbox" checked={contextFlags[key]}
+                          onChange={() => setContextFlags(prev => ({ ...prev, [key]: !prev[key] }))} />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    className="aa-load-btn"
+                    onClick={handleLoadContext}
+                    disabled={contextLoading || !selectedClient.uid}
+                  >
+                    {contextLoading
+                      ? <><span className="aa-btn-spinner" /> Loading…</>
+                      : contextLoaded ? '↺ Reload Context' : 'Load Context'}
+                  </button>
+                  {!selectedClient.uid && (
+                    <p className="aa-load-hint">This client hasn't logged in yet — no AI context available.</p>
+                  )}
+                </div>
+
+                {contextLoaded && stats && summary && (
+                  <div className="aa-section">
+                    <div className="aa-section-label">Context loaded</div>
+
+                    {summary.claimNumbers?.length > 0 && (
+                      <div className="aa-stat-row">
+                        <span className="aa-stat-label">Claim #</span>
+                        <span className="aa-stat-val">{summary.claimNumbers[0]}</span>
                       </div>
                     )}
-                    {classifyStatus === 'ready' && photoClassifications && (
-                      <>
-                        <div className="aa-photos-summary">
-                          {photoClassifications.total} photos · {Object.keys(photoClassifications.categories).length} categories
-                        </div>
-                        <div className="aa-photo-cats">
-                          {Object.entries(photoClassifications.categories)
-                            .sort((a, b) => b[1].length - a[1].length)
-                            .map(([cat, photos]) => (
-                              <button
-                                key={cat}
-                                className={`aa-cat-chip${selectedPhotoCategory === cat ? ' aa-cat-chip--active' : ''}`}
-                                onClick={() => setSelectedPhotoCategory(prev => prev === cat ? null : cat)}
-                              >
-                                {cat}
-                                <span className="aa-cat-count">{photos.length}</span>
-                              </button>
-                            ))}
-                        </div>
-                        {selectedPhotoCategory && (
-                          <button className="aa-clear-cat-btn" onClick={() => setSelectedPhotoCategory(null)}>
-                            ✕ Clear photo filter
-                          </button>
-                        )}
-                        <button
-                          className="aa-load-btn"
-                          style={{ marginTop: 8 }}
-                          onClick={handleClassifyPhotos}
-                        >
-                          ↺ Re-classify
-                        </button>
-                      </>
+
+                    <div className="aa-progress-section">
+                      <div className="aa-progress-label">Mitigation</div>
+                      <div className="aa-progress-bar-wrap">
+                        <div className="aa-progress-bar" style={{ width: `${Math.max(0, ((summary.mitigationStep + 1) / 5) * 100)}%`, background: '#2563eb' }} />
+                      </div>
+                      <div className="aa-progress-text">{mitLabel}</div>
+                      <div className="aa-progress-label" style={{ marginTop: 8 }}>Construction</div>
+                      <div className="aa-progress-bar-wrap">
+                        <div className="aa-progress-bar" style={{ width: `${Math.max(0, ((summary.constructionStep + 1) / 4) * 100)}%`, background: '#16a34a' }} />
+                      </div>
+                      <div className="aa-progress-text">{conLabel}</div>
+                    </div>
+
+                    <div className="aa-stats-grid">
+                      <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.pendingTodos ?? 0}</div><div className="aa-stat-chip-lbl">Tasks</div></div>
+                      <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.documentCount ?? 0}</div><div className="aa-stat-chip-lbl">Docs</div></div>
+                      <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.selectionCount ?? 0}</div><div className="aa-stat-chip-lbl">Selections</div></div>
+                      <div className="aa-stat-chip"><div className="aa-stat-chip-val">{stats.budgetItemCount ?? 0}</div><div className="aa-stat-chip-lbl">Budget</div></div>
+                    </div>
+
+                    {stats.budgetTotal > 0 && (
+                      <div className="aa-budget-total">
+                        <span className="aa-stat-label">Budget Total</span>
+                        <span className="aa-budget-amount">{fmtCurrency(stats.budgetTotal)}</span>
+                      </div>
                     )}
-                    {classifyStatus === 'error' && (
-                      <button className="aa-load-btn" onClick={handleClassifyPhotos}>
-                        ↺ Retry Classification
+
+                    {summary.adjuster?.name && (
+                      <div className="aa-adjuster-block">
+                        <div className="aa-section-label" style={{ marginBottom: 4 }}>Adjuster</div>
+                        <div className="aa-adjuster-name">{summary.adjuster.name}</div>
+                        {summary.adjuster.company && <div className="aa-adjuster-detail">{summary.adjuster.company}</div>}
+                      </div>
+                    )}
+
+                    {messages.length > 0 && (
+                      <button className="aa-clear-btn" onClick={() => { setMessages([]); setStreamError('') }}>
+                        Clear conversation
                       </button>
                     )}
                   </div>
                 )}
+              </div>
+            )}
+          </>
+        )}
 
-                {messages.length > 0 && (
-                  <button className="aa-clear-btn" onClick={() => { setMessages([]); setStreamError('') }}>
+        {/* ── COMPANY AI SIDEBAR ── */}
+        {mode === 'company' && (
+          <div className="aa-company-panel">
+            <div className="aa-section">
+              <div className="aa-section-label">Organization Analytics</div>
+              <p className="aa-load-hint">
+                Load your company's settlements, partner performance, and revenue data to ask the AI anything about your business.
+              </p>
+              <button
+                className="aa-load-btn"
+                onClick={handleLoadCompanyContext}
+                disabled={companyContextLoading || !orgId}
+              >
+                {companyContextLoading
+                  ? <><span className="aa-btn-spinner" /> Loading data…</>
+                  : companyContextLoaded ? '↺ Refresh Data' : 'Load Company Data'}
+              </button>
+            </div>
+
+            {companyContextLoaded && companySummary && (
+              <div className="aa-section">
+                <div className="aa-section-label">Data loaded</div>
+                <div className="aa-co-kpi-grid">
+                  <div className="aa-co-kpi">
+                    <div className="aa-co-kpi-val">{companySummary.totalClients ?? 0}</div>
+                    <div className="aa-co-kpi-lbl">Clients</div>
+                  </div>
+                  <div className="aa-co-kpi">
+                    <div className="aa-co-kpi-val">{companySummary.openClaims ?? 0}</div>
+                    <div className="aa-co-kpi-lbl">Open</div>
+                  </div>
+                  <div className="aa-co-kpi">
+                    <div className="aa-co-kpi-val">{companySummary.totalPartners ?? 0}</div>
+                    <div className="aa-co-kpi-lbl">Partners</div>
+                  </div>
+                  <div className="aa-co-kpi">
+                    <div className="aa-co-kpi-val">{companySummary.totalSettlements ?? 0}</div>
+                    <div className="aa-co-kpi-lbl">Settlements</div>
+                  </div>
+                </div>
+
+                {companySummary.totalEstimate > 0 && (
+                  <div className="aa-budget-total">
+                    <span className="aa-stat-label">Pipeline Value</span>
+                    <span className="aa-budget-amount">{fmtCurrency(companySummary.totalEstimate)}</span>
+                  </div>
+                )}
+                {companySummary.totalSettled > 0 && (
+                  <div className="aa-budget-total" style={{ borderTop: 'none', paddingTop: 0 }}>
+                    <span className="aa-stat-label">Total Settled</span>
+                    <span className="aa-budget-amount">{fmtCurrency(companySummary.totalSettled)}</span>
+                  </div>
+                )}
+                {companySummary.totalOutstanding > 0 && (
+                  <div className="aa-budget-total" style={{ borderTop: 'none', paddingTop: 0 }}>
+                    <span className="aa-stat-label">Outstanding</span>
+                    <span className="aa-budget-amount" style={{ color: '#ca8a04' }}>{fmtCurrency(companySummary.totalOutstanding)}</span>
+                  </div>
+                )}
+
+                {companyMessages.length > 0 && (
+                  <button className="aa-clear-btn" onClick={() => { setCompanyMessages([]); setStreamError('') }}>
                     Clear conversation
                   </button>
                 )}
@@ -776,14 +808,14 @@ export default function AIAnalysis() {
       {/* ── Main chat area ── */}
       <div className="aa-chat-area">
 
-        {/* Empty states */}
-        {!selectedClient && (
+        {/* ── Client AI empty states ── */}
+        {mode === 'client' && !selectedClient && (
           <div className="aa-empty-state">
             <div className="aa-empty-orb" />
-            <h2 className="aa-empty-title">AI Claim Analysis</h2>
+            <h2 className="aa-empty-title">Client AI Analysis</h2>
             <p className="aa-empty-desc">
-              Select a client, load their context, and ask anything about their claim —
-              documents, photos, budget, tasks, and more.
+              Select a client from the sidebar, load their claim context, and ask anything —
+              documents, tasks, budget, adjuster replies, and more.
             </p>
             <div className="aa-empty-chips">
               {QUICK_PROMPTS.map(q => <div key={q.label} className="aa-empty-chip"><span>{q.icon}</span> {q.label}</div>)}
@@ -791,55 +823,85 @@ export default function AIAnalysis() {
           </div>
         )}
 
-        {selectedClient && !contextLoaded && !contextLoading && (
+        {mode === 'client' && selectedClient && !contextLoaded && !contextLoading && (
           <div className="aa-empty-state">
             <div className="aa-empty-icon">📂</div>
             <h2 className="aa-empty-title">{selectedClient.name || 'Client selected'}</h2>
-            <p className="aa-empty-desc">Loading claim context…</p>
+            <p className="aa-empty-desc">
+              Click <strong>Load Context</strong> in the sidebar to load this client's claim data, then start asking questions.
+            </p>
           </div>
         )}
 
-        {contextLoading && (
+        {mode === 'client' && contextLoading && (
           <div className="aa-empty-state aa-empty-state--loading">
             <div className="aa-loading-ring" />
-            <p className="aa-loading-label">
-              Loading claim context…
-            </p>
-            <LoadingSteps includePhotos={false} />
+            <p className="aa-loading-label">Loading claim context…</p>
           </div>
         )}
 
-        {/* Welcome / quick prompts */}
-        {contextLoaded && messages.length === 0 && !streaming && (
+        {/* ── Company AI empty states ── */}
+        {mode === 'company' && !companyContextLoaded && !companyContextLoading && (
+          <div className="aa-empty-state">
+            <div className="aa-empty-orb aa-empty-orb--green" />
+            <h2 className="aa-empty-title">Company AI</h2>
+            <p className="aa-empty-desc">
+              Load your organization's data to ask questions about revenue, partners, settlement rates, pipeline, and business performance.
+            </p>
+            <div className="aa-empty-chips">
+              {COMPANY_QUICK_PROMPTS.map(q => <div key={q.label} className="aa-empty-chip"><span>{q.icon}</span> {q.label}</div>)}
+            </div>
+          </div>
+        )}
+
+        {mode === 'company' && companyContextLoading && (
+          <div className="aa-empty-state aa-empty-state--loading">
+            <div className="aa-loading-ring" />
+            <p className="aa-loading-label">Loading company data…</p>
+          </div>
+        )}
+
+        {/* ── Welcome / quick prompts ── */}
+        {mode === 'client' && contextLoaded && messages.length === 0 && !streaming && (
           <div className="aa-welcome">
             <div className="aa-welcome-header">
               <span className="aa-welcome-icon">✓</span>
               <span>Context loaded for <strong>{summary?.name}</strong></span>
             </div>
-            {classifyStatus === 'ready' && photoClassifications?.total > 0 && (
-              <div className="aa-welcome-photos">
-                📸 {photoClassifications.total} photos classified · {selectedPhotoCategory
-                  ? `filtering by "${selectedPhotoCategory}"`
-                  : 'select a category in the sidebar to include photos'}
-              </div>
-            )}
             <p className="aa-welcome-hint">Ask anything or pick a quick prompt:</p>
             <div className="aa-quick-prompts">
               {QUICK_PROMPTS.map(q => (
                 <button key={q.label} className="aa-quick-btn" onClick={() => handleQuickPrompt(q)}>
                   <span className="aa-quick-icon">{q.icon}</span>
                   <span>{q.label}</span>
-                  {q.requiresPhotos && classifyStatus === 'ready' && <span className="aa-quick-photo-badge">📷</span>}
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Messages */}
-        {messages.length > 0 && (
+        {mode === 'company' && companyContextLoaded && companyMessages.length === 0 && !streaming && (
+          <div className="aa-welcome">
+            <div className="aa-welcome-header">
+              <span className="aa-welcome-icon aa-welcome-icon--green">✓</span>
+              <span>Company data loaded — {companySummary?.totalSettlements ?? 0} settlements, {companySummary?.totalPartners ?? 0} partners</span>
+            </div>
+            <p className="aa-welcome-hint">Ask anything about your business:</p>
+            <div className="aa-quick-prompts">
+              {COMPANY_QUICK_PROMPTS.map(q => (
+                <button key={q.label} className="aa-quick-btn" onClick={() => handleQuickPrompt(q)}>
+                  <span className="aa-quick-icon">{q.icon}</span>
+                  <span>{q.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Messages ── */}
+        {activeMessages.length > 0 && (
           <div className="aa-messages">
-            {messages.map((msg, idx) => (
+            {activeMessages.map((msg, idx) => (
               <div key={idx} className={`aa-message aa-message--${msg.role}${msg.error ? ' aa-message--error' : ''}${msg.streaming ? ' aa-message--streaming' : ''}`}>
 
                 {msg.role === 'user' ? (
@@ -853,13 +915,11 @@ export default function AIAnalysis() {
                   </>
                 ) : (
                   <>
-                    <div className={`aa-ai-orb${msg.streaming ? ' aa-ai-orb--active' : ''}`} />
+                    <div className={`aa-ai-orb${msg.streaming ? ' aa-ai-orb--active' : ''}${mode === 'company' ? ' aa-ai-orb--green' : ''}`} />
                     <div className="aa-message-bubble">
                       {msg.content ? <MarkdownMessage text={msg.content} /> : null}
                       {msg.streaming && !msg.content && (
-                        <TypewriterStatus
-                          phrases={selectedPhotoCategory ? PHOTO_THINKING_PHRASES : THINKING_PHRASES}
-                        />
+                        <TypewriterStatus phrases={mode === 'company' ? COMPANY_THINKING_PHRASES : THINKING_PHRASES} />
                       )}
                       {msg.streaming && msg.content && <span className="aa-cursor">▋</span>}
                       {msg.stopped && <span className="aa-stopped-badge">— stopped</span>}
@@ -881,7 +941,7 @@ export default function AIAnalysis() {
           </div>
         )}
 
-        {/* Error banner */}
+        {/* ── Error banner ── */}
         {streamError && (
           <div className="aa-error-banner">
             <span>{streamError}</span>
@@ -889,11 +949,10 @@ export default function AIAnalysis() {
           </div>
         )}
 
-        {/* Input area */}
-        {contextLoaded && (
+        {/* ── Input area ── */}
+        {activeContextLoaded && (
           <div className="aa-input-area">
 
-            {/* Quick input card */}
             {activeQuickPrompt && (
               <div className="aa-quick-input-card">
                 <div className="aa-quick-input-header">
@@ -923,10 +982,9 @@ export default function AIAnalysis() {
               </div>
             )}
 
-            {/* Quick pill bar */}
-            {messages.length > 0 && !streaming && !activeQuickPrompt && (
+            {activeMessages.length > 0 && !streaming && !activeQuickPrompt && (
               <div className="aa-quick-bar">
-                {QUICK_PROMPTS.map(q => (
+                {currentPrompts.map(q => (
                   <button key={q.label} className="aa-quick-pill" onClick={() => handleQuickPrompt(q)}>
                     {q.icon} {q.label}
                   </button>
@@ -934,12 +992,15 @@ export default function AIAnalysis() {
               </div>
             )}
 
-            {/* Textarea + send/stop */}
             <div className="aa-input-row">
               <textarea
                 ref={inputRef}
                 className="aa-textarea"
-                placeholder={streaming ? 'Claude is responding…' : 'Ask about this client\'s claim…'}
+                placeholder={streaming
+                  ? 'Claude is responding…'
+                  : mode === 'company'
+                    ? 'Ask about revenue, partners, pipeline, settlement rates…'
+                    : "Ask about this client's claim…"}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -957,9 +1018,6 @@ export default function AIAnalysis() {
 
             <div className="aa-input-footer">
               <span className="aa-input-hint">Enter to send · Shift+Enter for new line</span>
-              {selectedPhotoCategory && (
-                <span className="aa-photo-hint">📸 {selectedPhotoCategory}</span>
-              )}
               {isAdmin && (
                 <select className="aa-model-select" value={selectedModel}
                   onChange={e => setSelectedModel(e.target.value)} disabled={streaming}>

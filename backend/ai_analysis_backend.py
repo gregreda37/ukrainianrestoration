@@ -58,17 +58,33 @@ CONSTRUCTION_LABELS = [
 
 SYSTEM_PROMPT = """You are an expert restoration claim analyst for Ukrainian Restoration, a property damage and restoration construction company. You specialize in insurance claims, water/fire/storm damage assessment, construction timelines, and client management.
 
-You have been given a complete client case file and have access to their claim information, uploaded documents, CompanyCam site photos, tasks, material selections, budget, and activity history.
+You have been given a complete client case file and have access to their claim information, uploaded documents, tasks, material selections, budget, and activity history.
 
 Your role:
 - Provide specific, data-grounded analysis based on the actual case file provided
 - Identify missing documentation, incomplete tasks, or risks that could slow the claim
-- Analyze property damage from photos when available — be specific about damage types, scope, and location
 - Help the contractor prioritize next steps and flag urgencies
 - Generate clear summaries and client-ready reports when asked
 - Flag concerns about timeline, budget discrepancies, or claim status
 
 Always cite specific numbers, names, and dates from the case file. Be direct and actionable."""
+
+COMPANY_SYSTEM_PROMPT = """You are an expert business analyst for Ukrainian Restoration, a property damage and restoration construction company. You have complete access to the company's organizational data.
+
+You have been given comprehensive data including:
+- All active clients and claim statuses
+- Referral partner performance and fee records
+- Settlement records with detailed financial data (estimates, settlements, company receivables, expenses, referral fees)
+- Revenue metrics across the entire pipeline
+
+Your role:
+- Provide clear, data-driven business insights using specific numbers from the data
+- Calculate and explain key metrics (settlement rates, partner ROI, revenue by insurer, pipeline value)
+- Identify top-performing partners, insurers, and opportunities for growth
+- Flag underperforming relationships, stalled claims, or revenue gaps
+- Help prioritize follow-ups and business decisions with evidence
+
+Always cite specific figures. Be direct, analytical, and actionable. Format with headers and tables where appropriate."""
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -482,6 +498,246 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@ai_analysis_app.route("/company-context", methods=["POST"])
+def get_company_context():
+    caller_uid, err = _require_auth()
+    if err:
+        return err
+
+    data   = request.json or {}
+    org_id = data.get("orgId", "")
+    if not org_id:
+        return jsonify({"error": "orgId required"}), 400
+
+    try:
+        db        = admin_firestore.client()
+        cache_key = f"{CACHE_VERSION}_co_{org_id}_{caller_uid}"
+
+        # Fast path — return cached company context if still fresh
+        cached = db.collection("ai_context_cache").document(cache_key).get()
+        if cached.exists:
+            cd  = cached.to_dict()
+            exp = cd.get("expiresAt", "")
+            try:
+                if exp and datetime.now(timezone.utc) < datetime.fromisoformat(exp):
+                    print(f"[ai/company-context] cache hit for {cache_key}")
+                    return jsonify({
+                        "cacheKey":       cache_key,
+                        "companySummary": cd.get("companySummary", {}),
+                        "expiresAt":      exp,
+                    })
+            except ValueError:
+                pass
+
+        # Parallel fetch from Firestore
+        org_ref = db.collection("organization_data").document(org_id)
+
+        def _fetch_settlements():
+            return list(org_ref.collection("settlement_summary").stream())
+
+        def _fetch_partners():
+            return list(org_ref.collection("partners").stream())
+
+        def _fetch_clients():
+            return list(org_ref.collection("clients").stream())
+
+        def _fetch_invoices():
+            return list(org_ref.collection("invoice_summary").stream())
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            f_s, f_p, f_c, f_i = (
+                pool.submit(_fetch_settlements),
+                pool.submit(_fetch_partners),
+                pool.submit(_fetch_clients),
+                pool.submit(_fetch_invoices),
+            )
+            sett_snaps = f_s.result()
+            part_snaps = f_p.result()
+            cli_snaps  = f_c.result()
+            inv_snaps  = f_i.result()
+
+        lines = []
+
+        # Clients overview
+        clients    = [d.to_dict() for d in cli_snaps]
+        active_cli = [c for c in clients if not c.get("archived")]
+        open_cli   = [c for c in active_cli if c.get("claimStatus") == "open"]
+        closed_cli = [c for c in active_cli if c.get("claimStatus") == "closed"]
+
+        lines.append("## COMPANY OVERVIEW")
+        lines.append(f"Total Active Clients: {len(active_cli)}")
+        lines.append(f"Open Claims: {len(open_cli)}")
+        lines.append(f"Closed Claims: {len(closed_cli)}")
+
+        # Partners
+        partners = [
+            d.to_dict() | {"id": d.id}
+            for d in part_snaps if not d.to_dict().get("archived")
+        ]
+        lines.append(f"\n## REFERRAL PARTNERS ({len(partners)} active)")
+        for p in sorted(partners, key=lambda x: x.get("name", "")):
+            parts_str = []
+            if p.get("email"):  parts_str.append(f"email: {p['email']}")
+            if p.get("phone"):  parts_str.append(f"phone: {p['phone']}")
+            suffix = f" ({', '.join(parts_str)})" if parts_str else ""
+            lines.append(f"  - {p.get('name', 'Unknown')}{suffix}")
+
+        # Settlement records
+        setts = [d.to_dict() | {"id": d.id} for d in sett_snaps]
+
+        def _num(s, *keys):
+            for k in keys:
+                v = s.get(k)
+                if v is not None:
+                    try: return float(v)
+                    except (TypeError, ValueError): pass
+            return 0.0
+
+        total_estimate    = sum(_num(s, "totalEstimate")    for s in setts)
+        total_settled     = sum(_num(s, "totalSettled")     for s in setts)
+        total_recoup      = sum(_num(s, "companyRecoup")    for s in setts)
+        total_expenses    = sum(_num(s, "totalExpenses")    for s in setts)
+        total_partner_fee = sum(_num(s, "partnerFee")       for s in setts)
+        total_paid        = sum(_num(s, "totalPaidAmount")  for s in setts)
+        total_outstanding = sum(_num(s, "totalOutstanding") for s in setts)
+        total_gross       = sum(_num(s, "grossProfit") for s in setts if s.get("grossProfit") is not None)
+
+        paid_setts    = [s for s in setts if s.get("paid")]
+        settled_setts = [s for s in setts if _num(s, "totalSettled") > 0]
+        pending_setts = [s for s in setts if _num(s, "totalSettled") == 0]
+
+        lines.append(f"\n## SETTLEMENT FINANCIAL METRICS")
+        lines.append(f"Total Settlement Records: {len(setts)}")
+        lines.append(f"Total Estimate Pipeline: ${total_estimate:,.2f}")
+        lines.append(f"Total Insurance Settlement Collected: ${total_settled:,.2f}")
+        lines.append(f"Total Company Receivable (Recoup): ${total_recoup:,.2f}")
+        lines.append(f"Total Expenses: ${total_expenses:,.2f}")
+        lines.append(f"Total Gross Profit: ${total_gross:,.2f}")
+        lines.append(f"Total Referral Fees Paid to Partners: ${total_partner_fee:,.2f}")
+        lines.append(f"Total Collected by Company: ${total_paid:,.2f}")
+        lines.append(f"Total Outstanding (Owed to Company): ${total_outstanding:,.2f}")
+        lines.append(f"Records with Insurance Settlement: {len(settled_setts)}")
+        lines.append(f"Fully Paid to Company: {len(paid_setts)}")
+        lines.append(f"Pending (No Insurance Settlement Yet): {len(pending_setts)}")
+
+        if total_estimate > 0 and total_settled > 0:
+            recovery_rate = total_settled / total_estimate * 100
+            lines.append(f"Overall Recovery Rate (Settled / Estimate): {recovery_rate:.1f}%")
+
+        # Per-partner breakdown
+        partner_stats: dict[str, dict] = {}
+        for s in setts:
+            pname = (s.get("partnerName") or "").strip()
+            if not pname:
+                continue
+            if pname not in partner_stats:
+                partner_stats[pname] = {"claims": 0, "estimate": 0.0, "settled": 0.0, "recoup": 0.0, "fee": 0.0, "paid": 0.0}
+            partner_stats[pname]["claims"]   += 1
+            partner_stats[pname]["estimate"] += _num(s, "totalEstimate")
+            partner_stats[pname]["settled"]  += _num(s, "totalSettled")
+            partner_stats[pname]["recoup"]   += _num(s, "companyRecoup")
+            partner_stats[pname]["fee"]      += _num(s, "partnerFee")
+            partner_stats[pname]["paid"]     += _num(s, "totalPaidAmount")
+
+        if partner_stats:
+            lines.append(f"\n## PARTNER PERFORMANCE")
+            for pname, ps in sorted(partner_stats.items(), key=lambda x: x[1]["claims"], reverse=True):
+                rate = (ps["settled"] / ps["estimate"] * 100) if ps["estimate"] > 0 else 0
+                net  = ps["recoup"] - ps["fee"]
+                lines.append(f"\n  {pname}:")
+                lines.append(f"    Total Claims: {ps['claims']}")
+                lines.append(f"    Total Estimate: ${ps['estimate']:,.2f}")
+                lines.append(f"    Total Insurance Settlement: ${ps['settled']:,.2f} ({rate:.0f}% of estimate)")
+                lines.append(f"    Company Receivable (Recoup): ${ps['recoup']:,.2f}")
+                lines.append(f"    Referral Fees Paid: ${ps['fee']:,.2f}")
+                lines.append(f"    Net to Company After Fees: ${net:,.2f}")
+
+        # Per-insurer breakdown
+        insurer_stats: dict[str, dict] = {}
+        for s in setts:
+            ins = (s.get("insuranceCompany") or "Unknown").strip() or "Unknown"
+            if ins not in insurer_stats:
+                insurer_stats[ins] = {"claims": 0, "estimate": 0.0, "settled": 0.0}
+            insurer_stats[ins]["claims"]   += 1
+            insurer_stats[ins]["estimate"] += _num(s, "totalEstimate")
+            insurer_stats[ins]["settled"]  += _num(s, "totalSettled")
+
+        if insurer_stats:
+            lines.append(f"\n## INSURER BREAKDOWN")
+            for ins, st in sorted(insurer_stats.items(), key=lambda x: x[1]["claims"], reverse=True):
+                rate = (st["settled"] / st["estimate"] * 100) if st["estimate"] > 0 else 0
+                lines.append(
+                    f"  {ins}: {st['claims']} claims | Estimate: ${st['estimate']:,.2f} | "
+                    f"Settled: ${st['settled']:,.2f} ({rate:.0f}%)"
+                )
+
+        # Individual settlement records (top 60 by estimate)
+        lines.append(f"\n## INDIVIDUAL SETTLEMENT RECORDS (top 60 by estimate)")
+        for s in sorted(setts, key=lambda x: _num(x, "totalEstimate"), reverse=True)[:60]:
+            partner_str = f" | Partner: {s['partnerName']}" if s.get("partnerName") else ""
+            ins_str     = f" | Insurer: {s['insuranceCompany']}" if s.get("insuranceCompany") else ""
+            recoup_v    = _num(s, "companyRecoup")
+            fee_v       = _num(s, "partnerFee")
+            recoup_str  = f" | Recoup: ${recoup_v:,.0f}" if recoup_v else ""
+            fee_str     = f" | Fee: ${fee_v:,.0f}" if fee_v else ""
+            paid_str    = " | PAID" if s.get("paid") else ""
+            lines.append(
+                f"  - {s.get('clientName', 'Unknown')}{partner_str}{ins_str} | "
+                f"Estimate: ${_num(s, 'totalEstimate'):,.0f} | "
+                f"Settled: ${_num(s, 'totalSettled'):,.0f}"
+                f"{recoup_str}{fee_str}{paid_str}"
+            )
+
+        # Invoices summary
+        invs = [d.to_dict() for d in inv_snaps]
+        if invs:
+            inv_total = sum(_num(i, "total") for i in invs)
+            inv_paid  = sum(_num(i, "total") for i in invs if i.get("status") == "paid")
+            lines.append(f"\n## INVOICE SUMMARY")
+            lines.append(f"Total Invoices: {len(invs)}")
+            lines.append(f"Total Invoiced: ${inv_total:,.2f}")
+            lines.append(f"Total Paid: ${inv_paid:,.2f}")
+            lines.append(f"Outstanding Invoices: ${inv_total - inv_paid:,.2f}")
+
+        context_string = "\n".join(lines)
+
+        company_summary = {
+            "totalClients":     len(active_cli),
+            "openClaims":       len(open_cli),
+            "closedClaims":     len(closed_cli),
+            "totalPartners":    len(partners),
+            "totalSettlements": len(setts),
+            "totalEstimate":    round(total_estimate, 2),
+            "totalSettled":     round(total_settled, 2),
+            "totalRecoup":      round(total_recoup, 2),
+            "totalOutstanding": round(total_outstanding, 2),
+        }
+
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
+
+        db.collection("ai_context_cache").document(cache_key).set({
+            "contextString":  context_string,
+            "companySummary": company_summary,
+            "orgId":          org_id,
+            "callerUid":      caller_uid,
+            "contextType":    "company",
+            "expiresAt":      expires_at,
+            "createdAt":      admin_firestore.SERVER_TIMESTAMP,
+        })
+
+        print(f"[ai/company-context] built context for {org_id}: {len(setts)} settlements, {len(partners)} partners")
+        return jsonify({
+            "cacheKey":       cache_key,
+            "companySummary": company_summary,
+            "expiresAt":      expires_at,
+        })
+
+    except Exception as e:
+        print(f"[ai/company-context] unhandled error: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"error": f"Company context build failed: {str(e)}"}), 500
+
+
 @ai_analysis_app.route("/context", methods=["POST"])
 def get_context():
     caller_uid, err = _require_auth()
@@ -765,6 +1021,8 @@ def chat():
             pass
 
     context_string = cache_data.get("contextString", "")
+    context_type   = cache_data.get("contextType", "client")
+    chosen_prompt  = COMPANY_SYSTEM_PROMPT if context_type == "company" else SYSTEM_PROMPT
 
     # ── Load pre-processed photo blocks ──────────────────────────────────────
     image_blocks: list[dict] = []
@@ -820,7 +1078,7 @@ def chat():
                 max_tokens=4096,
                 system=[{
                     "type": "text",
-                    "text": SYSTEM_PROMPT,
+                    "text": chosen_prompt,
                     "cache_control": {"type": "ephemeral"},
                 }],
                 messages=claude_messages,

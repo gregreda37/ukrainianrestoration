@@ -326,6 +326,15 @@ export default function ClientDetail() {
       .catch(() => {});
   }, [orgId]);
 
+  async function addInsurer(name) {
+    const iref = await addDoc(collection(db, 'organization_data', orgId, 'insurers'), { name, createdAt: serverTimestamp() });
+    setInsurers(prev => [...prev, { id: iref.id, name }].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+  async function removeInsurer(insurer) {
+    await deleteDoc(doc(db, 'organization_data', orgId, 'insurers', insurer.id));
+    setInsurers(prev => prev.filter(i => i.id !== insurer.id));
+  }
+
   // ── Load client data when orgId resolves ─────────────────────────────
   useEffect(() => {
     if (!orgId || !phone) return;
@@ -1217,6 +1226,8 @@ export default function ClientDetail() {
                       onChange={v => setAdjusterEdit(a => ({ ...a, company: v }))}
                       insurers={insurers}
                       placeholder="Company"
+                      onAdd={addInsurer}
+                      onRemove={removeInsurer}
                     />
                     <input className="cd-header-adj-input" placeholder="Phone" value={adjusterEdit.phone}
                       onChange={e => setAdjusterEdit(a => ({ ...a, phone: e.target.value }))} />
@@ -1432,6 +1443,8 @@ export default function ClientDetail() {
               orgId={orgId}
               phone={phone}
               insurers={insurers}
+              onAddInsurer={addInsurer}
+              onRemoveInsurer={removeInsurer}
               prefill={{
                 claimNumber:      clientFields.claimNumber,
                 policyNumber:     clientFields.policyNumber,

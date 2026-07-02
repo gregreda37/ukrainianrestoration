@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, collection, getDocs, addDoc, setDoc, serverTimestamp, query, orderBy } from 'firebase/firestore'
+import { doc, collection, getDocs, addDoc, deleteDoc, setDoc, serverTimestamp, query, orderBy } from 'firebase/firestore'
 import InsurerCombobox from './InsurerCombobox'
+import PartnerCombobox from './PartnerCombobox'
 import './SettlementOverviewCard.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ function computePartnerFee(form, companyRecoup) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {}, insurers = [] }) {
+export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {}, insurers = [], onAddInsurer, onRemoveInsurer }) {
   const navigate = useNavigate()
   const prevPrefillRef = useRef(null)
 
@@ -166,6 +167,17 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
     } finally {
       setLoading(false)
     }
+  }
+
+  async function addPartner(name) {
+    const pref = await addDoc(collection(db, 'organization_data', orgId, 'partners'), { name, createdAt: serverTimestamp() })
+    const created = { id: pref.id, name }
+    setPartners(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+    return created
+  }
+  async function removePartner(partner) {
+    await deleteDoc(doc(db, 'organization_data', orgId, 'partners', partner.id))
+    setPartners(prev => prev.filter(p => p.id !== partner.id))
   }
 
   async function doSave() {
@@ -414,6 +426,8 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
                 onChange={v => setForm(p => ({ ...p, insuranceCompany: v }))}
                 insurers={insurers}
                 placeholder="Search or type insurer…"
+                onAdd={onAddInsurer}
+                onRemove={onRemoveInsurer}
               />
             </div>
             <div className="sovc-field">
@@ -549,14 +563,17 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
             <div className="sovc-partner-grid">
               <div className="sovc-field">
                 <label className="sovc-label">Who brought this job?</label>
-                <select className="sovc-input" value={form.partnerId || ''} onChange={e => {
-                  const pid = e.target.value
-                  const pname = partners.find(p => p.id === pid)?.name || ''
-                  setForm(prev => ({ ...prev, partnerId: pid, partnerName: pname }))
-                }}>
-                  <option value="">No partner</option>
-                  {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <PartnerCombobox
+                  className="sovc-input"
+                  selectedId={form.partnerId || ''}
+                  selectedName={form.partnerName || ''}
+                  partners={partners}
+                  onSelect={p => setForm(prev => ({ ...prev, partnerId: p.id, partnerName: p.name }))}
+                  onClear={() => setForm(prev => ({ ...prev, partnerId: '', partnerName: '' }))}
+                  onAdd={addPartner}
+                  onRemove={removePartner}
+                  placeholder="Search or add partner…"
+                />
               </div>
               {form.partnerId && (
                 <>

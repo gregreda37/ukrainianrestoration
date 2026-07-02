@@ -55,12 +55,12 @@ const ClientDetail = lazy(() => import('./myclaim/ClientDetail'))
 const Chatbot      = lazy(() => import('./myclaim/Chatbot'))
 const AIAnalysis   = lazy(() => import('./myclaim/AIAnalysis'))
 const Settings     = lazy(() => import('./myclaim/Settings'))
-const TeamSettings = lazy(() => import('./myclaim/TeamSettings'))
 const Invoices      = lazy(() => import('./myclaim/Invoices'))
 const InvoiceEditor = lazy(() => import('./myclaim/InvoiceEditor'))
 const OrgInvoices   = lazy(() => import('./myclaim/OrgInvoices'))
 const OpenWork      = lazy(() => import('./myclaim/OpenWork'))
 const Settlement    = lazy(() => import('./myclaim/Settlement'))
+const Partners      = lazy(() => import('./myclaim/Partners'))
 const PartnerDetail = lazy(() => import('./myclaim/PartnerDetail'))
 const OptInPolicy      = lazy(() => import('./myclaim/OptInPolicy'))
 const PendingApproval  = lazy(() => import('./myclaim/PendingApproval'))
@@ -183,11 +183,11 @@ export default function App() {
           <Route path="clients/:id/settlement" element={<Suspense fallback={<PortalFallback />}><Settlement /></Suspense>} />
           <Route path="invoices" element={<Suspense fallback={<PortalFallback />}><OrgInvoices /></Suspense>} />
           <Route path="open-work" element={<Suspense fallback={<PortalFallback />}><OpenWork /></Suspense>} />
+          <Route path="partners" element={<Suspense fallback={<PortalFallback />}><Partners /></Suspense>} />
           <Route path="partners/:partnerId" element={<Suspense fallback={<PortalFallback />}><PartnerDetail /></Suspense>} />
           <Route path="chatbot" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Chatbot /></Suspense></AdminRoute>} />
           <Route path="ai" element={<AdminRoute><Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense></AdminRoute>} />
           <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />
-          <Route path="team" element={<Suspense fallback={<PortalFallback />}><TeamSettings /></Suspense>} />
         </Route>
 
         {/* ── Public site ── */}

@@ -8,6 +8,7 @@ import {
 import { useAuth } from './useAuth'
 import './Settlement.css'
 import InsurerCombobox from './InsurerCombobox'
+import PartnerCombobox from './PartnerCombobox'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -206,9 +207,11 @@ export default function Settlement() {
       if (!oid) return
       setOrgId(oid)
 
-      const partnerSnap = await getDocs(query(collection(db, 'organization_data', oid, 'partners'), orderBy('name', 'asc'))).catch(() => ({ docs: [] }))
+      const [partnerSnap, insurerSnap] = await Promise.all([
+        getDocs(query(collection(db, 'organization_data', oid, 'partners'), orderBy('name', 'asc'))).catch(() => ({ docs: [] })),
+        getDocs(query(collection(db, 'organization_data', oid, 'insurers'), orderBy('name', 'asc'))).catch(() => ({ docs: [] })),
+      ])
       setPartners(partnerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      const insurerSnap = await getDocs(query(collection(db, 'organization_data', oid, 'insurers'), orderBy('name', 'asc'))).catch(() => ({ docs: [] }))
       setInsurers(insurerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
 
       const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
@@ -261,6 +264,25 @@ export default function Settlement() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function addPartner(name) {
+    const pref = await addDoc(collection(db, 'organization_data', orgId, 'partners'), { name, createdAt: serverTimestamp() })
+    const created = { id: pref.id, name }
+    setPartners(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+    return created
+  }
+  async function removePartner(partner) {
+    await deleteDoc(doc(db, 'organization_data', orgId, 'partners', partner.id))
+    setPartners(prev => prev.filter(p => p.id !== partner.id))
+  }
+  async function addInsurer(name) {
+    const iref = await addDoc(collection(db, 'organization_data', orgId, 'insurers'), { name, createdAt: serverTimestamp() })
+    setInsurers(prev => [...prev, { id: iref.id, name }].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+  async function removeInsurer(insurer) {
+    await deleteDoc(doc(db, 'organization_data', orgId, 'insurers', insurer.id))
+    setInsurers(prev => prev.filter(i => i.id !== insurer.id))
   }
 
   async function saveNew() {
@@ -347,6 +369,10 @@ export default function Settlement() {
             saving={savingNew}
             partners={partners}
             insurers={insurers}
+            onAddPartner={addPartner}
+            onRemovePartner={removePartner}
+            onAddInsurer={addInsurer}
+            onRemoveInsurer={removeInsurer}
             isNew
           />
         </div>
@@ -418,6 +444,10 @@ export default function Settlement() {
             userEmail={user.email}
             partners={partners}
             insurers={insurers}
+            onAddPartner={addPartner}
+            onRemovePartner={removePartner}
+            onAddInsurer={addInsurer}
+            onRemoveInsurer={removeInsurer}
             expanded={expanded === s.id}
             editing={editingId === s.id}
             onToggle={() => { setExpanded(prev => prev === s.id ? null : s.id); setEditingId(null) }}
@@ -438,7 +468,7 @@ export default function Settlement() {
 
 // ── Settlement record (summary + expandable detail) ───────────────────────────
 
-function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete, onPaidToggle }) {
+function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete, onPaidToggle }) {
   const navigate = useNavigate()
   const totals = computeTotals(s)
   const sm = STATUS_META[s.status] || STATUS_META.estimating
@@ -745,6 +775,10 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                 saveError={saveError}
                 partners={partners || []}
                 insurers={insurers || []}
+                onAddPartner={onAddPartner}
+                onRemovePartner={onRemovePartner}
+                onAddInsurer={onAddInsurer}
+                onRemoveInsurer={onRemoveInsurer}
               />
             </>
           ) : (
@@ -1068,7 +1102,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
 
 // ── Settlement form (new + edit) ──────────────────────────────────────────────
 
-function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving, saveError, isNew, partners = [], insurers = [] }) {
+function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving, saveError, isNew, partners = [], insurers = [], onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer }) {
   const set = (k, v) => onChange(prev => ({ ...prev, [k]: v }))
 
   return (
@@ -1098,6 +1132,8 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
             value={form.insuranceCompany || ''}
             onChange={v => set('insuranceCompany', v)}
             insurers={insurers}
+            onAdd={onAddInsurer}
+            onRemove={onRemoveInsurer}
           />
         </div>
         <div className="sl-field">
@@ -1252,15 +1288,17 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
         <div className="sl-partner-grid">
           <div className="sl-field">
             <label className="sl-label">Who brought this job?</label>
-            <select className="sl-input" value={form.partnerId || ''} onChange={e => {
-              const pid = e.target.value
-              const pname = partners.find(p => p.id === pid)?.name || ''
-              set('partnerId', pid)
-              set('partnerName', pname)
-            }}>
-              <option value="">No partner</option>
-              {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <PartnerCombobox
+              className="sl-input"
+              selectedId={form.partnerId || ''}
+              selectedName={form.partnerName || ''}
+              partners={partners}
+              onSelect={p => { set('partnerId', p.id); set('partnerName', p.name) }}
+              onClear={() => { set('partnerId', ''); set('partnerName', '') }}
+              onAdd={onAddPartner}
+              onRemove={onRemovePartner}
+              placeholder="Search or add partner…"
+            />
           </div>
           {form.partnerId && (
             <>

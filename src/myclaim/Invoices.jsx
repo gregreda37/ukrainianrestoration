@@ -99,13 +99,18 @@ export default function Invoices() {
     if (!clientUid && !clientDocId) return
     setDeleting(inv.id)
     try {
-      const invDocRef = (inv._isOrgInvoice || !clientUid)
-        ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', inv.id)
-        : doc(db, 'users', clientUid, 'invoices', inv.id)
-      await deleteDoc(invDocRef)
-      if (orgId) {
-        await deleteDoc(doc(db, 'organization_data', orgId, 'invoice_summary', inv.id)).catch(() => {})
+      // Delete from both storage paths — an invoice may exist in both
+      const deletes = []
+      if (clientUid) {
+        deletes.push(deleteDoc(doc(db, 'users', clientUid, 'invoices', inv.id)).catch(() => {}))
       }
+      if (orgId && clientDocId) {
+        deletes.push(deleteDoc(doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', inv.id)).catch(() => {}))
+      }
+      if (orgId) {
+        deletes.push(deleteDoc(doc(db, 'organization_data', orgId, 'invoice_summary', inv.id)).catch(() => {}))
+      }
+      await Promise.all(deletes)
       setInvoices(prev => prev.filter(i => i.id !== inv.id))
     } finally {
       setDeleting(null)

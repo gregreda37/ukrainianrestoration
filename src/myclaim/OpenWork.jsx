@@ -424,12 +424,15 @@ export default function OpenWork() {
     setDeleting(true)
     try {
       const invId = r.invoiceId || r.id
+      const deletes = []
       if (r.clientUid) {
-        await deleteDoc(doc(db, 'users', r.clientUid, 'invoices', invId)).catch(() => {})
-      } else if (r.clientDocId) {
-        await deleteDoc(doc(db, 'organization_data', orgId, 'clients', r.clientDocId, 'invoices', invId)).catch(() => {})
+        deletes.push(deleteDoc(doc(db, 'users', r.clientUid, 'invoices', invId)).catch(() => {}))
       }
-      await deleteDoc(doc(db, 'organization_data', orgId, 'invoice_summary', r.id))
+      if (r.clientDocId) {
+        deletes.push(deleteDoc(doc(db, 'organization_data', orgId, 'clients', r.clientDocId, 'invoices', invId)).catch(() => {}))
+      }
+      deletes.push(deleteDoc(doc(db, 'organization_data', orgId, 'invoice_summary', r.id)).catch(() => {}))
+      await Promise.all(deletes)
       setRows(prev => prev.filter(x => x.id !== r.id))
       setConfirmDel(null)
     } finally {

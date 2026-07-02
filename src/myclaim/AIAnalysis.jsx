@@ -232,9 +232,13 @@ export default function AIAnalysis() {
   const [quickInputText, setQuickInputText] = useState('')
   const [copiedIdx, setCopiedIdx] = useState(null)
 
-  const chatBottomRef = useRef(null)
+  const scrollContainerRef = useRef(null)
+  const isNearBottomRef = useRef(true)
+  const scrollRafRef = useRef(null)
   const inputRef = useRef(null)
   const abortControllerRef = useRef(null)
+
+  const [showScrollFab, setShowScrollFab] = useState(false)
 
   // ── Load org ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -274,10 +278,22 @@ export default function AIAnalysis() {
     return () => { cancelled = true }
   }, [orgId, user])
 
-  // ── Auto-scroll ───────────────────────────────────────────────────────────
+  // ── Auto-scroll — direct scrollTop to avoid competing smooth-scroll animations ──
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!scrollContainerRef.current || !isNearBottomRef.current) return
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current)
+    scrollRafRef.current = requestAnimationFrame(() => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+      }
+    })
   }, [messages, companyMessages])
+
+  // ── Auto-load company context once orgId is available (24hr backend cache) ──
+  useEffect(() => {
+    if (!orgId || companyContextLoaded || companyContextLoading) return
+    handleLoadCompanyContext()
+  }, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-resize textarea ──────────────────────────────────────────────────
   useEffect(() => {
@@ -419,6 +435,23 @@ export default function AIAnalysis() {
     }
   }, [orgId])
 
+  // ── Scroll tracking — hide FAB when near bottom ───────────────────────────
+  const handleMessagesScroll = useCallback((e) => {
+    const el = e.currentTarget
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    const nearBottom = fromBottom < 150
+    isNearBottomRef.current = nearBottom
+    setShowScrollFab(!nearBottom)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    isNearBottomRef.current = true
+    setShowScrollFab(false)
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+  }, [])
+
   // ── Stop streaming ────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
     abortControllerRef.current?.abort()
@@ -446,6 +479,8 @@ export default function AIAnalysis() {
 
     setInput('')
     setStreamError('')
+    isNearBottomRef.current = true
+    setShowScrollFab(false)
 
     const userMsg = { role: 'user', content: msg, label: opts.label || null }
     const nextMessages = [...activeMsgs, userMsg]
@@ -763,18 +798,21 @@ export default function AIAnalysis() {
           <div className="aa-company-panel">
             <div className="aa-section">
               <div className="aa-section-label">Organization Analytics</div>
-              <p className="aa-load-hint">
-                Load your company's settlements, partner performance, and revenue data to ask the AI anything about your business.
-              </p>
-              <button
-                className="aa-load-btn"
-                onClick={handleLoadCompanyContext}
-                disabled={companyContextLoading || !orgId}
-              >
-                {companyContextLoading
-                  ? <><span className="aa-btn-spinner" /> Loading data…</>
-                  : companyContextLoaded ? '↺ Refresh Data' : 'Load Company Data'}
-              </button>
+              {!companyContextLoaded && !companyContextLoading && (
+                <p className="aa-load-hint">Loading your company data…</p>
+              )}
+              {companyContextLoaded && (
+                <button
+                  className="aa-load-btn"
+                  style={{ background: '#f1f5f9', color: '#475569', fontSize: 12 }}
+                  onClick={handleLoadCompanyContext}
+                  disabled={companyContextLoading}
+                >
+                  {companyContextLoading
+                    ? <><span className="aa-btn-spinner aa-btn-spinner--dark" /> Refreshing…</>
+                    : '↺ Refresh Data'}
+                </button>
+              )}
             </div>
 
             {companyContextLoaded && companySummary && (
@@ -864,24 +902,19 @@ export default function AIAnalysis() {
           </div>
         )}
 
-        {/* ── Company AI empty states ── */}
+        {/* ── Company AI empty/loading states ── */}
+        {mode === 'company' && companyContextLoading && (
+          <div className="aa-empty-state aa-empty-state--loading">
+            <div className="aa-loading-ring aa-loading-ring--green" />
+            <p className="aa-loading-label">Loading company data…</p>
+          </div>
+        )}
+
         {mode === 'company' && !companyContextLoaded && !companyContextLoading && (
           <div className="aa-empty-state">
             <div className="aa-empty-orb aa-empty-orb--green" />
             <h2 className="aa-empty-title">Company AI</h2>
-            <p className="aa-empty-desc">
-              Load your organization's data to ask questions about revenue, partners, settlement rates, pipeline, and business performance.
-            </p>
-            <div className="aa-empty-chips">
-              {COMPANY_QUICK_PROMPTS.map(q => <div key={q.label} className="aa-empty-chip"><span>{q.icon}</span> {q.label}</div>)}
-            </div>
-          </div>
-        )}
-
-        {mode === 'company' && companyContextLoading && (
-          <div className="aa-empty-state aa-empty-state--loading">
-            <div className="aa-loading-ring" />
-            <p className="aa-loading-label">Loading company data…</p>
+            <p className="aa-empty-desc">Preparing your organization data…</p>
           </div>
         )}
 
@@ -924,7 +957,11 @@ export default function AIAnalysis() {
 
         {/* ── Messages ── */}
         {activeMessages.length > 0 && (
-          <div className="aa-messages">
+          <div
+            className="aa-messages"
+            ref={scrollContainerRef}
+            onScroll={handleMessagesScroll}
+          >
             {activeMessages.map((msg, idx) => (
               <div key={idx} className={`aa-message aa-message--${msg.role}${msg.error ? ' aa-message--error' : ''}${msg.streaming ? ' aa-message--streaming' : ''}`}>
 
@@ -961,8 +998,14 @@ export default function AIAnalysis() {
                 )}
               </div>
             ))}
-            <div ref={chatBottomRef} />
           </div>
+        )}
+
+        {/* ── Scroll-to-bottom FAB ── */}
+        {showScrollFab && (
+          <button className="aa-scroll-fab" onClick={scrollToBottom} title="Scroll to latest">
+            ↓
+          </button>
         )}
 
         {/* ── Error banner ── */}

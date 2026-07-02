@@ -17,8 +17,9 @@ ai_analysis_app = Blueprint("ai_analysis_app", __name__)
 
 CLAUDE_MODEL      = "claude-haiku-4-5-20251001"
 ALLOWED_MODELS    = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6"}
-CACHE_TTL_MINUTES = 30
-CACHE_VERSION     = "v2"  # bump to invalidate all cached contexts on deploy
+CACHE_TTL_MINUTES         = 30
+COMPANY_CACHE_TTL_MINUTES = 1440   # 24 hours — company data cached for the day
+CACHE_VERSION             = "v2"   # bump to invalidate all cached contexts on deploy
 
 # ── Image pipeline constants ──────────────────────────────────────────────────
 # CompanyCam URI priority: original can be huge (>10 MB); large ~1-3 MB is ideal.
@@ -408,19 +409,72 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", c
             .stream()
         )
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        f_todos, f_docs, f_sels, f_budget, f_activity = (
+    def _fetch_settlement():
+        """
+        settlement_summary docs are written with clientUid=null for contractor-added
+        clients (when the client hadn't logged in yet at write time).  Fall back to
+        phone → name so we still surface the financial data in those cases.
+        """
+        sett_col = (
+            db.collection("organization_data").document(org_id)
+              .collection("settlement_summary")
+        )
+        try:
+            by_uid = list(sett_col.where("clientUid", "==", client_uid).limit(5).get())
+            if by_uid:
+                return by_uid
+        except Exception as e:
+            print(f"[settlement/uid] {e}")
+
+        phone = ud.get("phoneNumber") or ""
+        if phone:
+            try:
+                by_phone = list(sett_col.where("clientPhone", "==", phone).limit(5).get())
+                if by_phone:
+                    return by_phone
+            except Exception as e:
+                print(f"[settlement/phone] {e}")
+
+        if display_name and display_name != "Unknown":
+            try:
+                return list(sett_col.where("clientName", "==", display_name).limit(5).get())
+            except Exception as e:
+                print(f"[settlement/name] {e}")
+
+        return []
+
+    def _fetch_org_client():
+        if not client_doc_id:
+            return None
+        try:
+            return sub_ref.get()
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        f_todos, f_docs, f_sels, f_budget, f_activity, f_sett, f_org_cli = (
             pool.submit(_fetch_todos),
             pool.submit(_fetch_docs),
             pool.submit(_fetch_sels),
             pool.submit(_fetch_budget),
             pool.submit(_fetch_activity),
+            pool.submit(_fetch_settlement),
+            pool.submit(_fetch_org_client),
         )
         todos_snaps    = f_todos.result()
         docs_snaps     = f_docs.result()
         sels_snaps     = f_sels.result()
         budget_snaps   = f_budget.result()
         activity_snaps = f_activity.result()
+        sett_snaps     = f_sett.result()
+        org_cli_snap   = f_org_cli.result()
+
+    # Org client doc — claim status and any extra fields not on the user doc
+    if org_cli_snap and org_cli_snap.exists:
+        ocd          = org_cli_snap.to_dict()
+        claim_status = (ocd.get("claimStatus") or "unknown").title()
+        lines.append(f"\n## CLAIM MANAGEMENT STATUS")
+        lines.append(f"Overall Claim Status: {claim_status}")
 
     # Todos
     todos     = [t.to_dict() | {"id": t.id} for t in todos_snaps]
@@ -478,6 +532,52 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", c
         for b in sorted(budget_items, key=lambda x: x.get("total", 0), reverse=True):
             qty_str = f" x{b.get('qty', 1)} {b.get('unit', '')}" if b.get("priceType") == "per_unit" else ""
             lines.append(f"  - {b.get('label', 'Item')}{qty_str}: ${b.get('total', 0):,.2f}")
+
+    # Settlement financial data
+    sett_records = [s.to_dict() | {"id": s.id} for s in sett_snaps]
+    if sett_records:
+        def _sn(s, *keys):
+            for k in keys:
+                v = s.get(k)
+                if v is not None:
+                    try: return float(v)
+                    except (TypeError, ValueError): pass
+            return 0.0
+
+        lines.append(f"\n## SETTLEMENT FINANCIAL DATA ({len(sett_records)} record(s))")
+        for s in sett_records:
+            estimate   = _sn(s, "totalEstimate")
+            settled    = _sn(s, "totalSettled")
+            recoup     = _sn(s, "companyRecoup")
+            expenses   = _sn(s, "totalExpenses")
+            gross      = _sn(s, "grossProfit")
+            fee        = _sn(s, "partnerFee")
+            collected  = _sn(s, "totalPaidAmount")
+            outstanding = _sn(s, "totalOutstanding")
+            paid       = s.get("paid", False)
+            paid_str   = f" (paid on {s['paidDate']})" if paid and s.get("paidDate") else ""
+
+            lines.append(f"  Insurance Company: {s.get('insuranceCompany') or 'N/A'}")
+            lines.append(f"  Referral Partner: {s.get('partnerName') or 'N/A'}")
+            lines.append(f"  Total Estimate: ${estimate:,.2f}")
+            if settled > 0:
+                pct = settled / estimate * 100 if estimate > 0 else 0
+                lines.append(f"  Insurance Settlement: ${settled:,.2f} ({pct:.0f}% of estimate)")
+            else:
+                lines.append(f"  Insurance Settlement: Not yet received")
+            lines.append(f"  Company Receivable (Recoup): ${recoup:,.2f}")
+            lines.append(f"  Total Expenses: ${expenses:,.2f}")
+            lines.append(f"  Gross Profit: ${gross:,.2f}")
+            if fee > 0:
+                lines.append(f"  Referral Fee Paid to Partner: ${fee:,.2f}")
+            lines.append(f"  Total Collected by Company: ${collected:,.2f}")
+            lines.append(f"  Outstanding Balance Owed: ${outstanding:,.2f}")
+            lines.append(f"  Payment Status: {'FULLY PAID' + paid_str if paid else 'PAYMENT PENDING'}")
+
+        stats["settlementEstimate"]  = _sn(sett_records[0], "totalEstimate")
+        stats["settlementAmount"]    = _sn(sett_records[0], "totalSettled")
+        stats["settlementPaid"]      = sett_records[0].get("paid", False)
+        stats["settlementOutstanding"] = _sn(sett_records[0], "totalOutstanding")
 
     # Activity
     acts = []
@@ -723,7 +823,7 @@ def get_company_context():
             "totalOutstanding": round(total_outstanding, 2),
         }
 
-        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTES)).isoformat()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=COMPANY_CACHE_TTL_MINUTES)).isoformat()
 
         db.collection("ai_context_cache").document(cache_key).set({
             "contextString":  context_string,

@@ -1431,6 +1431,7 @@ export default function ClientDetail() {
               clientName={client?.name || ''}
               orgId={orgId}
               phone={phone}
+              insurers={insurers}
               prefill={{
                 claimNumber:      clientFields.claimNumber,
                 policyNumber:     clientFields.policyNumber,

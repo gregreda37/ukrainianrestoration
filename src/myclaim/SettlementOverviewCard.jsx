@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { doc, collection, getDocs, addDoc, setDoc, serverTimestamp, query, orderBy } from 'firebase/firestore'
+import InsurerCombobox from './InsurerCombobox'
 import './SettlementOverviewCard.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -15,8 +16,6 @@ const CATEGORIES = [
 
 const COL_FIELDS = [
   { key: 'Estimate',   label: 'Our Estimate', color: '#0f172a' },
-  { key: 'ACV',        label: 'Ins. ACV',     color: '#d97706' },
-  { key: 'RCV',        label: 'Ins. RCV',     color: '#7c3aed' },
   { key: 'Supplement', label: 'Supplement',   color: '#0891b2' },
   { key: 'Settled',    label: 'Settled',      color: '#16a34a' },
 ]
@@ -98,7 +97,7 @@ function computePartnerFee(form, companyRecoup) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {} }) {
+export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {}, insurers = [] }) {
   const navigate = useNavigate()
   const prevPrefillRef = useRef(null)
 
@@ -378,26 +377,24 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
 
           <div className="sovc-form-grid">
             {[
-              { key: 'claimNumber',      label: 'Claim Number',         placeholder: 'e.g. CLM-2024-00123', type: 'text'   },
-              { key: 'policyNumber',     label: 'Policy Number',        placeholder: 'e.g. POL-987654',     type: 'text'   },
-              { key: 'dateOfLoss',       label: 'Date of Loss',         placeholder: '',                    type: 'date'   },
-              { key: 'settlementDate',   label: 'Settlement Date',      placeholder: '',                    type: 'date'   },
-              { key: 'insuranceCompany', label: 'Insurance Company',    placeholder: 'e.g. State Farm',     type: 'text'   },
-              { key: 'adjusterName',     label: 'Adjuster Name',        placeholder: 'Full name',           type: 'text'   },
-              { key: 'adjusterPhone',    label: 'Adjuster Phone',       placeholder: '(555) 000-0000',      type: 'tel'    },
-              { key: 'adjusterEmail',    label: 'Adjuster Email',       placeholder: 'adjuster@insurer.com',type: 'email'  },
-              { key: 'deductible',       label: 'Client Deductible ($)',placeholder: '0.00',                type: 'number' },
+              { key: 'claimNumber',    label: 'Claim Number',         placeholder: 'e.g. CLM-2024-00123', type: 'text'   },
+              { key: 'policyNumber',   label: 'Policy Number',        placeholder: 'e.g. POL-987654',     type: 'text'   },
+              { key: 'dateOfLoss',     label: 'Date of Loss',         placeholder: '',                    type: 'date'   },
+              { key: 'settlementDate', label: 'Settlement Date',      placeholder: '',                    type: 'date'   },
+              { key: 'adjusterName',   label: 'Adjuster Name',        placeholder: 'Full name',           type: 'text'   },
+              { key: 'adjusterPhone',  label: 'Adjuster Phone',       placeholder: '(555) 000-0000',      type: 'tel'    },
+              { key: 'adjusterEmail',  label: 'Adjuster Email',       placeholder: 'adjuster@insurer.com',type: 'email'  },
+              { key: 'deductible',     label: 'Client Deductible ($)',placeholder: '0.00',                type: 'number' },
             ].map(f => (
               <div key={f.key} className="sovc-field">
                 <label className="sovc-label">{f.label}</label>
                 <input
                   className={`sovc-input${form[f.key] && f.key !== 'deductible' && (
-                    f.key === 'claimNumber'      && prefill.claimNumber      ||
-                    f.key === 'policyNumber'     && prefill.policyNumber     ||
-                    f.key === 'insuranceCompany' && prefill.insuranceCompany ||
-                    f.key === 'adjusterName'     && prefill.adjusterName     ||
-                    f.key === 'adjusterPhone'    && prefill.adjusterPhone    ||
-                    f.key === 'adjusterEmail'    && prefill.adjusterEmail
+                    f.key === 'claimNumber'  && prefill.claimNumber  ||
+                    f.key === 'policyNumber' && prefill.policyNumber ||
+                    f.key === 'adjusterName' && prefill.adjusterName ||
+                    f.key === 'adjusterPhone'&& prefill.adjusterPhone||
+                    f.key === 'adjusterEmail'&& prefill.adjusterEmail
                   ) ? ' sovc-input--prefilled' : ''}`}
                   type={f.type}
                   placeholder={f.placeholder}
@@ -408,6 +405,16 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
                 />
               </div>
             ))}
+            <div className="sovc-field">
+              <label className="sovc-label">Insurance Company</label>
+              <InsurerCombobox
+                className={`sovc-input${form.insuranceCompany && prefill.insuranceCompany ? ' sovc-input--prefilled' : ''}`}
+                value={form.insuranceCompany}
+                onChange={v => setForm(p => ({ ...p, insuranceCompany: v }))}
+                insurers={insurers}
+                placeholder="Search or type insurer…"
+              />
+            </div>
             <div className="sovc-field">
               <label className="sovc-label">Status</label>
               <select className="sovc-input" value={form.status}

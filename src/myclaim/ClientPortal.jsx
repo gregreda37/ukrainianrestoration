@@ -12,6 +12,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./useAuth";
+import InsurerCombobox from "./InsurerCombobox";
 import "./ClientPortal.css";
 import SigningModal from "./SigningModal";
 
@@ -126,6 +127,7 @@ export default function ClientPortal() {
   const [orgInfo,          setOrgInfo]          = useState(null);
   const [contractors,      setContractors]      = useState([]);
   const [orgId,            setOrgId]            = useState(null);
+  const [insurers,         setInsurers]         = useState([]);
   const [companyCamProjectId,   setCompanyCamProjectId]   = useState(null);
   const [companyCamProjectName, setCompanyCamProjectName] = useState("");
   const [photos,           setPhotos]           = useState([]);
@@ -211,10 +213,12 @@ export default function ClientPortal() {
         if (!oid) return;
         setOrgId(oid);
         if (preloadedClientDocId) setClientDocId(preloadedClientDocId);
-        const [orgSnap, ctorSnap] = await Promise.all([
+        const [orgSnap, ctorSnap, insurerSnap] = await Promise.all([
           getDoc(doc(db,"organization_data",oid)),
           getDocs(collection(db,"organization_data",oid,"contractors")),
+          getDocs(query(collection(db,"organization_data",oid,"insurers"), orderBy("name","asc"))).catch(() => ({ docs: [] })),
         ]);
+        setInsurers(insurerSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         if (orgSnap.exists()) {
           setOrgInfo(orgSnap.data());
           setDriveConnected(!!orgSnap.data().googleDriveConnected);
@@ -1000,7 +1004,13 @@ export default function ClientPortal() {
                 </div>
                 <div className="cp-field">
                   <label className="cp-field-label">Insurance Company</label>
-                  <input className="cp-input" placeholder="State Farm" value={adjusterEdit.company} onChange={e => setAdjusterEdit(v=>({...v,company:e.target.value}))} />
+                  <InsurerCombobox
+                    className="cp-input"
+                    value={adjusterEdit.company}
+                    onChange={v => setAdjusterEdit(prev => ({ ...prev, company: v }))}
+                    insurers={insurers}
+                    placeholder="Search or type insurer…"
+                  />
                 </div>
                 <div className="cp-field">
                   <label className="cp-field-label">Adjuster Phone</label>

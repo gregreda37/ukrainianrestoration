@@ -1088,3 +1088,87 @@
   width: calc(100% - 48px);
   box-sizing: border-box;
 }
+
+/* ── Category filter pills ── */
+.ir-cat-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+
+.ir-cat-pill {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all .15s;
+}
+.ir-cat-pill:hover { border-color: #94a3b8; color: #334155; }
+.ir-cat-pill--active {
+  background: #0f172a;
+  color: #fff;
+  border-color: #0f172a;
+}
+
+/* ── Category job recap ── */
+.ir-cat-recap {
+  margin-top: 4px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+.ir-cat-recap-count {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.ir-cat-kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+
+.ir-cat-kpi {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  min-width: 100px;
+  flex: 1 1 100px;
+}
+
+.ir-cat-kpi-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.ir-cat-kpi-val {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.ir-table--cat { table-layout: auto; }
+.ir-cat-row--active { cursor: pointer; }
+
+@media (max-width: 700px) {
+  .ir-cat-filter-row { gap: 6px; }
+  .ir-cat-pill { font-size: 11px; padding: 5px 10px; }
+  .ir-cat-kpi-row { flex-direction: column; }
+}

@@ -7,6 +7,12 @@ import './InvoiceReport.css'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const QUARTERS = { 1: 'Jan–Mar', 2: 'Apr–Jun', 3: 'Jul–Sep', 4: 'Oct–Dec' }
+const SETTLEMENT_CATS = [
+  { key: 'dryClean',       label: 'Dry Cleaning / Contents', color: '#0891b2', bg: '#ecfeff' },
+  { key: 'mitigation',     label: 'Mitigation',               color: '#16a34a', bg: '#dcfce7' },
+  { key: 'reconstruction', label: 'Reconstruction',           color: '#d97706', bg: '#fffbeb' },
+  { key: 'packout',        label: 'Packout',                  color: '#7c3aed', bg: '#f5f3ff' },
+]
 const SETT_STATUS = [
   { key: 'estimating',    label: 'Estimating',    color: '#7c3aed', bg: '#f5f3ff' },
   { key: 'submitted',     label: 'Submitted',     color: '#2563eb', bg: '#eff6ff' },
@@ -78,6 +84,8 @@ export default function InvoiceReport() {
   const [claimSearch,     setClaimSearch]     = useState('')
   const [fullView,        setFullView]        = useState(null) // null | 'insurers' | 'claims'
   const [plSearch,        setPlSearch]        = useState('')
+  const [selectedCat,     setSelectedCat]     = useState(null)
+  const [catJobSearch,    setCatJobSearch]     = useState('')
 
   useEffect(() => { if (user) load() }, [user])
 
@@ -181,6 +189,22 @@ const sn = v => parseFloat(v) || 0
       .sort((a, b) => b._profit - a._profit)
       .map((s, i) => ({ ...s, _rank: i + 1 })),
   [settledClaims])
+
+  // ── Category job recap ──
+  const catJobs = useMemo(() => {
+    if (!selectedCat) return []
+    return settledClaims
+      .filter(s => sn(s[`${selectedCat}Settled`]) > 0)
+      .map((s, i) => {
+        const catSubmitted = sn(s[`${selectedCat}Estimate`])
+        const catSettled   = sn(s[`${selectedCat}Settled`])
+        const catGap       = Math.max(0, catSubmitted - catSettled)
+        const catRate      = catSubmitted > 0 ? catSettled / catSubmitted * 100 : 0
+        return { ...s, _catSubmitted: catSubmitted, _catSettled: catSettled, _catGap: catGap, _catRate: catRate, _catRank: i + 1 }
+      })
+      .sort((a, b) => b._catSettled - a._catSettled)
+      .map((s, i) => ({ ...s, _catRank: i + 1 }))
+  }, [selectedCat, settledClaims])
 
   // ── Status pipeline (all-time, not year/Q filtered) ──
   const statusPipeline = useMemo(() => {
@@ -590,6 +614,22 @@ const sn = v => parseFloat(v) || 0
             <div className="ir-section-sub">{settledClaims.length} settled claim{settledClaims.length !== 1 ? 's' : ''}</div>
           </div>
 
+          {/* Category filter pills */}
+          <div className="ir-cat-filter-row">
+            <button
+              className={`ir-cat-pill${!selectedCat ? ' ir-cat-pill--active' : ''}`}
+              onClick={() => { setSelectedCat(null); setCatJobSearch('') }}
+            >All Categories</button>
+            {SETTLEMENT_CATS.map(cat => (
+              <button
+                key={cat.key}
+                className={`ir-cat-pill${selectedCat === cat.key ? ' ir-cat-pill--active' : ''}`}
+                style={selectedCat === cat.key ? { background: cat.bg, color: cat.color, borderColor: cat.color } : {}}
+                onClick={() => { setSelectedCat(selectedCat === cat.key ? null : cat.key); setCatJobSearch('') }}
+              >{cat.label}</button>
+            ))}
+          </div>
+
           <div className="ir-kpi-row ir-kpi-row--5">
             <KPICard label="Total Submitted"   value={fmtMoney(settTotalSubmitted)} sub="to insurance"                                   color="#0f172a" />
             <KPICard label="Total Settled"     value={fmtMoney(settTotalSettled)}   sub={`${settAvgRecovery.toFixed(1)}% recovery`}       color="#16a34a" />
@@ -611,11 +651,19 @@ const sn = v => parseFloat(v) || 0
               </thead>
               <tbody>
                 {settCatData.map(cat => {
-                  const gap  = Math.max(0, cat.submitted - cat.settled)
-                  const rate = cat.submitted > 0 ? cat.settled / cat.submitted * 100 : 0
+                  const gap      = Math.max(0, cat.submitted - cat.settled)
+                  const rate     = cat.submitted > 0 ? cat.settled / cat.submitted * 100 : 0
+                  const catMeta  = SETTLEMENT_CATS.find(c => c.label === cat.label)
+                  const isActive = selectedCat && catMeta && selectedCat === catMeta.key
                   return (
-                    <tr key={cat.label}>
-                      <td>{cat.label}</td>
+                    <tr
+                      key={cat.label}
+                      className={isActive ? 'ir-cat-row--active' : ''}
+                      style={isActive ? { background: catMeta.bg } : {}}
+                      onClick={() => catMeta && (setSelectedCat(isActive ? null : catMeta.key), setCatJobSearch(''))}
+                      title={catMeta ? `Filter by ${cat.label}` : undefined}
+                    >
+                      <td style={{ fontWeight: isActive ? 700 : undefined, color: isActive ? catMeta.color : undefined }}>{cat.label}</td>
                       <td className="ir-num">{cat.submitted > 0 ? fmtMoney(cat.submitted) : '—'}</td>
                       <td className="ir-num" style={{ color: '#16a34a' }}>{cat.settled > 0 ? fmtMoney(cat.settled) : '—'}</td>
                       <td className="ir-num" style={{ color: gap > 0 ? '#dc2626' : '#94a3b8' }}>{gap > 0 ? `– ${fmtMoney(gap)}` : '—'}</td>
@@ -641,6 +689,135 @@ const sn = v => parseFloat(v) || 0
               </tfoot>
             </table>
           )}
+
+          {/* Category job recap */}
+          {selectedCat && catJobs.length > 0 && (() => {
+            const catMeta          = SETTLEMENT_CATS.find(c => c.key === selectedCat)
+            const catTotalSubmitted = catJobs.reduce((s, j) => s + j._catSubmitted, 0)
+            const catTotalSettled   = catJobs.reduce((s, j) => s + j._catSettled,   0)
+            const catTotalGap       = catJobs.reduce((s, j) => s + j._catGap,       0)
+            const catAvgRate        = catTotalSubmitted > 0 ? catTotalSettled / catTotalSubmitted * 100 : 0
+            const q   = catJobSearch.toLowerCase()
+            const rows = catJobs.filter(s =>
+              !q ||
+              (s.clientName       || '').toLowerCase().includes(q) ||
+              (s.claimNumber      || '').toLowerCase().includes(q) ||
+              (s.insuranceCompany || '').toLowerCase().includes(q)
+            )
+            return (
+              <div className="ir-cat-recap">
+                <div className="ir-subsection-header" style={{ marginTop: 20 }}>
+                  <span className="ir-section-label-sm" style={{ color: catMeta.color }}>
+                    {catMeta.label} — Job Recap
+                  </span>
+                  <span className="ir-cat-recap-count">{catJobs.length} job{catJobs.length !== 1 ? 's' : ''}</span>
+                </div>
+
+                <div className="ir-cat-kpi-row">
+                  <div className="ir-cat-kpi">
+                    <div className="ir-cat-kpi-label">Total Submitted</div>
+                    <div className="ir-cat-kpi-val">{fmtMoney(catTotalSubmitted)}</div>
+                  </div>
+                  <div className="ir-cat-kpi">
+                    <div className="ir-cat-kpi-label">Total Settled</div>
+                    <div className="ir-cat-kpi-val" style={{ color: '#16a34a' }}>{fmtMoney(catTotalSettled)}</div>
+                  </div>
+                  <div className="ir-cat-kpi">
+                    <div className="ir-cat-kpi-label">Gap</div>
+                    <div className="ir-cat-kpi-val" style={{ color: catTotalGap > 0 ? '#dc2626' : '#94a3b8' }}>
+                      {catTotalGap > 0 ? `– ${fmtMoney(catTotalGap)}` : '—'}
+                    </div>
+                  </div>
+                  <div className="ir-cat-kpi">
+                    <div className="ir-cat-kpi-label">Recovery Rate</div>
+                    <div className="ir-cat-kpi-val" style={{ color: catAvgRate >= 90 ? '#15803d' : catAvgRate >= 75 ? '#d97706' : '#dc2626' }}>
+                      {catAvgRate.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="ir-cat-kpi">
+                    <div className="ir-cat-kpi-label">Jobs</div>
+                    <div className="ir-cat-kpi-val">{catJobs.length}</div>
+                  </div>
+                </div>
+
+                <input
+                  className="ir-search-input"
+                  style={{ marginBottom: 10 }}
+                  type="text"
+                  placeholder={`Search ${catMeta.label} jobs…`}
+                  value={catJobSearch}
+                  onChange={e => setCatJobSearch(e.target.value)}
+                />
+
+                {rows.length === 0 ? (
+                  <p className="ir-preview-note">No jobs match "{catJobSearch}"</p>
+                ) : (
+                  <table className="ir-table ir-table--cat">
+                    <thead>
+                      <tr>
+                        <th className="ir-pl-rank-col">#</th>
+                        <th>Client</th>
+                        <th className="ir-num">Submitted</th>
+                        <th className="ir-num">Settled</th>
+                        <th className="ir-num">Gap</th>
+                        <th className="ir-num">Recovery</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(s => (
+                        <tr
+                          key={s.id}
+                          className="ir-pl-row"
+                          onClick={() => s.clientPhone && navigate(`/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`)}
+                          style={{ cursor: s.clientPhone ? 'pointer' : 'default' }}
+                        >
+                          <td className="ir-pl-rank-col">{s._catRank}</td>
+                          <td>
+                            <div className="ir-client-name">{s.clientName || '—'}</div>
+                            <div className="ir-pl-sub">
+                              {s.claimNumber && <span>{s.claimNumber}</span>}
+                              {s.claimNumber && s.insuranceCompany && <span> · </span>}
+                              {s.insuranceCompany && <span>{s.insuranceCompany}</span>}
+                            </div>
+                            {s.settlementDate && <div className="ir-pl-date">{fmtDate(s.settlementDate)}</div>}
+                          </td>
+                          <td className="ir-num">{s._catSubmitted > 0 ? fmtMoney(s._catSubmitted) : '—'}</td>
+                          <td className="ir-num" style={{ color: '#16a34a' }}>
+                            {fmtMoney(s._catSettled)}
+                          </td>
+                          <td className="ir-num" style={{ color: s._catGap > 0 ? '#dc2626' : '#94a3b8' }}>
+                            {s._catGap > 0 ? `– ${fmtMoney(s._catGap)}` : '—'}
+                          </td>
+                          <td className="ir-num">
+                            <span className="ir-rate-pill" style={{
+                              color:      s._catRate >= 90 ? '#15803d' : s._catRate >= 75 ? '#92400e' : '#991b1b',
+                              background: s._catRate >= 90 ? '#dcfce7' : s._catRate >= 75 ? '#fef9c3' : '#fee2e2',
+                            }}>
+                              {s._catRate.toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="ir-total-row">
+                        <td />
+                        <td><strong>{rows.length} job{rows.length !== 1 ? 's' : ''}</strong></td>
+                        <td className="ir-num ir-bold">{fmtMoney(rows.reduce((s, j) => s + j._catSubmitted, 0))}</td>
+                        <td className="ir-num" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(rows.reduce((s, j) => s + j._catSettled, 0))}</td>
+                        <td className="ir-num" style={{ color: '#dc2626', fontWeight: 700 }}>
+                          {rows.reduce((s, j) => s + j._catGap, 0) > 0
+                            ? `– ${fmtMoney(rows.reduce((s, j) => s + j._catGap, 0))}`
+                            : '—'}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Insurer breakdown */}
           {insurerData.length > 0 && (() => {

@@ -267,7 +267,7 @@ const sn = v => parseFloat(v) || 0
     const recoup        = qSettled.reduce((s, x) => s + sn(x.companyRecoup), 0)
     const qTotalSettled = qSettled.reduce((s, x) => s + sn(x.totalSettled), 0)
     const qTotalFees    = qSettled.reduce((s, x) => s + sn(x.partnerFee), 0)
-    const companyNet    = Math.max(0, qTotalSettled - qTotalFees)
+    const companyNet    = collected + Math.max(0, qTotalSettled - qTotalFees)
     return {
       q, count: qInvs.length, billed, collected,
       outstanding: billed - collected,
@@ -292,7 +292,7 @@ const sn = v => parseFloat(v) || 0
     const fyRecoup       = fySettsSettled.reduce((s, x) => s + sn(x.companyRecoup), 0)
     const fySettled      = fySettsSettled.reduce((s, x) => s + sn(x.totalSettled), 0)
     const fyFees         = fySettsSettled.reduce((s, x) => s + sn(x.partnerFee), 0)
-    const fyCompanyNet   = Math.max(0, fySettled - fyFees)
+    const fyCompanyNet   = fyCollected + Math.max(0, fySettled - fyFees)
     const fyCard = {
       q: null, label: 'Full Year', range: String(selectedYear),
       billed: fyBilled, collected: fyCollected, recoup: fyRecoup,
@@ -456,10 +456,10 @@ const sn = v => parseFloat(v) || 0
     )
   }
 
-  const totalRevenue   = totalCollected + settTotalRecoup
-  const companyNet     = Math.max(0, settTotalSettled - settTotalPartnerFees)
-  const cashPct        = totalRevenue > 0 ? totalCollected  / totalRevenue * 100 : 0
-  const insPct         = totalRevenue > 0 ? settTotalRecoup / totalRevenue * 100 : 0
+  const insNet         = Math.max(0, settTotalSettled - settTotalPartnerFees)
+  const companyNet     = totalCollected + insNet
+  const cashPct        = companyNet > 0 ? totalCollected / companyNet * 100 : 0
+  const insPct         = companyNet > 0 ? insNet         / companyNet * 100 : 0
 
   return (
     <div className="ir-root">
@@ -512,7 +512,7 @@ const sn = v => parseFloat(v) || 0
           <>
             <div className="ir-split-bar">
               {totalCollected > 0 && <div className="ir-split-seg ir-split-seg--cash" style={{ flex: totalCollected }} title={`Cash: ${fmtMoney(totalCollected)}`} />}
-              {settTotalRecoup > 0 && <div className="ir-split-seg ir-split-seg--ins"  style={{ flex: settTotalRecoup }} title={`Insurance recoup: ${fmtMoney(settTotalRecoup)}`} />}
+              {insNet > 0 && <div className="ir-split-seg ir-split-seg--ins" style={{ flex: insNet }} title={`Insurance net: ${fmtMoney(insNet)}`} />}
             </div>
             <div className="ir-split-legend">
               {totalCollected > 0 && (
@@ -521,10 +521,10 @@ const sn = v => parseFloat(v) || 0
                   Cash Jobs — {cashPct.toFixed(0)}% · {fmtMoney(totalCollected)}
                 </span>
               )}
-              {settTotalRecoup > 0 && (
+              {insNet > 0 && (
                 <span className="ir-split-item">
                   <span className="ir-split-dot ir-split-dot--ins" />
-                  Insurance Recoup — {insPct.toFixed(0)}% · {fmtMoney(settTotalRecoup)}
+                  Insurance (Net) — {insPct.toFixed(0)}% · {fmtMoney(insNet)}
                 </span>
               )}
               {outstanding > 0 && (
@@ -537,60 +537,6 @@ const sn = v => parseFloat(v) || 0
           </>
         )}
       </div>
-
-      {/* ── Paid Invoices ── */}
-      {paidInvoiceList.length > 0 && (
-        <div className="ir-section ir-section--paid-inv">
-          <div
-            className="ir-section-title-row"
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-            onClick={() => setPaidInvOpen(o => !o)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div className="ir-section-title" style={{ color: '#16a34a' }}>✓ Paid Invoices</div>
-              <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 9px', borderRadius: 20, background: '#f0fdf4', color: '#16a34a' }}>
-                {paidInvoiceList.length}
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div className="ir-section-sub" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(paidInvoiceTotal)} collected</div>
-              <span style={{ fontSize: 11, color: '#94a3b8' }}>{paidInvOpen ? '▲' : '▼'}</span>
-            </div>
-          </div>
-          {paidInvOpen && (
-            <table className="ir-table">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Invoice #</th>
-                  <th className="ir-num">Amount</th>
-                  <th>Date Paid</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paidInvoiceList.map(r => (
-                  <tr key={r.id}
-                    style={{ cursor: r.clientPhone ? 'pointer' : 'default' }}
-                    onClick={() => r.clientPhone && navigate(`/myclaim/clients/${encodeURIComponent(r.clientPhone)}/invoices/${r.invoiceId || r.id}`)}
-                  >
-                    <td style={{ fontWeight: 600 }}>{r.clientName || '—'}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#475569' }}>{r.invoiceNumber || '—'}</td>
-                    <td className="ir-num" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(r.total)}</td>
-                    <td style={{ color: '#64748b' }}>{fmtDate(r.paidDate || r.issueDate)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="ir-total-row">
-                  <td colSpan={2}><strong>Total</strong></td>
-                  <td className="ir-num" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(paidInvoiceTotal)}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-          )}
-        </div>
-      )}
 
       {/* ── Insurance settlement performance ── */}
       {settlements.length > 0 && (

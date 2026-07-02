@@ -446,8 +446,8 @@ export default function TeamSettings() {
         getDocs(query(collection(db, 'organization_data', orgId, 'invoice_summary'),    where('clientName', '==', name))),
       ]);
       const docs = [
-        ...settSnap.docs.map(d => ({ ref: d.ref, col: 'settlement_summary', id: d.id })),
-        ...invSnap.docs.map(d => ({ ref: d.ref, col: 'invoice_summary',    id: d.id })),
+        ...settSnap.docs.map(d => ({ ref: d.ref, col: 'settlement_summary', id: d.id, data: d.data() })),
+        ...invSnap.docs.map(d => ({ ref: d.ref, col: 'invoice_summary',    id: d.id, data: d.data() })),
       ];
       setCleanupResults({ count: docs.length, docs });
     } finally {
@@ -459,9 +459,21 @@ export default function TeamSettings() {
     if (!cleanupResults?.docs?.length) return;
     setCleanupDeleting(true);
     try {
-      const batch = writeBatch(db);
-      cleanupResults.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
+      // Delete summary docs + the underlying invoice/settlement documents from all paths
+      const deletes = [];
+      cleanupResults.docs.forEach(d => {
+        deletes.push(deleteDoc(d.ref).catch(() => {}));
+        if (d.col === 'invoice_summary') {
+          const { clientUid, clientDocId: cDocId } = d.data || {};
+          if (clientUid) {
+            deletes.push(deleteDoc(doc(db, 'users', clientUid, 'invoices', d.id)).catch(() => {}));
+          }
+          if (cDocId) {
+            deletes.push(deleteDoc(doc(db, 'organization_data', orgId, 'clients', cDocId, 'invoices', d.id)).catch(() => {}));
+          }
+        }
+      });
+      await Promise.all(deletes);
       setCleanupResults(null);
       setCleanupName('');
       setCleanupDone(true);
@@ -491,7 +503,7 @@ export default function TeamSettings() {
         }
         await Promise.all(checks);
         if (!exists) {
-          orphans.push({ ref: d.ref, id: invId, clientName: data.clientName || '—', total: data.total || 0, issueDate: data.issueDate || '' });
+          orphans.push({ ref: d.ref, id: invId, clientName: data.clientName || '—', total: data.total || 0, issueDate: data.issueDate || '', clientUid: data.clientUid || null, clientDocId: data.clientDocId || null });
         }
       }));
       orphans.sort((a, b) => (a.clientName || '').localeCompare(b.clientName || ''));
@@ -505,9 +517,17 @@ export default function TeamSettings() {
     if (!orphanResults?.docs?.length) return;
     setOrphanDeleting(true);
     try {
-      const batch = writeBatch(db);
-      orphanResults.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
+      const deletes = [];
+      orphanResults.docs.forEach(d => {
+        deletes.push(deleteDoc(d.ref).catch(() => {}));
+        if (d.clientUid) {
+          deletes.push(deleteDoc(doc(db, 'users', d.clientUid, 'invoices', d.id)).catch(() => {}));
+        }
+        if (d.clientDocId) {
+          deletes.push(deleteDoc(doc(db, 'organization_data', orgId, 'clients', d.clientDocId, 'invoices', d.id)).catch(() => {}));
+        }
+      });
+      await Promise.all(deletes);
       setOrphanResults(null);
       setOrphanDone(true);
     } finally {

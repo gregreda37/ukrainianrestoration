@@ -90,6 +90,12 @@ export default function TeamSettings() {
   const [cleanupDeleting,  setCleanupDeleting]  = useState(false);
   const [cleanupDone,      setCleanupDone]      = useState(false);
 
+  // Orphan scan
+  const [orphanScanning,  setOrphanScanning]  = useState(false);
+  const [orphanResults,   setOrphanResults]   = useState(null); // null | { count, docs: [{ref,id,clientName}] }
+  const [orphanDeleting,  setOrphanDeleting]  = useState(false);
+  const [orphanDone,      setOrphanDone]      = useState(false);
+
   // Integrations
   const [driveStatus,   setDriveStatus]   = useState(null);
   const [driveLoading,  setDriveLoading]  = useState(true);
@@ -461,6 +467,51 @@ export default function TeamSettings() {
       setCleanupDone(true);
     } finally {
       setCleanupDeleting(false);
+    }
+  }
+
+  async function scanOrphans() {
+    if (!orgId) return;
+    setOrphanScanning(true);
+    setOrphanResults(null);
+    setOrphanDone(false);
+    try {
+      const summarySnap = await getDocs(collection(db, 'organization_data', orgId, 'invoice_summary'));
+      const orphans = [];
+      await Promise.all(summarySnap.docs.map(async d => {
+        const data = d.data();
+        const invId = d.id;
+        let exists = false;
+        const checks = [];
+        if (data.clientUid) {
+          checks.push(getDoc(doc(db, 'users', data.clientUid, 'invoices', invId)).then(s => { if (s.exists()) exists = true }));
+        }
+        if (data.clientDocId) {
+          checks.push(getDoc(doc(db, 'organization_data', orgId, 'clients', data.clientDocId, 'invoices', invId)).then(s => { if (s.exists()) exists = true }));
+        }
+        await Promise.all(checks);
+        if (!exists) {
+          orphans.push({ ref: d.ref, id: invId, clientName: data.clientName || '—', total: data.total || 0, issueDate: data.issueDate || '' });
+        }
+      }));
+      orphans.sort((a, b) => (a.clientName || '').localeCompare(b.clientName || ''));
+      setOrphanResults({ count: orphans.length, docs: orphans });
+    } finally {
+      setOrphanScanning(false);
+    }
+  }
+
+  async function deleteOrphans() {
+    if (!orphanResults?.docs?.length) return;
+    setOrphanDeleting(true);
+    try {
+      const batch = writeBatch(db);
+      orphanResults.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      setOrphanResults(null);
+      setOrphanDone(true);
+    } finally {
+      setOrphanDeleting(false);
     }
   }
 
@@ -900,6 +951,68 @@ export default function TeamSettings() {
         <div className="mc-page__hd" style={{ marginTop: 8 }}>
           <h2 style={{ fontSize: 22, fontWeight: 800, color: '#991b1b', margin: 0 }}>Data Cleanup</h2>
         </div>
+
+        {/* Orphan scan */}
+        <div className="ts-section" style={{ border: '1.5px solid #fecaca', marginBottom: 16 }}>
+          <div className="ts-section-header" style={{ borderBottom: '1px solid #fecaca', background: '#fff5f5' }}>
+            <div className="ts-section-header-row">
+              <div>
+                <h2 className="ts-section-title" style={{ color: '#991b1b' }}>Scan for Deleted Invoices</h2>
+                <p className="ts-section-hint">Finds invoice_summary entries whose source invoice no longer exists and removes them from the Sales Report.</p>
+              </div>
+            </div>
+          </div>
+          <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <button
+                className="ts-btn ts-btn--primary"
+                onClick={scanOrphans}
+                disabled={orphanScanning}
+                style={{ minWidth: 160 }}
+              >
+                {orphanScanning ? 'Scanning…' : '🔍 Scan Now'}
+              </button>
+            </div>
+
+            {orphanDone && (
+              <p style={{ fontSize: 13, color: '#15803d', fontWeight: 600, margin: 0 }}>
+                ✓ Orphaned invoice records removed from the Sales Report.
+              </p>
+            )}
+
+            {orphanResults && (
+              orphanResults.count === 0 ? (
+                <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>✓ No orphaned invoice records found — the report is clean.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <p style={{ fontSize: 13, color: '#b91c1c', fontWeight: 600, margin: 0 }}>
+                    Found {orphanResults.count} orphaned invoice record{orphanResults.count !== 1 ? 's' : ''} (invoice deleted but still counted in reports):
+                  </p>
+                  <div style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: 8, overflow: 'hidden' }}>
+                    {orphanResults.docs.map(d => (
+                      <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', borderBottom: '1px solid #fef2f2', fontSize: 13 }}>
+                        <span style={{ fontWeight: 600, color: '#0f172a' }}>{d.clientName}</span>
+                        <span style={{ color: '#64748b' }}>{d.issueDate || '—'}</span>
+                        <span style={{ color: '#dc2626', fontWeight: 700 }}>
+                          {(d.total || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    className="ts-btn"
+                    onClick={deleteOrphans}
+                    disabled={orphanDeleting}
+                    style={{ background: '#dc2626', color: '#fff', border: 'none', alignSelf: 'flex-start' }}
+                  >
+                    {orphanDeleting ? 'Removing…' : `Remove All ${orphanResults.count} from Report`}
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+
         <div className="ts-section" style={{ border: '1.5px solid #fecaca' }}>
           <div className="ts-section-header" style={{ borderBottom: '1px solid #fecaca', background: '#fff5f5' }}>
             <div className="ts-section-header-row">

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useContext } from 'react'
 import { db, auth } from '../firebase'
-import { collection, getDocs, getDoc, doc } from 'firebase/firestore'
+import { collection, getDocs, getDoc, doc, query, where, setDoc } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import { NavCollapseContext } from './ClaimLayout'
 import './AIAnalysis.css'
@@ -340,13 +340,40 @@ export default function AIAnalysis() {
     setMessages([])
     setStreamError('')
     try {
+      // Resolve UID if not cached on the client doc (same pattern as ClientDetail)
+      let clientUid = selectedClient.uid || null
+      if (!clientUid && selectedClient.phone) {
+        const usersSnap = await getDocs(
+          query(collection(db, 'users'), where('phoneNumber', '==', selectedClient.phone))
+        )
+        if (!usersSnap.empty) {
+          clientUid = usersSnap.docs[0].id
+          // Cache it back on the org client doc for future lookups
+          setDoc(
+            doc(db, 'organization_data', orgId, 'clients', selectedClient.docId),
+            { uid: clientUid }, { merge: true }
+          ).catch(() => {})
+          // Update local state so the cached uid persists in this session
+          setSelectedClient(prev => ({ ...prev, uid: clientUid }))
+          setClients(prev => prev.map(c =>
+            c.docId === selectedClient.docId ? { ...c, uid: clientUid } : c
+          ))
+        }
+      }
+
+      if (!clientUid) {
+        setStreamError("This client hasn't created a portal account yet — no AI context available.")
+        return
+      }
+
       const idToken = await auth.currentUser.getIdToken()
       const res = await fetch(`${API}/ai/context`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orgId,
-          clientUid: selectedClient.uid,
+          clientUid,
+          clientDocId: selectedClient.docId,
           clientName: selectedClient.name || '',
           contextFlags,
           idToken,
@@ -665,15 +692,12 @@ export default function AIAnalysis() {
                   <button
                     className="aa-load-btn"
                     onClick={handleLoadContext}
-                    disabled={contextLoading || !selectedClient.uid}
+                    disabled={contextLoading}
                   >
                     {contextLoading
                       ? <><span className="aa-btn-spinner" /> Loading…</>
                       : contextLoaded ? '↺ Reload Context' : 'Load Context'}
                   </button>
-                  {!selectedClient.uid && (
-                    <p className="aa-load-hint">This client hasn't logged in yet — no AI context available.</p>
-                  )}
                 </div>
 
                 {contextLoaded && stats && summary && (

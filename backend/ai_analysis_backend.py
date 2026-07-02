@@ -319,7 +319,7 @@ def _process_and_cache_photos(db, cache_key: str, photo_infos: list[dict],
 
 # ── Context builder ───────────────────────────────────────────────────────────
 
-def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
+def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", client_doc_id=""):
     """
     Build context string + supporting data from Firestore.
     Subcollection reads (todos, documents, selections, budget, activity) run in
@@ -374,19 +374,29 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint=""):
                 lines.append(f"{k.replace('_', ' ').title()}: {v}")
 
     # Parallel subcollection reads — all fire simultaneously
+    # todos/documents/selections/budget are written to org path; activity stays on users/{uid}
     user_ref = db.collection("users").document(client_uid)
+    if client_doc_id:
+        sub_ref = (
+            db.collection("organization_data")
+              .document(org_id)
+              .collection("clients")
+              .document(client_doc_id)
+        )
+    else:
+        sub_ref = user_ref
 
     def _fetch_todos():
-        return list(user_ref.collection("todos").get())
+        return list(sub_ref.collection("todos").get())
 
     def _fetch_docs():
-        return list(user_ref.collection("documents").get())
+        return list(sub_ref.collection("documents").get())
 
     def _fetch_sels():
-        return list(user_ref.collection("selections").get())
+        return list(sub_ref.collection("selections").get())
 
     def _fetch_budget():
-        return list(user_ref.collection("budget").get())
+        return list(sub_ref.collection("budget").get())
 
     def _fetch_activity():
         if not context_flags.get("activity", True):
@@ -744,10 +754,11 @@ def get_context():
     if err:
         return err
 
-    data           = request.json or {}
-    org_id         = data.get("orgId", "")
-    client_uid     = data.get("clientUid", "")
-    context_flags  = data.get("contextFlags", {})
+    data             = request.json or {}
+    org_id           = data.get("orgId", "")
+    client_uid       = data.get("clientUid", "")
+    client_doc_id    = data.get("clientDocId", "")
+    context_flags    = data.get("contextFlags", {})
     client_name_hint = data.get("clientName", "")
 
     if not org_id or not client_uid:
@@ -777,7 +788,7 @@ def get_context():
 
         # Cache miss — build from Firestore (subcollections read in parallel)
         context_string, client_summary, photos, stats = _build_context(
-            db, org_id, client_uid, context_flags, client_name_hint
+            db, org_id, client_uid, context_flags, client_name_hint, client_doc_id
         )
 
         if context_string is None:

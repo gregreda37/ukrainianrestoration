@@ -1082,48 +1082,46 @@ const sn = v => parseFloat(v) || 0
       {partnerStats.length > 0 && (
         <div className="ir-section">
           <div className="ir-section-title">Partner & Referral Performance</div>
-          <div className="ir-partner-card-grid">
-            {partnerStats.map(p => (
-              <div key={p.id} className="ir-partner-card" onClick={() => navigate(`/myclaim/partners/${p.id}`)}>
-                <div className="ir-partner-card-header">
-                  <span className="ir-partner-card-name">👤 {p.name}</span>
-                  <div className="ir-partner-card-meta">
-                    <span className="ir-partner-card-jobs">{p.claims} job{p.claims !== 1 ? 's' : ''}</span>
-                    <span className="ir-partner-card-view">View →</span>
-                  </div>
-                </div>
-                <div className="ir-partner-card-stats">
-                  <div className="ir-partner-stat">
-                    <div className="ir-partner-stat-label">Submitted</div>
-                    <div className="ir-partner-stat-val">{p.submitted > 0 ? fmtMoney(p.submitted) : '—'}</div>
-                  </div>
-                  <div className="ir-partner-stat">
-                    <div className="ir-partner-stat-label">Settled</div>
-                    <div className="ir-partner-stat-val" style={{ color: '#16a34a' }}>{p.settled > 0 ? fmtMoney(p.settled) : '—'}</div>
-                  </div>
-                  <div className="ir-partner-stat">
-                    <div className="ir-partner-stat-label">Referral Fee</div>
-                    <div className="ir-partner-stat-val" style={{ color: '#dc2626' }}>{p.partnerFee > 0 ? fmtMoney(p.partnerFee) : '—'}</div>
-                  </div>
-                  <div className="ir-partner-stat">
-                    <div className="ir-partner-stat-label">Net to Company</div>
-                    <div className="ir-partner-stat-val" style={{ color: '#2563eb', fontWeight: 800 }}>{fmtMoney(Math.max(0, p.settled - p.partnerFee))}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          {partnerStats.length > 1 && (
-            <div className="ir-partner-totals">
-              <span className="ir-partner-totals-label">Totals · {partnerStats.reduce((s, p) => s + p.claims, 0)} jobs</span>
-              <div className="ir-partner-totals-stats">
-                <span>Submitted: <strong>{fmtMoney(partnerStats.reduce((s, p) => s + p.submitted, 0))}</strong></span>
-                <span>Settled: <strong style={{ color: '#16a34a' }}>{fmtMoney(partnerStats.reduce((s, p) => s + p.settled, 0))}</strong></span>
-                <span>Fees: <strong style={{ color: '#dc2626' }}>{fmtMoney(partnerStats.reduce((s, p) => s + p.partnerFee, 0))}</strong></span>
-                <span>Net: <strong style={{ color: '#2563eb' }}>{fmtMoney(Math.max(0, partnerStats.reduce((s, p) => s + p.settled - p.partnerFee, 0)))}</strong></span>
-              </div>
-            </div>
-          )}
+          <table className="ir-table">
+            <thead>
+              <tr>
+                <th>Partner</th>
+                <th className="ir-num">Jobs</th>
+                <th className="ir-num">Total Submitted</th>
+                <th className="ir-num">Total Settled</th>
+                <th className="ir-num">Referral Fee Paid</th>
+                <th className="ir-num">Net to Company</th>
+              </tr>
+            </thead>
+            <tbody>
+              {partnerStats.map(p => (
+                <tr key={p.id} className="ir-partner-row" style={{ cursor: 'pointer' }}
+                  onClick={() => navigate(`/myclaim/partners/${p.id}`)}>
+                  <td style={{ fontWeight: 600 }}>👤 {p.name}</td>
+                  <td className="ir-num">{p.claims}</td>
+                  <td className="ir-num">{p.submitted > 0 ? fmtMoney(p.submitted) : '—'}</td>
+                  <td className="ir-num" style={{ color: '#16a34a' }}>{p.settled > 0 ? fmtMoney(p.settled) : '—'}</td>
+                  <td className="ir-num" style={{ color: '#dc2626' }}>{p.partnerFee > 0 ? fmtMoney(p.partnerFee) : '—'}</td>
+                  <td className="ir-num ir-bold">
+                    <div>{fmtMoney(Math.max(0, p.settled - p.partnerFee))}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginTop: 2 }}>View →</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {partnerStats.length > 1 && (
+              <tfoot>
+                <tr className="ir-total-row">
+                  <td><strong>Total</strong></td>
+                  <td className="ir-num">{partnerStats.reduce((s, p) => s + p.claims, 0)}</td>
+                  <td className="ir-num ir-bold">{fmtMoney(partnerStats.reduce((s, p) => s + p.submitted, 0))}</td>
+                  <td className="ir-num" style={{ color: '#16a34a', fontWeight: 700 }}>{fmtMoney(partnerStats.reduce((s, p) => s + p.settled, 0))}</td>
+                  <td className="ir-num" style={{ color: '#dc2626', fontWeight: 700 }}>{fmtMoney(partnerStats.reduce((s, p) => s + p.partnerFee, 0))}</td>
+                  <td className="ir-num ir-bold">{fmtMoney(Math.max(0, partnerStats.reduce((s, p) => s + p.settled - p.partnerFee, 0)))}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       )}
 

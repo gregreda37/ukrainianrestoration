@@ -129,16 +129,17 @@
 
 .cl-card-top {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .cl-avatar {
   width: 48px;
   height: 48px;
   border-radius: 14px;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
+  letter-spacing: 0.03em;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -146,14 +147,27 @@
 }
 
 .cl-card-info {
+  flex: 1;
   min-width: 0;
 }
 
+.cl-card-name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+.cl-card-name-row .cl-account-dot {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
 .cl-card-name {
-  margin: 0 0 3px;
-  font-size: 16px;
+  margin: 0;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
+  line-height: 1.35;
   word-break: break-word;
 }
 
@@ -188,36 +202,20 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 5px;
-  margin-left: auto;
+  gap: 6px;
   flex-shrink: 0;
+  padding-top: 2px;
 }
 
-.cl-active-badge {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.cl-account-dot {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
   flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  color: #16a34a;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  padding: 3px 9px;
-  border-radius: 20px;
 }
-.cl-pending-badge {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  padding: 3px 9px;
-  border-radius: 20px;
-}
+.cl-account-dot--active  { background: #16a34a; }
+.cl-account-dot--pending { background: #f59e0b; }
 
 .cl-todo-badge {
   display: flex;

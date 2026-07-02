@@ -322,29 +322,26 @@ export default function Clients() {
           const openClients   = filtered.filter(c => (c.claimStatus || "open") === "open");
           const closedClients = filtered.filter(c => c.claimStatus === "closed");
           const renderCard = (client) => {
-            const label = client.name || client.phone || "Unknown";
-            const [bg, fg] = avatarColor(label);
             const isClosed = client.claimStatus === "closed";
             return (
               <div key={client.id} className={`cl-card${client.hasAccount ? " cl-card-active" : ""}${isClosed ? " cl-card--closed" : ""}`}>
                 <div className="cl-card-top">
-                  <div className="cl-avatar" style={{ background: bg, color: fg }}>
-                    {label.charAt(0).toUpperCase()}
-                  </div>
                   <div className="cl-card-info">
-                    <h3 className={`cl-card-name${client.nameFromUser ? " cl-confirmed" : ""}`}>
-                      {client.name || <span className="cl-no-name">No name</span>}
-                    </h3>
+                    <div className="cl-card-name-row">
+                      <span
+                        className={`cl-account-dot cl-account-dot--${client.hasAccount ? "active" : "pending"}`}
+                        title={client.hasAccount ? "Active" : "Awaiting first login"}
+                      />
+                      <h3 className={`cl-card-name${client.nameFromUser ? " cl-confirmed" : ""}`}>
+                        {client.name || <span className="cl-no-name">No name</span>}
+                      </h3>
+                    </div>
                     <p className="cl-card-phone">{formatPhone(client.phone)}</p>
                   </div>
                   <div className="cl-card-badges">
                     <span className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}>
-                      {isClosed ? "Claim Closed" : "Claim Open"}
+                      {isClosed ? "Closed" : "Open"}
                     </span>
-                    {client.hasAccount
-                      ? <span className="cl-active-badge"><ActiveDotIcon /> Active</span>
-                      : <span className="cl-pending-badge">Awaiting first login</span>
-                    }
                     {(client.openContractorTodos > 0) && <span className="cl-todo-badge">{client.openContractorTodos}</span>}
                   </div>
                 </div>
@@ -352,12 +349,6 @@ export default function Clients() {
                   <p className={`cl-card-address${client.addressFromUser ? " cl-confirmed" : ""}`}>
                     <PinIcon /> {client.address}
                   </p>
-                )}
-                {client.claimNumbers?.length > 0 && (
-                  <p className="cl-claim-number"><ClaimIcon /> Claim{client.claimNumbers.length > 1 ? "s" : ""}: {client.claimNumbers.join(", ")}</p>
-                )}
-                {client.lastLogin && (
-                  <p className="cl-last-login"><ClockIcon /> Last login: {formatDate(client.lastLogin)}</p>
                 )}
                 <div className="cl-card-actions">
                   <button className="cl-open-btn"
@@ -481,9 +472,6 @@ export default function Clients() {
               {archivedClients.map(client => (
                 <div key={client.id} className="cl-card" style={{ opacity: 0.75, border: "1px dashed #cbd5e1" }}>
                   <div className="cl-card-top">
-                    <div className="cl-avatar" style={{ background: "#f1f5f9", color: "#94a3b8" }}>
-                      {(client.name || client.phone || "?")[0].toUpperCase()}
-                    </div>
                     <div className="cl-card-info">
                       <p className="cl-card-name">{client.name || <span className="cl-no-name">No name</span>}</p>
                       <p className="cl-card-phone">{client.phone}</p>

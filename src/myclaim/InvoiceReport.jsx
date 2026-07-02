@@ -1102,9 +1102,9 @@ const sn = v => parseFloat(v) || 0
                   <td className="ir-num">{p.submitted > 0 ? fmtMoney(p.submitted) : '—'}</td>
                   <td className="ir-num" style={{ color: '#16a34a' }}>{p.settled > 0 ? fmtMoney(p.settled) : '—'}</td>
                   <td className="ir-num" style={{ color: '#dc2626' }}>{p.partnerFee > 0 ? fmtMoney(p.partnerFee) : '—'}</td>
-                  <td className="ir-num ir-bold" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-                    {fmtMoney(Math.max(0, p.settled - p.partnerFee))}
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>View →</span>
+                  <td className="ir-num ir-bold">
+                    <div>{fmtMoney(Math.max(0, p.settled - p.partnerFee))}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginTop: 2 }}>View →</div>
                   </td>
                 </tr>
               ))}

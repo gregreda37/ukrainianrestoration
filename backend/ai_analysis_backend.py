@@ -826,7 +826,7 @@ def get_company_context():
             "totalSettlements": len(setts),
             "totalEstimate":    round(total_estimate, 2),
             "totalSettled":     round(total_settled, 2),
-            "totalRecoup":      round(total_recoup, 2),
+            "totalNetProfit":   round(total_net, 2),
             "totalOutstanding": round(total_outstanding, 2),
         }
 

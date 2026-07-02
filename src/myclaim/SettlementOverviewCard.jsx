@@ -18,6 +18,7 @@ const COL_FIELDS = [
   { key: 'Estimate',   label: 'Our Estimate', color: '#0f172a' },
   { key: 'Supplement', label: 'Supplement',   color: '#0891b2' },
   { key: 'Settled',    label: 'Settled',      color: '#16a34a' },
+  { key: 'Expenses',   label: 'Expenses',     color: '#dc2626' },
 ]
 
 const STATUS_META = {

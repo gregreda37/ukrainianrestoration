@@ -324,6 +324,121 @@
 .ir-partner-row:hover { background: #f8fafc; }
 .ir-partner-row:hover td:first-child { color: #2563eb; }
 
+/* ── Partner cards ── */
+.ir-partner-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.ir-partner-card {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px 20px 16px;
+  cursor: pointer;
+  transition: border-color 0.13s, box-shadow 0.13s;
+}
+
+.ir-partner-card:hover {
+  border-color: #2563eb;
+  box-shadow: 0 4px 16px rgba(37,99,235,.09);
+}
+
+.ir-partner-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ir-partner-card-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.ir-partner-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ir-partner-card-jobs {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.ir-partner-card-view {
+  font-size: 12px;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.ir-partner-card-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.ir-partner-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 5px;
+}
+
+.ir-partner-stat-val {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.2;
+}
+
+.ir-partner-totals {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 13px 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.ir-partner-totals-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.ir-partner-totals-stats {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 700px) {
+  .ir-partner-card-grid { grid-template-columns: 1fr; }
+  .ir-partner-card-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
 .ir-client-name {
   font-weight: 600;
   color: #0f172a;

@@ -200,7 +200,7 @@ export default function AIAnalysis() {
   const collapseNav = useContext(NavCollapseContext)
 
   // Mode: 'client' | 'company'
-  const [mode, setMode] = useState('client')
+  const [mode, setMode] = useState('company')
 
   // Org + clients
   const [orgId, setOrgId] = useState('')

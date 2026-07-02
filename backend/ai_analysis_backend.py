@@ -703,14 +703,16 @@ def get_company_context():
                     except (TypeError, ValueError): pass
             return 0.0
 
-        total_estimate    = sum(_num(s, "totalEstimate")    for s in setts)
-        total_settled     = sum(_num(s, "totalSettled")     for s in setts)
-        total_recoup      = sum(_num(s, "companyRecoup")    for s in setts)
-        total_expenses    = sum(_num(s, "totalExpenses")    for s in setts)
-        total_partner_fee = sum(_num(s, "partnerFee")       for s in setts)
-        total_paid        = sum(_num(s, "totalPaidAmount")  for s in setts)
-        total_outstanding = sum(_num(s, "totalOutstanding") for s in setts)
-        total_gross       = sum(_num(s, "grossProfit") for s in setts if s.get("grossProfit") is not None)
+        total_estimate    = sum(_num(s, "totalEstimate")           for s in setts)
+        total_settled     = sum(_num(s, "totalSettled")            for s in setts)
+        total_expenses    = sum(_num(s, "totalExpenses")           for s in setts)
+        total_partner_fee = sum(_num(s, "partnerFee")              for s in setts)
+        total_paid        = sum(_num(s, "totalPaidAmount")         for s in setts)
+        total_outstanding = sum(_num(s, "totalOutstanding")        for s in setts)
+        # grossProfit = totalSettled - totalExpenses (stored null when not yet settled → _num returns 0)
+        total_gross       = sum(_num(s, "grossProfit")             for s in setts)
+        # companyNetAfterPartner = totalSettled - totalExpenses - partnerFee (true company profit)
+        total_net         = sum(_num(s, "companyNetAfterPartner")  for s in setts)
 
         paid_setts    = [s for s in setts if s.get("paid")]
         settled_setts = [s for s in setts if _num(s, "totalSettled") > 0]
@@ -720,10 +722,10 @@ def get_company_context():
         lines.append(f"Total Settlement Records: {len(setts)}")
         lines.append(f"Total Estimate Pipeline: ${total_estimate:,.2f}")
         lines.append(f"Total Insurance Settlement Collected: ${total_settled:,.2f}")
-        lines.append(f"Total Company Receivable (Recoup): ${total_recoup:,.2f}")
-        lines.append(f"Total Expenses: ${total_expenses:,.2f}")
-        lines.append(f"Total Gross Profit: ${total_gross:,.2f}")
+        lines.append(f"Total Company Expenses: ${total_expenses:,.2f}")
         lines.append(f"Total Referral Fees Paid to Partners: ${total_partner_fee:,.2f}")
+        lines.append(f"Gross Profit (Settled minus Expenses, before partner fees): ${total_gross:,.2f}")
+        lines.append(f"Net Company Profit (After Partner Fees): ${total_net:,.2f}")
         lines.append(f"Total Collected by Company: ${total_paid:,.2f}")
         lines.append(f"Total Outstanding (Owed to Company): ${total_outstanding:,.2f}")
         lines.append(f"Records with Insurance Settlement: {len(settled_setts)}")
@@ -741,26 +743,29 @@ def get_company_context():
             if not pname:
                 continue
             if pname not in partner_stats:
-                partner_stats[pname] = {"claims": 0, "estimate": 0.0, "settled": 0.0, "recoup": 0.0, "fee": 0.0, "paid": 0.0}
+                partner_stats[pname] = {"claims": 0, "estimate": 0.0, "settled": 0.0, "expenses": 0.0, "gross": 0.0, "fee": 0.0, "net": 0.0}
             partner_stats[pname]["claims"]   += 1
             partner_stats[pname]["estimate"] += _num(s, "totalEstimate")
             partner_stats[pname]["settled"]  += _num(s, "totalSettled")
-            partner_stats[pname]["recoup"]   += _num(s, "companyRecoup")
+            partner_stats[pname]["expenses"] += _num(s, "totalExpenses")
+            # grossProfit = totalSettled - totalExpenses (null when not yet settled → _num = 0)
+            partner_stats[pname]["gross"]    += _num(s, "grossProfit")
             partner_stats[pname]["fee"]      += _num(s, "partnerFee")
-            partner_stats[pname]["paid"]     += _num(s, "totalPaidAmount")
+            # companyNetAfterPartner = totalSettled - totalExpenses - partnerFee (true company profit)
+            partner_stats[pname]["net"]      += _num(s, "companyNetAfterPartner")
 
         if partner_stats:
             lines.append(f"\n## PARTNER PERFORMANCE")
             for pname, ps in sorted(partner_stats.items(), key=lambda x: x[1]["claims"], reverse=True):
                 rate = (ps["settled"] / ps["estimate"] * 100) if ps["estimate"] > 0 else 0
-                net  = ps["recoup"] - ps["fee"]
                 lines.append(f"\n  {pname}:")
                 lines.append(f"    Total Claims: {ps['claims']}")
                 lines.append(f"    Total Estimate: ${ps['estimate']:,.2f}")
                 lines.append(f"    Total Insurance Settlement: ${ps['settled']:,.2f} ({rate:.0f}% of estimate)")
-                lines.append(f"    Company Receivable (Recoup): ${ps['recoup']:,.2f}")
-                lines.append(f"    Referral Fees Paid: ${ps['fee']:,.2f}")
-                lines.append(f"    Net to Company After Fees: ${net:,.2f}")
+                lines.append(f"    Total Company Expenses: ${ps['expenses']:,.2f}")
+                lines.append(f"    Gross Profit (Before Referral Fee): ${ps['gross']:,.2f}")
+                lines.append(f"    Referral Fee Paid to Partner: ${ps['fee']:,.2f}")
+                lines.append(f"    Net Company Profit After Referral Fee: ${ps['net']:,.2f}")
 
         # Per-insurer breakdown
         insurer_stats: dict[str, dict] = {}
@@ -786,16 +791,18 @@ def get_company_context():
         for s in sorted(setts, key=lambda x: _num(x, "totalEstimate"), reverse=True)[:60]:
             partner_str = f" | Partner: {s['partnerName']}" if s.get("partnerName") else ""
             ins_str     = f" | Insurer: {s['insuranceCompany']}" if s.get("insuranceCompany") else ""
-            recoup_v    = _num(s, "companyRecoup")
+            gross_v     = s.get("grossProfit")
+            net_v       = s.get("companyNetAfterPartner")
             fee_v       = _num(s, "partnerFee")
-            recoup_str  = f" | Recoup: ${recoup_v:,.0f}" if recoup_v else ""
-            fee_str     = f" | Fee: ${fee_v:,.0f}" if fee_v else ""
+            gross_str   = f" | Gross: ${_num(s, 'grossProfit'):,.0f}" if gross_v is not None else ""
+            net_str     = f" | Net: ${_num(s, 'companyNetAfterPartner'):,.0f}" if net_v is not None else ""
+            fee_str     = f" | Referral Fee: ${fee_v:,.0f}" if fee_v else ""
             paid_str    = " | PAID" if s.get("paid") else ""
             lines.append(
                 f"  - {s.get('clientName', 'Unknown')}{partner_str}{ins_str} | "
                 f"Estimate: ${_num(s, 'totalEstimate'):,.0f} | "
                 f"Settled: ${_num(s, 'totalSettled'):,.0f}"
-                f"{recoup_str}{fee_str}{paid_str}"
+                f"{gross_str}{fee_str}{net_str}{paid_str}"
             )
 
         # Invoices summary

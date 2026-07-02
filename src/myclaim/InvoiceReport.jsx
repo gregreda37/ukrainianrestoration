@@ -592,22 +592,6 @@ const sn = v => parseFloat(v) || 0
         </div>
       )}
 
-      {/* ── Pending claims banner ── */}
-      {pendingClaims.length > 0 && (
-        <div className="ir-pending-banner">
-          <span className="ir-pending-icon">⏳</span>
-          <div>
-            <div className="ir-pending-title">
-              {pendingClaims.length} claim{pendingClaims.length !== 1 ? 's' : ''} pending final settlement
-            </div>
-            <div className="ir-pending-sub">
-              Estimated exposure: {fmtMoney(pendingClaims.reduce((s, x) => s + sn(x.totalEstimate), 0))}
-              {pendingClaims.some(c => c.clientName) && ` — ${pendingClaims.map(c => c.clientName).filter(Boolean).slice(0, 3).join(', ')}${pendingClaims.length > 3 ? ` +${pendingClaims.length - 3} more` : ''}`}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Insurance settlement performance ── */}
       {settlements.length > 0 && (
         <div className="ir-section ir-section--settlement">

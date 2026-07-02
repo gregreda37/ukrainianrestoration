@@ -562,7 +562,7 @@ const sn = v => parseFloat(v) || 0
             <KPICard label="Total Settled"     value={fmtMoney(settTotalSettled)}   sub={`${settAvgRecovery.toFixed(1)}% recovery`}       color="#16a34a" />
             <KPICard label="Written Off"       value={fmtMoney(settTotalGap)}       sub="uncollected gap"                                 color={settTotalGap > 0 ? '#dc2626' : '#94a3b8'} />
             <KPICard label="Referral Fees Paid" value={fmtMoney(settTotalPartnerFees)}                    sub="paid to partners"    color="#7c3aed" />
-            <KPICard label="Company Net"       value={fmtMoney(companyNet)} sub="total settled − referral fees" color="#2563eb" />
+            <KPICard label="Company Net"       value={fmtMoney(insNet)}    sub="total settled − referral fees" color="#2563eb" />
           </div>
 
           {settCatData.some(c => c.submitted > 0) && (

@@ -104,6 +104,17 @@
 .cl-search-clear:hover { color: #475569; }
 
 /* ── Grid ───────────────────────────────────────── */
+.cl-scroll-wrap {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.cl-scroll-wrap::-webkit-scrollbar { width: 5px; }
+.cl-scroll-wrap::-webkit-scrollbar-track { background: transparent; }
+.cl-scroll-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+
 .cl-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

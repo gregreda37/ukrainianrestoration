@@ -150,7 +150,7 @@ export default function PartnerDetail() {
 
   return (
     <div className="pd-root">
-      <button className="pd-back" onClick={() => navigate('/myclaim/invoices?tab=partners')}>← Back to Partners</button>
+      <button className="pd-back" onClick={() => navigate(-1)}>← Back to Partners</button>
 
       {/* ── Header ── */}
       <div className="pd-header">

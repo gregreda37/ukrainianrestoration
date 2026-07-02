@@ -29,71 +29,197 @@ const PIPELINE_STATUS_META = {
 }
 
 function OpenClaimsPipelineSection({ items, navigate }) {
-  const totalExposure = items.reduce((s, x) => s + (parseFloat(x.totalEstimate) || 0), 0)
+  const [view, setView] = useState('net')
+
   const statusGroups = Object.keys(PIPELINE_STATUS_META)
     .map(key => ({ key, ...PIPELINE_STATUS_META[key], count: items.filter(i => (i.status || 'estimating') === key).length }))
     .filter(g => g.count > 0)
 
+  // Estimate referral fee from settlement_summary fields.
+  // For settled claims use the stored partnerFee dollar amount.
+  // For open claims: fixed type uses partnerFeeValue directly;
+  //   percent type = estimate (minus expenses if onNet) * recoupPercent / 100
+  function calcFee(x) {
+    if (!x.partnerId) return 0
+    const settled = parseFloat(x.totalSettled) || 0
+    if (settled > 0 && x.partnerFee != null) return parseFloat(x.partnerFee) || 0
+    if (x.partnerFeeType === 'fixed') return parseFloat(x.partnerFeeValue) || 0
+    const expenses = x.partnerFeeOnNet ? (parseFloat(x.totalExpenses) || 0) : 0
+    const base     = Math.max(0, (parseFloat(x.totalEstimate) || 0) - expenses)
+    return base * (parseFloat(x.recoupPercent) || 0) / 100
+  }
+
+  // Per row: use totalSettled if present, else totalEstimate
+  function rowBase(x) {
+    const settled  = parseFloat(x.totalSettled)  || 0
+    const estimate = parseFloat(x.totalEstimate) || 0
+    return settled > 0 ? settled : estimate
+  }
+
+  const totalBase         = items.reduce((s, x) => s + rowBase(x), 0)
+  const totalFees         = items.reduce((s, x) => s + calcFee(x), 0)
+  const totalPaid         = items.reduce((s, x) => s + (parseFloat(x.totalPaidAmount) || 0), 0)
+  const coNetTotal        = items.reduce((s, x) => s + Math.max(0, rowBase(x) - calcFee(x)), 0)
+  const coOutstandingTotal = items.reduce((s, x) => {
+    const coNet = Math.max(0, rowBase(x) - calcFee(x))
+    return s + Math.max(0, coNet - (parseFloat(x.totalPaidAmount) || 0))
+  }, 0)
+  const displayTotal = view === 'net' ? coOutstandingTotal : totalBase
+
+  function PipelineRow({ s }) {
+    const statusKey = s.status || 'estimating'
+    const meta      = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
+    const href      = s.clientPhone ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement` : null
+    const settled   = parseFloat(s.totalSettled)  || 0
+    const estimate  = parseFloat(s.totalEstimate) || 0
+    const base      = settled > 0 ? settled : estimate
+    const isSettled = settled > 0
+    const fee       = calcFee(s)
+    const coNet     = Math.max(0, base - fee)
+
+    const clientCell = (
+      <td className="oil-td oil-td--client">
+        <div>{s.clientName || '—'}</div>
+        {s.clientAddress && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{s.clientAddress}</div>}
+      </td>
+    )
+    const statusBadge = (
+      <td className="oil-td">
+        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: meta.bg, color: meta.color, fontWeight: 600 }}>
+          {meta.label}
+        </span>
+      </td>
+    )
+    const arrow = (
+      <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+        {href ? '→' : ''}
+      </td>
+    )
+
+    if (view === 'full') {
+      return (
+        <tr className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+          {clientCell}
+          <td className="oil-td">{s.insuranceCompany || '—'}</td>
+          {statusBadge}
+          <td className="oil-td oil-td--amount">
+            <div>{fmtMoney(estimate)}</div>
+            {isSettled && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>Settled: {fmtMoney(settled)}</div>}
+          </td>
+          {arrow}
+        </tr>
+      )
+    }
+
+    const paid         = parseFloat(s.totalPaidAmount) || 0
+    const coOutstanding = Math.max(0, coNet - paid)
+    return (
+      <tr className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+        {clientCell}
+        {statusBadge}
+        <td className="oil-td oil-td--amount">
+          <div style={{ color: isSettled ? '#16a34a' : undefined, fontWeight: isSettled ? 600 : undefined }}>
+            {fmtMoney(base)}
+          </div>
+          {isSettled && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>Est: {fmtMoney(estimate)}</div>}
+        </td>
+        <td className="oil-td oil-td--amount" style={{ color: fee > 0 ? '#7c3aed' : '#94a3b8' }}>
+          {fee > 0 ? `– ${fmtMoney(fee)}` : '—'}
+        </td>
+        <td className="oil-td oil-td--amount" style={{ color: '#0f172a', fontWeight: 700 }}>{fmtMoney(coNet)}</td>
+        <td className="oil-td oil-td--amount" style={{ color: paid > 0 ? '#0891b2' : '#94a3b8' }}>
+          {paid > 0 ? fmtMoney(paid) : '—'}
+        </td>
+        <td className="oil-td oil-td--amount">
+          <span className="oil-outstanding-val">{fmtMoney(coOutstanding)}</span>
+        </td>
+        {arrow}
+      </tr>
+    )
+  }
+
   return (
     <div className="oil-section">
-      <div className="oil-section-header" style={{ borderLeftColor: '#2563eb' }}>
-        <div className="oil-section-left">
-          <span className="oil-section-title" style={{ color: '#2563eb' }}>📋 Open Claims Pipeline</span>
-          <span className="oil-section-count" style={{ background: '#eff6ff', color: '#2563eb' }}>{items.length}</span>
-          {statusGroups.map(g => (
-            <span key={g.key} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: g.bg, color: g.color, fontWeight: 600 }}>
-              {g.label}: {g.count}
-            </span>
-          ))}
+      <div className="oil-pipe-header" style={{ borderLeft: '4px solid #2563eb', paddingLeft: 12, marginBottom: 12 }}>
+        <div className="oil-pipe-header-top">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="oil-section-title" style={{ color: '#2563eb' }}>📋 Open Claims Pipeline</span>
+            <span className="oil-section-count" style={{ background: '#eff6ff', color: '#2563eb' }}>{items.length}</span>
+          </div>
+          <span className="oil-section-total">
+            {fmtMoney(displayTotal)}
+            <span className="oil-sett-total-label">{view === 'net' ? ' co. outstanding' : ' estimated exposure'}</span>
+          </span>
         </div>
-        <span className="oil-section-total">
-          {fmtMoney(totalExposure)}
-          <span className="oil-sett-total-label"> estimated exposure</span>
-        </span>
+        <div className="oil-pipe-header-bottom">
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {statusGroups.map(g => (
+              <span key={g.key} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: g.bg, color: g.color, fontWeight: 600 }}>
+                {g.label}: {g.count}
+              </span>
+            ))}
+          </div>
+          <div className="oil-sett-view-tabs">
+            <button className={`oil-sett-tab${view === 'net' ? ' oil-sett-tab--active' : ''}`} onClick={() => setView('net')}>
+              Co. Receivables
+            </button>
+            <button className={`oil-sett-tab${view === 'full' ? ' oil-sett-tab--active' : ''}`} onClick={() => setView('full')}>
+              Full Settlement
+            </button>
+          </div>
+        </div>
       </div>
       <div className="oil-table-wrap">
         <table className="oil-table">
           <thead>
-            <tr>
-              <th className="oil-th">Client</th>
-              <th className="oil-th">Claim #</th>
-              <th className="oil-th">Insurance Co.</th>
-              <th className="oil-th">Status</th>
-              <th className="oil-th oil-th--right">Estimate</th>
-              <th className="oil-th" />
-            </tr>
+            {view === 'full' ? (
+              <tr>
+                <th className="oil-th">Client</th>
+                <th className="oil-th">Insurance Co.</th>
+                <th className="oil-th">Status</th>
+                <th className="oil-th oil-th--right">Estimate</th>
+                <th className="oil-th" />
+              </tr>
+            ) : (
+              <tr>
+                <th className="oil-th">Client</th>
+                <th className="oil-th">Status</th>
+                <th className="oil-th oil-th--right">Amount</th>
+                <th className="oil-th oil-th--right">Referral Fee</th>
+                <th className="oil-th oil-th--right">Co. Net</th>
+                <th className="oil-th oil-th--right">Received</th>
+                <th className="oil-th oil-th--right">Co. Outstanding</th>
+                <th className="oil-th" />
+              </tr>
+            )}
           </thead>
           <tbody>
-            {items.map(s => {
-              const statusKey = s.status || 'estimating'
-              const meta = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
-              const href = s.clientPhone
-                ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
-                : null
-              return (
-                <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
-                  <td className="oil-td oil-td--client">{s.clientName || '—'}</td>
-                  <td className="oil-td oil-td--num">{s.claimNumber || '—'}</td>
-                  <td className="oil-td">{s.insuranceCompany || '—'}</td>
-                  <td className="oil-td">
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: meta.bg, color: meta.color, fontWeight: 600 }}>
-                      {meta.label}
-                    </span>
-                  </td>
-                  <td className="oil-td oil-td--amount">{fmtMoney(parseFloat(s.totalEstimate) || 0)}</td>
-                  <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
-                    {href ? '→' : ''}
-                  </td>
-                </tr>
-              )
-            })}
+            {items.map(s => <PipelineRow key={s.id} s={s} />)}
           </tbody>
           <tfoot>
-            <tr className="oil-total-row">
-              <td colSpan={4} />
-              <td className="oil-td oil-td--amount"><strong>{fmtMoney(totalExposure)}</strong></td>
-              <td />
-            </tr>
+            {view === 'full' ? (
+              <tr className="oil-total-row">
+                <td colSpan={3} />
+                <td className="oil-td oil-td--amount"><strong>{fmtMoney(totalBase)}</strong></td>
+                <td />
+              </tr>
+            ) : (
+              <tr className="oil-total-row">
+                <td colSpan={2} />
+                <td className="oil-td oil-td--amount"><strong>{fmtMoney(totalBase)}</strong></td>
+                <td className="oil-td oil-td--amount" style={{ color: '#7c3aed' }}>
+                  <strong>{totalFees > 0 ? `– ${fmtMoney(totalFees)}` : '—'}</strong>
+                </td>
+                <td className="oil-td oil-td--amount"><strong>{fmtMoney(coNetTotal)}</strong></td>
+                <td className="oil-td oil-td--amount" style={{ color: '#0891b2' }}>
+                  <strong>{totalPaid > 0 ? fmtMoney(totalPaid) : '—'}</strong>
+                </td>
+                <td className="oil-td oil-td--amount">
+                  <strong className="oil-outstanding-val">{fmtMoney(coOutstandingTotal)}</strong>
+                </td>
+                <td />
+              </tr>
+            )}
           </tfoot>
         </table>
       </div>
@@ -102,7 +228,7 @@ function OpenClaimsPipelineSection({ items, navigate }) {
 }
 
 function SettlementPaymentsSection({ items, total, navigate }) {
-  const [view, setView] = useState('full')
+  const [view, setView] = useState('net')
 
   const coNetTotal = items.reduce((sum, s) => {
     const settled = parseFloat(s.totalSettled)    || 0
@@ -116,33 +242,28 @@ function SettlementPaymentsSection({ items, total, navigate }) {
 
   return (
     <div className="oil-section">
-      <div className="oil-section-header" style={{ borderLeftColor: '#d97706' }}>
-        <div className="oil-section-left">
-          <span className="oil-section-title" style={{ color: '#d97706' }}>⏳ Awaiting Settlement Payment</span>
-          <span className="oil-section-count" style={{ background: '#fffbeb', color: '#d97706' }}>
-            {items.length}
+      <div className="oil-pipe-header" style={{ borderLeft: '4px solid #d97706', paddingLeft: 12, marginBottom: 12 }}>
+        <div className="oil-pipe-header-top">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="oil-section-title" style={{ color: '#d97706' }}>⏳ Awaiting Settlement Payment</span>
+            <span className="oil-section-count" style={{ background: '#fffbeb', color: '#d97706' }}>{items.length}</span>
+          </div>
+          <span className="oil-section-total">
+            {fmtMoney(displayTotal)}
+            <span className="oil-sett-total-label">{view === 'net' ? ' co. outstanding' : ' outstanding'}</span>
           </span>
+        </div>
+        <div className="oil-pipe-header-bottom">
+          <div />
           <div className="oil-sett-view-tabs">
-            <button
-              className={`oil-sett-tab${view === 'full' ? ' oil-sett-tab--active' : ''}`}
-              onClick={() => setView('full')}
-            >
-              Full Settlement
-            </button>
-            <button
-              className={`oil-sett-tab${view === 'net' ? ' oil-sett-tab--active' : ''}`}
-              onClick={() => setView('net')}
-            >
+            <button className={`oil-sett-tab${view === 'net' ? ' oil-sett-tab--active' : ''}`} onClick={() => setView('net')}>
               Co. Receivables
+            </button>
+            <button className={`oil-sett-tab${view === 'full' ? ' oil-sett-tab--active' : ''}`} onClick={() => setView('full')}>
+              Full Settlement
             </button>
           </div>
         </div>
-        <span className="oil-section-total">
-          {fmtMoney(displayTotal)}
-          <span className="oil-sett-total-label">
-            {view === 'net' ? ' co. outstanding' : ' outstanding'}
-          </span>
-        </span>
       </div>
 
       <div className="oil-table-wrap">
@@ -206,7 +327,7 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 <th className="oil-th">Claim #</th>
                 <th className="oil-th oil-th--right">Settled</th>
                 <th className="oil-th oil-th--right">Referral Fee</th>
-                <th className="oil-th oil-th--right">Co. Net (after referral fee)</th>
+                <th className="oil-th oil-th--right">Co. Net</th>
                 <th className="oil-th oil-th--right">Received</th>
                 <th className="oil-th oil-th--right">Co. Outstanding</th>
                 <th className="oil-th" />
@@ -366,6 +487,16 @@ export default function Dashboard() {
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
         setRecentClients(all.slice(0, 6));
 
+        // Build address + phone lookup from already-loaded clients
+        const addrByDocId = {}, addrByPhone = {}
+        clientsSnap.docs.forEach(d => {
+          const { address, phone } = d.data()
+          if (address) {
+            addrByDocId[d.id] = address
+            if (phone) addrByPhone[phone] = address
+          }
+        })
+
         const rawSetts = settSnap.docs.map(d => ({ id: d.id, ...d.data() }))
         const missing  = rawSetts.filter(s => !s.clientPhone && (s.clientDocId || s.clientUid))
         let phoneMap   = {}
@@ -382,7 +513,11 @@ export default function Dashboard() {
             if (phone) phoneMap[s.id] = phone
           })
         }
-        setSettRows(rawSetts.map(s => phoneMap[s.id] ? { ...s, clientPhone: phoneMap[s.id] } : s))
+        setSettRows(rawSetts.map(s => {
+          const phone = phoneMap[s.id] || s.clientPhone
+          const address = addrByDocId[s.clientDocId] || addrByPhone[phone] || null
+          return { ...s, ...(phone ? { clientPhone: phone } : {}), ...(address ? { clientAddress: address } : {}) }
+        }))
       } catch (err) {
         console.error("Dashboard load error:", err);
       } finally {

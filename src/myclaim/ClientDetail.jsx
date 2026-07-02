@@ -1116,7 +1116,7 @@ export default function ClientDetail() {
     <div className="cd-loading">
       <p style={{ color: "#64748b", textAlign: "center" }}>
         You don't have access to this client.{" "}
-        <button className="cd-back-btn" onClick={() => navigate("/myclaim/clients")}>← Back to Clients</button>
+        <button className="cd-back-btn" onClick={() => navigate(-1)}>← Back to Clients</button>
       </p>
     </div>
   );
@@ -1124,7 +1124,7 @@ export default function ClientDetail() {
     <div className="cd-loading">
       <p style={{ color: "#64748b", textAlign:"center" }}>
         Client not found.{" "}
-        <button className="cd-back-btn" onClick={() => navigate("/myclaim/clients")}>← Back to Clients</button>
+        <button className="cd-back-btn" onClick={() => navigate(-1)}>← Back to Clients</button>
       </p>
     </div>
   );
@@ -1151,7 +1151,7 @@ export default function ClientDetail() {
       <div className="cd-main">
 
         {/* ── Back ──────────────────────────────────────────────────── */}
-        <button className="cd-back-btn" onClick={() => navigate("/myclaim/clients")}>
+        <button className="cd-back-btn" onClick={() => navigate(-1)}>
           <BackIcon /> Back to Clients
         </button>
 

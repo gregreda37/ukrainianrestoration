@@ -227,6 +227,21 @@
   color: #94a3b8;
 }
 
+/* ── Pipeline stacked header ── */
+.oil-pipe-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.oil-pipe-header-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 /* ── Settlement view tabs ── */
 .oil-sett-view-tabs {
   display: flex;
@@ -284,7 +299,7 @@
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: 0 1px 6px rgba(15,23,42,.04);
 }
 

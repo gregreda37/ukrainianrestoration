@@ -77,7 +77,7 @@ const EMPTY_FORM = (prefill = {}) => ({
   status: 'estimating', deductible: '',
   recoupPercent: 0,
   dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: '', packoutRecoupPct: '',
-  partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFeeValue: '', partnerFeeOnNet: false,
+  partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFeeValue: '', partnerFeeOnNet: true,
   notes: '',
   ...CATEGORIES.flatMap(c => COL_FIELDS.map(f => [`${c.key}${f.key}`, ''])).reduce((o, [k, v]) => ({ ...o, [k]: v }), {}),
 })
@@ -322,7 +322,7 @@ export default function Settlement() {
     <div className="sl-root">
       <div className="sl-header">
         <div>
-          <button className="sl-back" onClick={() => navigate(backPath)}>← Back to Client</button>
+          <button className="sl-back" onClick={() => navigate(-1)}>← Back to Client</button>
           <h2 className="sl-title">Insurance Settlement Tracker</h2>
           {clientName && <p className="sl-sub">{clientName}</p>}
         </div>

@@ -365,7 +365,9 @@ export default function Clients() {
           return (
             <>
               {openClients.length > 0 && (
-                <div className="cl-grid">{openClients.map(renderCard)}</div>
+                <div className="cl-scroll-wrap">
+                  <div className="cl-grid">{openClients.map(renderCard)}</div>
+                </div>
               )}
               {closedClients.length > 0 && (
                 <>
@@ -373,7 +375,9 @@ export default function Clients() {
                     <span>Closed Claims</span>
                     <span className="cl-section-count">{closedClients.length}</span>
                   </div>
-                  <div className="cl-grid">{closedClients.map(renderCard)}</div>
+                  <div className="cl-scroll-wrap">
+                    <div className="cl-grid">{closedClients.map(renderCard)}</div>
+                  </div>
                 </>
               )}
             </>
@@ -468,7 +472,8 @@ export default function Clients() {
             <span style={{ fontSize: 12, color: "#94a3b8" }}>{showArchive ? "Hide ▲" : "Show ▼"}</span>
           </button>
           {showArchive && (
-            <div className="cl-grid" style={{ marginTop: 8 }}>
+            <div className="cl-scroll-wrap" style={{ marginTop: 8 }}>
+            <div className="cl-grid">
               {archivedClients.map(client => (
                 <div key={client.id} className="cl-card" style={{ opacity: 0.75, border: "1px dashed #cbd5e1" }}>
                   <div className="cl-card-top">
@@ -498,6 +503,7 @@ export default function Clients() {
                   </div>
                 </div>
               ))}
+            </div>
             </div>
           )}
         </div>

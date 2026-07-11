@@ -329,12 +329,40 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", c
     lines = []
     stats = {}
 
-    # Serial: user doc must come first (everything else depends on it)
-    user_doc = db.collection("users").document(client_uid).get()
-    if not user_doc.exists:
-        return None, None, [], {}
+    # ── Resolve client data ───────────────────────────────────────────────────
+    # Primary: portal account (users/{uid}). Fallback: org client doc when the
+    # client hasn't created a portal account yet — we still have todos, docs,
+    # selections, budget, and settlement data from the org subcollections.
+    ud = {}
+    if client_uid:
+        user_doc = db.collection("users").document(client_uid).get()
+        if user_doc.exists:
+            ud = user_doc.to_dict()
+        else:
+            client_uid = ""  # stale/deleted UID — fall through to org doc
 
-    ud           = user_doc.to_dict()
+    if not ud:
+        # No portal account: pull basic info from org client doc
+        if not client_doc_id:
+            return None, None, [], {}
+        org_cli = (
+            db.collection("organization_data").document(org_id)
+              .collection("clients").document(client_doc_id).get()
+        )
+        if not org_cli.exists:
+            return None, None, [], {}
+        ocd = org_cli.to_dict()
+        ud = {
+            "displayName":      ocd.get("name") or client_name_hint or "Unknown",
+            "phoneNumber":      ocd.get("phone", ""),
+            "address":          ocd.get("address", ""),
+            "claimNumbers":     ocd.get("claimNumbers", []),
+            "policyNumber":     ocd.get("policyNumber", ""),
+            "mitigationStep":   -1,
+            "constructionStep": -1,
+            "adjuster":         ocd.get("adjuster") or {},
+        }
+
     mit_step     = ud.get("mitigationStep", -1)
     con_step     = ud.get("constructionStep", -1)
     adj          = ud.get("adjuster") or {}
@@ -354,6 +382,8 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", c
     }
 
     lines.append("## CLIENT INFORMATION")
+    if not client_uid:
+        lines.append("(Portal account not yet created — context built from org records)")
     lines.append(f"Name: {display_name}")
     lines.append(f"Email: {ud.get('email', 'N/A')}")
     lines.append(f"Phone: {ud.get('phoneNumber', 'N/A')}")
@@ -376,7 +406,7 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", c
 
     # Parallel subcollection reads — all fire simultaneously
     # todos/documents/selections/budget are written to org path; activity stays on users/{uid}
-    user_ref = db.collection("users").document(client_uid)
+    user_ref = db.collection("users").document(client_uid) if client_uid else None
     if client_doc_id:
         sub_ref = (
             db.collection("organization_data")
@@ -400,7 +430,7 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", c
         return list(sub_ref.collection("budget").get())
 
     def _fetch_activity():
-        if not context_flags.get("activity", True):
+        if not context_flags.get("activity", True) or not client_uid or user_ref is None:
             return []
         return list(
             user_ref.collection("activity")
@@ -868,12 +898,12 @@ def get_context():
     context_flags    = data.get("contextFlags", {})
     client_name_hint = data.get("clientName", "")
 
-    if not org_id or not client_uid:
-        return jsonify({"error": "orgId and clientUid are required"}), 400
+    if not org_id or (not client_uid and not client_doc_id):
+        return jsonify({"error": "orgId and (clientUid or clientDocId) are required"}), 400
 
     try:
         db        = admin_firestore.client()
-        cache_key = f"{CACHE_VERSION}_{org_id}_{client_uid}_{_flags_hash(context_flags)}"
+        cache_key = f"{CACHE_VERSION}_{org_id}_{client_uid or client_doc_id}_{_flags_hash(context_flags)}"
 
         # Fast path: return cached context if still fresh and same caller
         cached = db.collection("ai_context_cache").document(cache_key).get()

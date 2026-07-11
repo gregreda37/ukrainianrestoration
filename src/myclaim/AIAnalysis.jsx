@@ -394,11 +394,6 @@ export default function AIAnalysis() {
         }
       }
 
-      if (!clientUid) {
-        setStreamError("This client hasn't created a portal account yet — no AI context available.")
-        return
-      }
-
       const idToken = await auth.currentUser.getIdToken()
       const res = await fetch(`${API}/ai/context`, {
         method: 'POST',

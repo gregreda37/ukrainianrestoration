@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Block portal/app paths from indexing
+Disallow: /myclaim/
+Disallow: /api/
+
+Sitemap: https://www.ukrainianrestoration.com/sitemap.xml

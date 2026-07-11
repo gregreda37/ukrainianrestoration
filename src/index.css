@@ -557,6 +557,101 @@ ul { list-style: none; }
 .load-card__size { color: var(--clr-accent); font-size: .9rem; font-weight: 600; margin-bottom: 14px; }
 .load-card p { color: var(--clr-text-lt); font-size: .9375rem; }
 
+/* ── FAQ accordion ── */
+.faq-list { display: flex; flex-direction: column; gap: 2px; max-width: 820px; margin: 0 auto; }
+.faq-item {
+  background: var(--clr-white);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: box-shadow .2s;
+  overflow: hidden;
+}
+.faq-item:hover { box-shadow: var(--shadow-sm); }
+.faq-item--open { border-color: var(--clr-primary); box-shadow: var(--shadow-sm); }
+.faq-item__q {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 20px 24px;
+  font-weight: 600; font-size: 1rem; color: var(--clr-heading);
+  user-select: none;
+}
+.faq-item__q svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--clr-primary); }
+.faq-item__a {
+  padding: 0 24px 20px;
+  color: var(--clr-text-lt);
+  font-size: .9375rem;
+  line-height: 1.75;
+  border-top: 1px solid var(--clr-border);
+  margin-top: -1px;
+}
+
+/* ── Public Adjuster partner card ── */
+.pa-partner-card {
+  display: flex !important;
+  align-items: stretch !important;
+  min-height: 320px;
+}
+.pa-card {
+  background: var(--clr-white);
+  border: 2px solid var(--clr-primary);
+  border-radius: var(--r-lg);
+  padding: 36px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow);
+  width: 100%;
+}
+.pa-card__label {
+  font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--clr-primary);
+}
+.pa-card__name {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  color: var(--clr-heading);
+  line-height: 1.2;
+}
+.pa-card__desc {
+  color: var(--clr-text-lt);
+  font-size: .9375rem;
+  line-height: 1.7;
+  flex: 1;
+}
+
+/* ── Inline text link ── */
+.text-link {
+  color: var(--clr-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+.text-link:hover { color: var(--clr-primary-dk); }
+
+/* ── Footer partner link ── */
+.footer__partner {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+.footer__partner-label {
+  font-size: .75rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--clr-accent); margin-bottom: 6px;
+}
+.footer__partner a {
+  color: rgba(255,255,255,.85);
+  font-weight: 600;
+  font-size: .9375rem;
+}
+.footer__partner a:hover { color: #fff; }
+
+@media (max-width: 768px) {
+  .faq-item__q { padding: 16px 18px; font-size: .9375rem; }
+  .faq-item__a { padding: 0 18px 16px; }
+  .pa-partner-card { min-height: unset; }
+  .pa-card { padding: 28px 24px; }
+}
+
 /* ── Projects / Gallery page ── */
 .portfolio-setup { background: var(--clr-bg-alt); border-radius: var(--r-lg); padding: 48px; text-align: center; }
 .portfolio-setup h3 { font-size: 1.5rem; margin-bottom: 12px; }

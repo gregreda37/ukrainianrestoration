@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useSEO } from '../hooks/useSEO'
 
 const STEPS = [
   { num: '01', title: 'Emergency Assessment', desc: 'We respond fast. Our team assesses the damage, identifies water sources, and documents everything for your insurance claim.' },
@@ -20,6 +21,11 @@ const COVERAGE = [
 ]
 
 export default function WaterDamage() {
+  useSEO({
+    title: 'Water & Fire Damage Restoration New Jersey | IICRC Certified | Ukrainian Restoration',
+    description: 'IICRC-certified water damage restoration in New Jersey. Emergency extraction, structural drying, mold prevention & full reconstruction. NJ.LIC #13VH10509300. Call (973) 219-4973.',
+    canonical: '/water-damage',
+  })
   return (
     <>
       <div className="page-banner">
@@ -91,16 +97,68 @@ export default function WaterDamage() {
         </div>
       </section>
 
-      {/* Insurance note */}
+      {/* Insurance + Public Adjuster */}
       <section className="section">
         <div className="container">
           <div className="sec-hd">
             <div className="sec-label">Insurance Claims</div>
-            <h2 className="sec-title">We Work With Your Insurance</h2>
+            <h2 className="sec-title">We Work With Your Insurance — And We Know Who Can Fight For You</h2>
             <p className="sec-sub">
-              We document damage thoroughly from day one to support your claim. We&#39;ve worked
-              alongside adjusters across New Jersey and know what they need.
+              We document damage thoroughly from day one to support your claim. We&apos;ve worked
+              alongside adjusters across New Jersey and know exactly what they need.
             </p>
+          </div>
+          <div className="home-split" style={{ alignItems: 'stretch' }}>
+            <div className="home-split__text">
+              <div className="sec-label sec-label--left">Our Role</div>
+              <h3 style={{ fontSize: '1.5rem', marginBottom: 14 }}>Contractor Documentation</h3>
+              <p style={{ marginBottom: 16 }}>
+                From the moment we arrive on site, we document everything: photos, moisture
+                readings, thermal imaging, and a detailed scope of work. This documentation
+                becomes the backbone of your insurance claim. We know what adjusters need
+                because we&apos;ve worked alongside them on hundreds of New Jersey jobs.
+              </p>
+              <ul className="coverage-list">
+                {[
+                  'Photographic documentation of all damage',
+                  'Moisture mapping and drying logs',
+                  'Scope of work aligned with insurance standards',
+                  'Direct communication with your adjuster',
+                  'Xactimate-compatible estimates available',
+                ].map(item => (
+                  <li key={item}><span className="coverage-list__check">&#10003;</span>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="home-split__img pa-partner-card" style={{ minHeight: 'unset' }}>
+              <div className="pa-card">
+                <div className="pa-card__label">Want More From Your Claim?</div>
+                <div className="pa-card__name">Hire a Public Adjuster</div>
+                <p className="pa-card__desc">
+                  A public adjuster works <strong>exclusively for you</strong> — not your insurance
+                  company. They review your policy, document losses, and negotiate directly with
+                  the insurer to maximize your settlement. Most homeowners who use a public adjuster
+                  receive significantly larger payouts than those who negotiate alone.
+                </p>
+                <p className="pa-card__desc" style={{ marginTop: 8 }}>
+                  We refer our clients to{' '}
+                  <a href="https://www.kozakadjusting.com" target="_blank" rel="noopener noreferrer" className="text-link">
+                    Kozak Adjusting
+                  </a>
+                  , a trusted New Jersey public adjusting firm that has helped countless homeowners
+                  maximize their insurance recovery.
+                </p>
+                <a
+                  href="https://www.kozakadjusting.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-warm"
+                  style={{ marginTop: 'auto', textAlign: 'center' }}
+                >
+                  Visit Kozak Adjusting ↗
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       </section>

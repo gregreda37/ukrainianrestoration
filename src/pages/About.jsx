@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useSEO } from '../hooks/useSEO'
 import imgGreg        from '../assets/portfolio/headshots/greg.jpg'
 import imgZach        from '../assets/portfolio/headshots/zach.jpeg'
 import imgDaniel      from '../assets/portfolio/headshots/daniel.jpg'
@@ -76,6 +77,11 @@ const CERTS = [
 ]
 
 export default function About() {
+  useSEO({
+    title: 'About Ukrainian Restoration | Licensed NJ Contractor — Greg & Zach',
+    description: 'Meet the team behind Ukrainian Restoration LLC — IICRC-certified, NJ-licensed brothers Greg and Zach. Built on Ukrainian heritage and hands-on construction experience.',
+    canonical: '/about',
+  })
   return (
     <>
       <div className="page-banner">

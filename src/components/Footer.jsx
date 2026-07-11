@@ -48,12 +48,19 @@ export default function Footer() {
           <div className="footer__col">
             <h4>Services</h4>
             <ul>
-              <li><Link to="/water-damage">Water Damage</Link></li>
-              <li><Link to="/projects">Kitchen Remodeling</Link></li>
-              <li><Link to="/projects">Bathroom Renovation</Link></li>
+              <li><Link to="/water-damage">Water Damage Restoration</Link></li>
+              <li><Link to="/water-damage">Fire Damage Restoration</Link></li>
+              <li><Link to="/services">Kitchen Remodeling</Link></li>
+              <li><Link to="/services">Bathroom Renovation</Link></li>
               <li><Link to="/handyman">Handyman</Link></li>
               <li><Link to="/junk-removal">Junk Removal</Link></li>
             </ul>
+            <div className="footer__partner">
+              <div className="footer__partner-label">Public Adjuster Partner</div>
+              <a href="https://www.kozakadjusting.com" target="_blank" rel="noopener noreferrer">
+                Kozak Adjusting ↗
+              </a>
+            </div>
           </div>
 
           <div className="footer__col">
@@ -64,11 +71,11 @@ export default function Footer() {
             </div>
             <div className="footer__contact-item">
               <MailIcon />
-              <span>info@ukrainianrestoration.com</span>
+              <a href="mailto:info@ukrainianrestoration.com">info@ukrainianrestoration.com</a>
             </div>
             <div className="footer__contact-item">
               <MapPinIcon />
-              <span>New Jersey &amp; Surrounding Areas</span>
+              <span>Essex, Bergen, Hudson &amp; Passaic Counties, NJ</span>
             </div>
           </div>
         </div>

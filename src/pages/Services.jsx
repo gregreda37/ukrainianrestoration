@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useSEO } from '../hooks/useSEO'
 
 const SERVICES = [
   {
@@ -40,6 +41,11 @@ const SERVICES = [
 ]
 
 export default function Services() {
+  useSEO({
+    title: 'Services | Kitchen, Bathroom, Basement & Home Renovation NJ — Ukrainian Restoration',
+    description: 'Licensed NJ general contractor offering kitchen remodeling, bathroom renovation, basement finishing, flooring, and full home reconstruction. NJ.LIC #13VH10509300.',
+    canonical: '/services',
+  })
   return (
     <>
       <div className="page-banner">
@@ -91,7 +97,7 @@ export default function Services() {
             {[
               { title: 'Single Point of Contact', desc: 'You work with one person from estimate to final walk-through. No runaround, no confusion.' },
               { title: 'Transparent Pricing', desc: 'We give you a detailed, itemized quote upfront. What we quote is what you pay.' },
-              { title: 'Licensed & Insured', desc: 'Fully licensed in Illinois with general liability and workers\' comp coverage on every job.' },
+              { title: 'Licensed & Insured', desc: 'Fully licensed in New Jersey (NJ.LIC #13VH10509300) with general liability and workers\' comp coverage on every job.' },
             ].map(({ title, desc }) => (
               <div className="card" key={title} style={{ padding: '32px' }}>
                 <h3 style={{ marginBottom: 12, fontSize: '1.1875rem' }}>{title}</h3>

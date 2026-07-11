@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import About from './pages/About'
 import Projects from './pages/Projects'
 import WaterDamage from './pages/WaterDamage'
+import Services from './pages/Services'
 import Handyman from './pages/Handyman'
 import JunkRemoval from './pages/JunkRemoval'
 import Contact from './pages/Contact'
@@ -118,6 +119,7 @@ function PublicSite() {
             <Route path="/about" element={<About />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/water-damage" element={<WaterDamage />} />
+            <Route path="/services" element={<Services />} />
             <Route path="/handyman" element={<Handyman />} />
             <Route path="/junk-removal" element={<JunkRemoval />} />
             <Route path="/contact" element={<Contact />} />

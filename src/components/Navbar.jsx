@@ -4,10 +4,10 @@ import { Link, NavLink } from 'react-router-dom'
 const NAV_LINKS = [
   { to: '/', label: 'Home' },
   { to: '/about', label: 'About' },
+  { to: '/water-damage', label: 'Water & Fire Damage' },
+  { to: '/services', label: 'Services' },
   { to: '/projects', label: 'Projects' },
-  { to: '/water-damage', label: 'Water Damage' },
-  { to: '/handyman', label: 'Handyman' },
-  { to: '/junk-removal', label: 'Junk Removal' },
+  { to: '/contact', label: 'Contact' },
 ]
 
 export default function Navbar() {

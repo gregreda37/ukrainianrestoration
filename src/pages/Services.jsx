@@ -1,5 +1,11 @@
 import { Link } from 'react-router-dom'
 import { useSEO } from '../hooks/useSEO'
+import imgKitchen   from '../assets/portfolio/kitchens/2-Aug 27 2025 05_54pm-ZYZx.jpg'
+import imgBath      from '../assets/portfolio/bathrooms/1-Dec 02 2024 02_10pm-KQAb.jpg'
+import imgRenovation from '../assets/portfolio/painting-drywall/4-Nov 26 2025 04_51pm-Tgnu.jpg'
+import imgBasement  from '../assets/portfolio/painting-drywall/3-Jun 06 2025 04_33pm-3DFb.jpg'
+import imgPainting  from '../assets/portfolio/painting-drywall/2-Nov 19 2025 04_01pm-5Vw5.jpg'
+import imgFlooring  from '../assets/portfolio/bathrooms/13-Jan 16 2025 09_27pm-tyos.jpg'
 
 const SERVICES = [
   {
@@ -7,36 +13,42 @@ const SERVICES = [
     desc: 'Your kitchen is the heart of your home — let us make it shine. From a fresh update to a full redesign, we handle it all.',
     items: ['Custom cabinetry & islands', 'Countertop installation', 'Tile backsplash', 'Appliance integration', 'Lighting & electrical'],
     color: '#8B5E3C',
+    photo: imgKitchen,
   },
   {
     title: 'Bathroom Renovation',
     desc: 'We transform ordinary bathrooms into personal retreats, with attention to every tile, fixture, and finish.',
     items: ['Walk-in showers & tubs', 'Vanity & fixture replacement', 'Tile work & waterproofing', 'Heated floors', 'Plumbing upgrades'],
     color: '#5C8A7A',
+    photo: imgBath,
   },
   {
     title: 'Full Home Renovation',
     desc: 'Planning a complete overhaul? We manage the whole project — so you only have one call to make.',
     items: ['Open floor plan conversions', 'Structural modifications', 'Room additions', 'Multi-trade coordination', 'Design consultation'],
     color: '#7A5C8A',
+    photo: imgRenovation,
   },
   {
     title: 'Basement Finishing',
     desc: 'Turn your unfinished basement into usable living space — a home office, gym, rec room, or guest suite.',
     items: ['Framing & insulation', 'Drywall & painting', 'Flooring installation', 'Egress windows', 'Bar & entertainment areas'],
     color: '#8A7A5C',
+    photo: imgBasement,
   },
   {
     title: 'Interior Painting',
     desc: 'A fresh coat of paint is one of the highest-ROI improvements you can make. We prep, prime, and paint with precision.',
     items: ['Wall & ceiling painting', 'Trim & door painting', 'Textured finishes', 'Color consultation', 'Prep & patch work'],
     color: '#5C7A8A',
+    photo: imgPainting,
   },
   {
     title: 'Flooring Installation',
     desc: 'From hardwood to tile to luxury vinyl, we install flooring that looks great and lasts for decades.',
     items: ['Hardwood & engineered wood', 'Tile & natural stone', 'Luxury vinyl plank', 'Carpet installation', 'Subfloor repair'],
     color: '#8A5C5C',
+    photo: imgFlooring,
   },
 ]
 
@@ -58,21 +70,13 @@ export default function Services() {
       <section className="section">
         <div className="container">
           <div className="services-grid">
-            {SERVICES.map(({ title, desc, items, color }) => (
+            {SERVICES.map(({ title, desc, items, photo }) => (
               <div className="card service-card" key={title}>
-                <div
-                  className="img-ph"
-                  style={{
-                    height: 200,
-                    borderRadius: 'var(--r) var(--r) 0 0',
-                    background: `linear-gradient(135deg, ${color}22 0%, ${color}44 100%)`,
-                    flexDirection: 'column',
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ fontSize: '2.5rem', opacity: .5 }}>&#127968;</div>
-                  <div style={{ fontSize: '.8125rem', color: 'var(--clr-text-lt)' }}>Add project photo</div>
-                </div>
+                <img
+                  src={photo}
+                  alt={title}
+                  style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 'var(--r) var(--r) 0 0', display: 'block' }}
+                />
                 <div className="service-card__body">
                   <h3>{title}</h3>
                   <p>{desc}</p>

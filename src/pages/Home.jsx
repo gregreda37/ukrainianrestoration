@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSEO } from '../hooks/useSEO'
+import imgJobsite from '../assets/portfolio/kitchens/1-Aug 25 2025 09_50pm-WSRD.jpg'
 
 const DropletIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -198,11 +199,8 @@ export default function Home() {
       <section className="section section--alt" aria-labelledby="gc-diff-heading">
         <div className="container">
           <div className="home-split">
-            <div className="home-split__img img-ph">
-              <div className="ph-block">
-                <div className="ph-block__icon">&#9876;</div>
-                <div>Add a jobsite or before/after photo</div>
-              </div>
+            <div className="home-split__img">
+              <img src={imgJobsite} alt="Completed kitchen renovation by Ukrainian Restoration" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'var(--r-lg)', display: 'block' }} />
             </div>
             <div className="home-split__text">
               <div className="sec-label sec-label--left">Why It Matters</div>
@@ -367,11 +365,8 @@ export default function Home() {
                 <Link to="/about" className="btn btn-primary">Meet the Team</Link>
               </div>
             </div>
-            <div className="home-split__img img-ph">
-              <div className="ph-block">
-                <div className="ph-block__icon">&#9876;</div>
-                <div>Add team photo</div>
-              </div>
+            <div className="home-split__img">
+              <img src="/dido.JPG" alt="Ukrainian Restoration team" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'var(--r-lg)', display: 'block' }} />
             </div>
           </div>
         </div>

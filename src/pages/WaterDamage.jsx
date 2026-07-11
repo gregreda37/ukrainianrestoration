@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useSEO } from '../hooks/useSEO'
+import imgWaterDamage from '../assets/portfolio/painting-drywall/1-Mar 20 2025 04_33pm-52Ee.jpg'
 
 const STEPS = [
   { num: '01', title: 'Emergency Assessment', desc: 'We respond fast. Our team assesses the damage, identifies water sources, and documents everything for your insurance claim.' },
@@ -87,11 +88,8 @@ export default function WaterDamage() {
                 ))}
               </ul>
             </div>
-            <div className="img-ph about-img">
-              <div className="ph-block">
-                <div className="ph-block__icon">&#128167;</div>
-                <div>Add water damage before/after photo</div>
-              </div>
+            <div className="about-img">
+              <img src={imgWaterDamage} alt="Water damage restoration and reconstruction" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'var(--r-lg)', display: 'block' }} />
             </div>
           </div>
         </div>

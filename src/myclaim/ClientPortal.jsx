@@ -505,7 +505,14 @@ export default function ClientPortal() {
           .catch(() => {});
       }
 
-      setPendingFile(null); setPendingFileName(""); await fetchDocuments();
+      // Optimistic update — show the new doc immediately so the button clears right away
+      setDocuments(prev => [{
+        id: docRef.id, name: fileName, storagePath: sRef.fullPath, downloadURL,
+        size: pendingFile.size, folder: 'client',
+        uploadedAt: { seconds: Math.floor(Date.now() / 1000) }, uploadedBy: 'client',
+      }, ...prev]);
+      setPendingFile(null); setPendingFileName("");
+      fetchDocuments(); // sync from server in background
     } catch (err) {
       setUploadError(err.code==="storage/unauthorized" ? "Upload not allowed — please sign out and back in." : err.message||"Upload failed.");
     } finally { setUploading(false); }

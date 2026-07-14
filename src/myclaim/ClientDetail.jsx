@@ -758,48 +758,38 @@ export default function ClientDetail() {
       const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "documents"), payload);
       setDocs(prev => [{ id: docRef.id, ...payload }, ...prev]);
 
-      // Mirror to Drive using the already-saved Firebase Storage URL
-      console.log('[Drive] driveConnected:', driveConnected, '| externalId:', driveExternalId, '| internalId:', driveInternalId, '| orgId:', orgId);
+      // Mirror to Drive in background — intentionally not awaited so the upload button
+      // clears immediately after the Firestore write, regardless of Drive API latency.
       if (driveConnected) {
-        try {
-          const targetFolderId = folder !== 'internal' ? (driveExternalId || '') : (driveInternalId || '');
-          console.log('[Drive] Uploading to Drive — folder:', folder, '| visibleToClient:', folder !== 'internal', '| targetFolderId:', targetFolderId, '| fileUrl:', downloadURL.slice(0, 80));
-          const dr = await fetch(`${API}/integrations/google-drive/upload`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              orgId,
-              fileUrl: downloadURL,
-              fileName: file.name,
-              clientName: client?.name || phone,
-              clientPhone: phone,
-              clientDocId: clientDocId || '',
-              visibleToClient: folder !== 'internal',
-              targetFolderId,
-            }),
-          });
-          const driveData = await dr.json();
-          console.log('[Drive] Response status:', dr.status, '| body:', driveData);
-          if (dr.ok && driveData.driveFileId) {
-            await updateDoc(doc(db, 'organization_data', orgId, 'clients', clientDocId, 'documents', docRef.id), {
-              driveFileId: driveData.driveFileId,
-              driveFileUrl: driveData.driveFileUrl,
-            });
-            setDocs(prev => prev.map(d =>
-              d.id === docRef.id
-                ? { ...d, driveFileId: driveData.driveFileId, driveFileUrl: driveData.driveFileUrl }
-                : d
-            ));
-            console.log('[Drive] ✓ Mirrored successfully:', driveData.driveFileId);
-          } else if (!dr.ok) {
-            console.error('[Drive] Upload failed:', dr.status, driveData.error || driveData);
-            setDriveError(`Drive mirror failed: ${driveData.error || dr.status}`);
-          }
-        } catch (err) {
-          console.error('[Drive] Mirror exception:', err);
-          setDriveError(`Drive mirror error: ${err.message}`);
-        }
-      } else {
-        console.log('[Drive] Skipped — driveConnected is false');
+        const targetFolderId = folder !== 'internal' ? (driveExternalId || '') : (driveInternalId || '');
+        fetch(`${API}/integrations/google-drive/upload`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orgId,
+            fileUrl: downloadURL,
+            fileName: file.name,
+            clientName: client?.name || phone,
+            clientPhone: phone,
+            clientDocId: clientDocId || '',
+            visibleToClient: folder !== 'internal',
+            targetFolderId,
+          }),
+        })
+          .then(r => r.json())
+          .then(driveData => {
+            if (driveData.driveFileId) {
+              updateDoc(doc(db, 'organization_data', orgId, 'clients', clientDocId, 'documents', docRef.id), {
+                driveFileId: driveData.driveFileId,
+                driveFileUrl: driveData.driveFileUrl,
+              }).catch(() => {});
+              setDocs(prev => prev.map(d =>
+                d.id === docRef.id
+                  ? { ...d, driveFileId: driveData.driveFileId, driveFileUrl: driveData.driveFileUrl }
+                  : d
+              ));
+            }
+          })
+          .catch(err => console.error('[Drive] Mirror error:', err));
       }
     } catch (err) { console.error("uploadDoc error:", err); alert("Upload failed: " + err.message); }
     finally { setUploading(false); setContractorUploading(false); }

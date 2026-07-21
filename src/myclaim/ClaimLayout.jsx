@@ -18,11 +18,13 @@ const ALL_NAV = [
 ]
 
 export default function ClaimLayout() {
-  const { user, isAdmin, role } = useAuth()
+  const { user, isAdmin, role, loading } = useAuth()
   const navigate = useNavigate()
   const nav = ALL_NAV.filter(item => {
     if (item.adminOnly) return isAdmin
-    if (item.pmBlocked) return role !== 'project_manager'
+    // Don't show pmBlocked items while role is still loading (null) — avoids flash
+    // for PM users who would otherwise see the item briefly before it disappears
+    if (item.pmBlocked) return role !== null && role !== 'project_manager'
     return true
   })
 

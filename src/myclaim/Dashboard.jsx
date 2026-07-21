@@ -771,16 +771,20 @@ export default function Dashboard() {
 
         {/* Hero */}
         <div className="cw-hero">
-          {userDetails?.photoURL ? (
+          {recentLoading ? (
+            <div className="cw-avatar-fallback cw-avatar-fallback--loading" />
+          ) : userDetails?.photoURL ? (
             <img src={userDetails.photoURL} alt={firstName} className="cw-avatar" referrerPolicy="no-referrer" />
           ) : (
             <div className="cw-avatar-fallback">{firstName.charAt(0).toUpperCase()}</div>
           )}
           <div className="cw-hero-text">
-            <h1>Welcome back, {firstName}!</h1>
-            <p className="cw-subtitle">
-              <span>{userDetails?.email}</span>&ensp;&middot;&ensp;{companyName}
-            </p>
+            <h1>Welcome back, {recentLoading ? "" : firstName}!</h1>
+            {!recentLoading && (
+              <p className="cw-subtitle">
+                <span>{userDetails?.email}</span>&ensp;&middot;&ensp;{companyName}
+              </p>
+            )}
           </div>
         </div>
 
@@ -801,7 +805,9 @@ export default function Dashboard() {
             )}
           </div>
 
-          {editingOrg ? (
+          {recentLoading && !editingOrg ? (
+            <div className="cw-card-loading"><div className="cw-shimmer" /><div className="cw-shimmer cw-shimmer--sm" /></div>
+          ) : editingOrg ? (
             <form className="cw-org-form" onSubmit={saveOrg}>
               <input className="cw-field-input" placeholder="Company name" value={orgEdit.companyName}
                 onChange={e => setOrgEdit(o => ({ ...o, companyName: e.target.value }))} />
@@ -854,7 +860,9 @@ export default function Dashboard() {
             )}
           </div>
 
-          {editingProfile ? (
+          {recentLoading && !editingProfile ? (
+            <div className="cw-card-loading"><div className="cw-shimmer" /><div className="cw-shimmer cw-shimmer--sm" /></div>
+          ) : editingProfile ? (
             <form className="cw-org-form" onSubmit={saveProfile}>
               <input className="cw-field-input" placeholder="Display name" value={profileEdit.displayName}
                 onChange={e => setProfileEdit(p => ({ ...p, displayName: e.target.value }))} />
@@ -904,20 +912,20 @@ export default function Dashboard() {
             <div className="cw-recap-divider" />
             <div className="cw-recap-row">
               <span className="cw-recap-label">Open Claims</span>
-              <span className="cw-recap-value">{openClaims.length}</span>
+              <span className="cw-recap-value">{recentLoading ? "—" : openClaims.length}</span>
             </div>
             <div className="cw-recap-row cw-recap-row--sub">
               <span className="cw-recap-label">Co. Receivables</span>
-              <span className="cw-recap-value cw-recap-value--blue">{fmtCurrency(openClaimsPipelineValue)}</span>
+              <span className="cw-recap-value cw-recap-value--blue">{recentLoading ? "—" : fmtCurrency(openClaimsPipelineValue)}</span>
             </div>
             <div className="cw-recap-divider" />
             <div className="cw-recap-row">
               <span className="cw-recap-label">Awaiting Settlement</span>
-              <span className="cw-recap-value">{awaitingSettlements.length}</span>
+              <span className="cw-recap-value">{recentLoading ? "—" : awaitingSettlements.length}</span>
             </div>
             <div className="cw-recap-row cw-recap-row--sub">
               <span className="cw-recap-label">Co. Outstanding</span>
-              <span className="cw-recap-value cw-recap-value--green">{fmtCurrency(awaitingSettlementTotal)}</span>
+              <span className="cw-recap-value cw-recap-value--green">{recentLoading ? "—" : fmtCurrency(awaitingSettlementTotal)}</span>
             </div>
           </div>
         </div>

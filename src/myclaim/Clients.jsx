@@ -105,6 +105,8 @@ export default function Clients() {
   const [permDeleting,           setPermDeleting]           = useState(false);
   const [permDeleteError,        setPermDeleteError]        = useState("");
 
+  const [openPage,          setOpenPage]          = useState(0);
+  const [closedPage,        setClosedPage]        = useState(0);
   const [expandedId,        setExpandedId]        = useState(null);
   const [settlementData,    setSettlementData]    = useState(null);
   const [settlementLoading, setSettlementLoading] = useState(false);
@@ -205,6 +207,8 @@ export default function Clients() {
       if (autocompleteRef.current) { window.google?.maps?.event?.clearInstanceListeners(autocompleteRef.current); autocompleteRef.current = null; }
     };
   }, [showModal]);
+
+  useEffect(() => { setOpenPage(0); setClosedPage(0); }, [search]);
 
   const openModal  = () => { setShowModal(true); setSaved(false); setSaveError(""); };
   const closeModal = () => { setShowModal(false); setClientName(""); setClientPhone(""); setSaved(false); setSaveError(""); };
@@ -497,8 +501,11 @@ export default function Clients() {
             <p>{search ? "No clients match your search." : "No clients yet. Add one to get started."}</p>
           </div>
         ) : (() => {
-          const openClients   = filtered.filter(c => (c.claimStatus || "open") === "open");
-          const closedClients = filtered.filter(c => c.claimStatus === "closed");
+          const loginTs = v => v?.toMillis?.() ?? (v ? new Date(v).getTime() : 0);
+          const byLogin = arr => [...arr].sort((a, b) => loginTs(b.lastLogin) - loginTs(a.lastLogin));
+
+          const openClients   = byLogin(filtered.filter(c => (c.claimStatus || "open") === "open"));
+          const closedClients = byLogin(filtered.filter(c => c.claimStatus === "closed"));
 
           const renderRow = (client) => {
             const isClosed   = client.claimStatus === "closed";
@@ -653,10 +660,33 @@ export default function Clients() {
             );
           };
 
+          const PAGE = 10;
+          const openPages   = Math.ceil(openClients.length   / PAGE) || 1;
+          const closedPages = Math.ceil(closedClients.length / PAGE) || 1;
+
+          const Pagination = ({ page, pages, onPrev, onNext }) => (
+            <div className="cl-pagination">
+              <button className="cl-page-btn" onClick={onPrev} disabled={page === 0}>← Prev</button>
+              <span className="cl-page-info">Page {page + 1} of {pages}</span>
+              <button className="cl-page-btn" onClick={onNext} disabled={page === pages - 1}>Next →</button>
+            </div>
+          );
+
           return (
             <>
               {openClients.length > 0 && (
-                <div className="cl-list">{openClients.map(renderRow)}</div>
+                <>
+                  <div className="cl-list">
+                    {openClients.slice(openPage * PAGE, (openPage + 1) * PAGE).map(renderRow)}
+                  </div>
+                  {openPages > 1 && (
+                    <Pagination
+                      page={openPage} pages={openPages}
+                      onPrev={() => setOpenPage(p => p - 1)}
+                      onNext={() => setOpenPage(p => p + 1)}
+                    />
+                  )}
+                </>
               )}
               {closedClients.length > 0 && (
                 <>
@@ -664,7 +694,16 @@ export default function Clients() {
                     <span>Closed Claims</span>
                     <span className="cl-section-count">{closedClients.length}</span>
                   </div>
-                  <div className="cl-list">{closedClients.map(renderRow)}</div>
+                  <div className="cl-list">
+                    {closedClients.slice(closedPage * PAGE, (closedPage + 1) * PAGE).map(renderRow)}
+                  </div>
+                  {closedPages > 1 && (
+                    <Pagination
+                      page={closedPage} pages={closedPages}
+                      onPrev={() => setClosedPage(p => p - 1)}
+                      onNext={() => setClosedPage(p => p + 1)}
+                    />
+                  )}
                 </>
               )}
             </>

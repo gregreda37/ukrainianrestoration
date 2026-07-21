@@ -2138,6 +2138,25 @@
   text-decoration: underline;
 }
 .mc-login__consent-link:hover { color: #155E88; }
+.mc-login__consent-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 10px;
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: #a0aec0;
+}
+.mc-login__consent-divider::before,
+.mc-login__consent-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+.mc-login__consent-divider em { font-style: normal; font-weight: 400; }
 
 .mc-login__divider {
   display: flex;

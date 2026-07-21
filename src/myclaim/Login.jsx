@@ -15,9 +15,10 @@ import { useAuth } from './useAuth'
 
 
 const CONSENT_LANGUAGE =
-  'By clicking "Send Code", I agree to receive text messages from Ukrainian Restoration ' +
-  'at the number provided. Message frequency varies. Msg & data rates may apply. ' +
-  'Reply STOP to opt out, HELP for help.'
+  'By checking this box, I agree to receive text message notifications about my ' +
+  'restoration claim from Ukrainian Restoration LLC at the mobile number I provided. ' +
+  'Message frequency varies. Msg & data rates may apply. ' +
+  'Reply STOP to opt out or HELP for help.'
 
 const SECURE_MESSAGES = [
   'Verifying your identity…',
@@ -78,16 +79,18 @@ export default function Login() {
         return
       }
 
-      // Record opt-in consent before the SMS is sent — TCPA compliance
-      setDoc(doc(db, 'opt_in_records', e164), {
-        phone:           e164,
-        consentedAt:     serverTimestamp(),
-        consentLanguage: CONSENT_LANGUAGE,
-        method:          'portal-sms-login',
-        userAgent:       navigator.userAgent,
-        timezone:        Intl.DateTimeFormat().resolvedOptions().timeZone,
-        consentCount:    1,
-      }, { merge: true }).catch(() => {})
+      // Record opt-in only when the notification consent checkbox was checked
+      if (agreed) {
+        setDoc(doc(db, 'opt_in_records', e164), {
+          phone:           e164,
+          consentedAt:     serverTimestamp(),
+          consentLanguage: CONSENT_LANGUAGE,
+          method:          'portal-sms-login',
+          userAgent:       navigator.userAgent,
+          timezone:        Intl.DateTimeFormat().resolvedOptions().timeZone,
+          consentCount:    1,
+        }, { merge: true }).catch(() => {})
+      }
 
       // Use the preloaded reCAPTCHA Enterprise instance (index.html script tag).
       // We call execute() directly to avoid the SDK loading a second instance,
@@ -355,6 +358,14 @@ export default function Login() {
                     />
                   </div>
                 </div>
+                {error && <p className="mc-login__error">{error}</p>}
+                <div id="recaptcha-container" style={{ position: 'absolute', visibility: 'hidden', height: 0, overflow: 'hidden' }} />
+                <button className="mc-btn-pill" type="submit" disabled={submitting}>
+                  {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Sending…</> : 'Send Code'}
+                </button>
+                <div className="mc-login__consent-divider">
+                  <span>Text Notifications <em>(optional)</em></span>
+                </div>
                 <label className="mc-login__consent">
                   <input
                     type="checkbox"
@@ -363,18 +374,14 @@ export default function Login() {
                     className="mc-login__consent-check"
                   />
                   <span>
-                    I agree to receive text messages from Ukrainian Restoration.
-                    Msg &amp; data rates may apply. Reply STOP to opt out.{' '}
+                    I agree to receive claim status updates and notifications via text
+                    from Ukrainian Restoration LLC. Msg &amp; data rates may apply.
+                    Message frequency varies. Reply STOP to opt out or HELP for help.{' '}
                     <Link to="/myclaim/opt-in-policy" target="_blank" className="mc-login__consent-link">
                       View policy
                     </Link>
                   </span>
                 </label>
-                {error && <p className="mc-login__error">{error}</p>}
-                <div id="recaptcha-container" style={{ position: 'absolute', visibility: 'hidden', height: 0, overflow: 'hidden' }} />
-                <button className="mc-btn-pill" type="submit" disabled={submitting || !agreed}>
-                  {submitting ? <><span className="mc-btn-spinner mc-btn-spinner--dark" /> Sending…</> : 'Send Code'}
-                </button>
               </form>
             </>
           )}

@@ -78,7 +78,7 @@ const EMPTY_FORM = (prefill = {}) => ({
   status: 'estimating', deductible: '',
   recoupPercent: 0,
   dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: '', packoutRecoupPct: '',
-  partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFeeValue: '', partnerFeeOnNet: true,
+  partnerId: '', partnerName: '', partnerFeePct: '', partnerFeeOnNet: true,
   notes: '',
   ...CATEGORIES.flatMap(c => COL_FIELDS.map(f => [`${c.key}${f.key}`, ''])).reduce((o, [k, v]) => ({ ...o, [k]: v }), {}),
 })
@@ -101,8 +101,7 @@ function computeCategoryRecoups(form, onNet = false) {
 
 function computePartnerFee(form, companyRecoup) {
   if (!form.partnerId) return 0
-  // fixed $ = flat referral; percent = use the per-category breakdown total directly
-  return form.partnerFeeType === 'fixed' ? n(form.partnerFeeValue) : companyRecoup
+  return n(form.partnerFeePct) / 100 * companyRecoup
 }
 
 function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
@@ -163,8 +162,7 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
     companyRecoup:               hasSettled ? recoups.companyRecoup : null,
     partnerId:                   data.partnerId   || null,
     partnerName:                 data.partnerName || null,
-    partnerFeeType:              data.partnerFeeType  || 'percent',
-    partnerFeeValue:             n(data.partnerFeeValue),
+    partnerFeePct:               n(data.partnerFeePct),
     partnerFeeOnNet:             !!data.partnerFeeOnNet,
     partnerFee:                  hasSettled && data.partnerId ? partnerFee : null,
     companyNetAfterPartner:      netAfterPartner,
@@ -939,6 +937,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                     <div className="sl-profit-row sl-profit-row--deduct">
                       <span className="sl-profit-label">
                         Less: Referral Fee{displaySource.partnerName ? ` (${displaySource.partnerName})` : ''}
+                        {displaySource.partnerFeePct ? <span className="sl-fee-basis-chip">{displaySource.partnerFeePct}%</span> : null}
                         <span className="sl-fee-basis-chip">{displaySource.partnerFeeOnNet ? 'on net' : 'on gross'}</span>
                       </span>
                       <span className="sl-profit-val sl-profit-val--expense">− {fmtMoney(displayPartnerFee)}</span>
@@ -1282,7 +1281,7 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
           const { companyRecoup } = computeCategoryRecoups(form, !!form.partnerFeeOnNet)
           return (
             <div className="sl-recoup-total-preview">
-              <span>Referral fee paid to partner: <strong>{fmtMoney(companyRecoup)}</strong></span>
+              <span>Your recoup total: <strong>{fmtMoney(companyRecoup)}</strong></span>
               <span className="sl-recoup-split-note">
                 (of {fmtMoney(form.partnerFeeOnNet ? Math.max(0, t.Settled - t.Expenses) : t.Settled)} {form.partnerFeeOnNet ? 'net settled' : 'settled'})
               </span>
@@ -1312,38 +1311,27 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
           {form.partnerId && (
             <>
               <div className="sl-field">
-                <label className="sl-label">Fee Type</label>
-                <div className="sl-toggle-row">
-                  <button type="button"
-                    className={`sl-toggle-btn${(form.partnerFeeType || 'percent') === 'percent' ? ' sl-toggle-btn--active' : ''}`}
-                    onClick={() => set('partnerFeeType', 'percent')}>% Breakdown Above</button>
-                  <button type="button"
-                    className={`sl-toggle-btn${form.partnerFeeType === 'fixed' ? ' sl-toggle-btn--active' : ''}`}
-                    onClick={() => set('partnerFeeType', 'fixed')}>Fixed $</button>
+                <label className="sl-label">Referral Fee %</label>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <input className="sl-input" type="number" min="0" max="100" step="0.5"
+                    placeholder="e.g. 25"
+                    style={{ width:90 }}
+                    value={form.partnerFeePct ?? ''}
+                    onChange={e => set('partnerFeePct', e.target.value)} />
+                  <span style={{ fontSize:14, color:'#64748b' }}>% of your recoup</span>
                 </div>
               </div>
-              {form.partnerFeeType === 'fixed' && (
-                <div className="sl-field">
-                  <label className="sl-label">Fixed Referral Fee ($)</label>
-                  <input className="sl-input" type="number" min="0" step="1"
-                    placeholder="0"
-                    value={form.partnerFeeValue || ''}
-                    onChange={e => set('partnerFeeValue', e.target.value)} />
+              <div className="sl-field">
+                <label className="sl-label">Recoup Based On</label>
+                <div className="sl-toggle-row">
+                  <button type="button"
+                    className={`sl-toggle-btn${!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
+                    onClick={() => set('partnerFeeOnNet', false)}>Gross Settlement</button>
+                  <button type="button"
+                    className={`sl-toggle-btn${!!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
+                    onClick={() => set('partnerFeeOnNet', true)}>Net (after expenses)</button>
                 </div>
-              )}
-              {form.partnerFeeType !== 'fixed' && (
-                <div className="sl-field">
-                  <label className="sl-label">Fee Calculated On</label>
-                  <div className="sl-toggle-row">
-                    <button type="button"
-                      className={`sl-toggle-btn${!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
-                      onClick={() => set('partnerFeeOnNet', false)}>Gross Settlement</button>
-                    <button type="button"
-                      className={`sl-toggle-btn${!!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
-                      onClick={() => set('partnerFeeOnNet', true)}>Net (after expenses)</button>
-                  </div>
-                </div>
-              )}
+              </div>
             </>
           )}
         </div>
@@ -1352,14 +1340,22 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
           const t = computeTotals(form)
           if (t.Settled <= 0) return null
           const { companyRecoup } = computeCategoryRecoups(form, !!form.partnerFeeOnNet)
+          const pct = n(form.partnerFeePct)
           const fee = computePartnerFee(form, companyRecoup)
           const netToCompany = t.Settled - t.Expenses - fee
+          const partnerName = partners.find(p => p.id === form.partnerId)?.name || 'Partner'
           return (
             <div className="sl-partner-preview">
-              <span>{partners.find(p => p.id === form.partnerId)?.name || 'Partner'} earns: <strong>{fmtMoney(fee)}</strong>
+              <span>
+                {partnerName} earns:{' '}
+                {pct > 0
+                  ? <><strong>{pct}%</strong> × {fmtMoney(companyRecoup)} = <strong>{fmtMoney(fee)}</strong></>
+                  : <strong style={{ color:'#94a3b8' }}>enter % above</strong>}
                 <span className="sl-fee-basis-chip">{form.partnerFeeOnNet ? 'on net' : 'on gross'}</span>
               </span>
-              <span className="sl-partner-net">Company nets: <strong style={{ color: netToCompany >= 0 ? '#2563eb' : '#dc2626' }}>{fmtMoney(netToCompany)}</strong></span>
+              {pct > 0 && (
+                <span className="sl-partner-net">Company nets: <strong style={{ color: netToCompany >= 0 ? '#2563eb' : '#dc2626' }}>{fmtMoney(netToCompany)}</strong></span>
+              )}
             </div>
           )
         })()}

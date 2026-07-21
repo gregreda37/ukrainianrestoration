@@ -917,8 +917,9 @@ export default function ClientDetail() {
   // ── Client fields (contractor editable) ──────────────────────────────
   const saveClientFields = async (e) => {
     e.preventDefault();
-    if (!clientDocId) return;
+    if (!clientDocId || !orgId) return;
     setSavingClientFields(true); setClientFieldsError("");
+    let savedOk = false;
     try {
       const addressVal  = (addressInputRef.current?.value ?? clientFieldsEdit.address).trim();
       const newName     = clientFieldsEdit.name.trim();
@@ -1015,11 +1016,14 @@ export default function ClientDetail() {
       setClientFields(saved);
       setClaimNumber(saved.claimNumber);
       setClient(prev => ({ ...prev, name: newName || prev?.name, address: addressVal || prev?.address }));
-      setEditingClientFields(false);
+      savedOk = true;
     } catch (err) {
       console.error("saveClientFields error:", err);
       setClientFieldsError(err.message || "Could not save.");
-    } finally { setSavingClientFields(false); }
+    } finally {
+      setSavingClientFields(false);
+      if (savedOk) setEditingClientFields(false);
+    }
   };
 
   // ── CompanyCam ────────────────────────────────────────────────────────

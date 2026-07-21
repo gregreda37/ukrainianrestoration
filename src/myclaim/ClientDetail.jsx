@@ -88,6 +88,12 @@ const formatPhone = (phone = "") => {
   if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
   return phone;
 };
+const toE164 = (raw = "") => {
+  const d = raw.replace(/\D/g, "");
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+  return raw.trim();
+};
 const formatBytes = (b) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : `${(b/1048576).toFixed(1)} MB`;
 
 const formatDateTime = (ts) => {
@@ -150,8 +156,8 @@ export default function ClientDetail() {
   const initialLoadDone = useRef(false);
 
   // Client editable fields
-  const [clientFields,       setClientFields]       = useState({ claimNumber: "", policyNumber: "", address: "", email: "" });
-  const [clientFieldsEdit,   setClientFieldsEdit]   = useState({ claimNumber: "", policyNumber: "", address: "", email: "" });
+  const [clientFields,       setClientFields]       = useState({ claimNumber: "", policyNumber: "", address: "", email: "", name: "", editPhone: "" });
+  const [clientFieldsEdit,   setClientFieldsEdit]   = useState({ claimNumber: "", policyNumber: "", address: "", email: "", name: "", editPhone: "" });
   const [editingClientFields,setEditingClientFields]= useState(false);
   const [savingClientFields, setSavingClientFields] = useState(false);
   const [clientFieldsError,  setClientFieldsError]  = useState("");
@@ -408,6 +414,8 @@ export default function ClientDetail() {
           policyNumber: clientData.policyNumber || "",
           address:      clientData.address || "",
           email:        clientData.email || "",
+          name:         clientData.name || "",
+          editPhone:    phone,
         };
         setClientFields(fields);
         setClientFieldsEdit(fields);
@@ -900,31 +908,103 @@ export default function ClientDetail() {
   // ── Client fields (contractor editable) ──────────────────────────────
   const saveClientFields = async (e) => {
     e.preventDefault();
-    if (!clientUid && !clientDocId) return;
+    if (!clientDocId) return;
     setSavingClientFields(true); setClientFieldsError("");
     try {
-      const addressVal = (addressInputRef.current?.value ?? clientFieldsEdit.address).trim();
-      const payload = {
+      const addressVal  = (addressInputRef.current?.value ?? clientFieldsEdit.address).trim();
+      const newName     = clientFieldsEdit.name.trim();
+      const rawPhone    = clientFieldsEdit.editPhone.trim();
+      const newPhone    = toE164(rawPhone);
+      const phoneChanged = newPhone !== phone && rawPhone !== "";
+
+      // ── Validate phone change ──────────────────────────────────────────
+      if (phoneChanged) {
+        if (hasPortal) {
+          setClientFieldsError("Phone cannot be changed after the client has activated their portal.");
+          setSavingClientFields(false); return;
+        }
+        if (!/^\+1\d{10}$/.test(newPhone)) {
+          setClientFieldsError("Enter a valid 10-digit US phone number.");
+          setSavingClientFields(false); return;
+        }
+        const collision = await getDoc(doc(db, "client_phones", newPhone));
+        if (collision.exists()) {
+          setClientFieldsError("That phone number is already registered with another client.");
+          setSavingClientFields(false); return;
+        }
+      }
+
+      // ── Core org-client doc update ─────────────────────────────────────
+      const orgPayload = {
+        claimNumbers: clientFieldsEdit.claimNumber.trim() ? [clientFieldsEdit.claimNumber.trim()] : [],
         policyNumber: clientFieldsEdit.policyNumber.trim() || null,
         address:      addressVal || null,
-        email:        clientFieldsEdit.email.trim()        || null,
-        claimNumbers: clientFieldsEdit.claimNumber.trim()  ? [clientFieldsEdit.claimNumber.trim()] : [],
+        email:        clientFieldsEdit.email.trim() || null,
+        name:         newName || null,
         updatedAt:    serverTimestamp(),
       };
-      await setDoc(
-        doc(db, "organization_data", orgId, "clients", clientDocId),
-        { claimNumbers: payload.claimNumbers, address: payload.address, policyNumber: payload.policyNumber, email: payload.email, updatedAt: payload.updatedAt },
-        { merge: true }
-      );
-      if (clientUid) updateDoc(doc(db, "users", clientUid), payload).catch(() => {});
+      await setDoc(doc(db, "organization_data", orgId, "clients", clientDocId), orgPayload, { merge: true });
+
+      // Mirror non-phone fields to users doc
+      if (clientUid) {
+        const userPayload = { ...orgPayload };
+        if (newName) userPayload.displayName = newName;
+        delete userPayload.updatedAt;
+        updateDoc(doc(db, "users", clientUid), { ...userPayload, updatedAt: serverTimestamp() }).catch(() => {});
+      }
+
+      // ── Phone number change ────────────────────────────────────────────
+      if (phoneChanged) {
+        // Read current client_phones entry to copy its metadata
+        const oldSnap    = await getDoc(doc(db, "client_phones", phone));
+        const oldData    = oldSnap.exists() ? oldSnap.data() : {};
+
+        // Write new client_phones entry
+        await setDoc(doc(db, "client_phones", newPhone), {
+          ...oldData,
+          phone:        newPhone,
+          name:         newName || oldData.name || null,
+          clientDocId:  clientDocId,
+          orgId:        oldData.orgId || orgId,
+        });
+
+        // Update the phone field on the org client doc
+        await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { phone: newPhone });
+
+        // Swap old phone → new phone in every contractor's assignedClients array
+        const contractorsSnap = await getDocs(collection(db, "organization_data", orgId, "contractors"));
+        contractorsSnap.docs.forEach(cDoc => {
+          const arr = cDoc.data().assignedClients;
+          if (Array.isArray(arr) && arr.includes(phone)) {
+            updateDoc(cDoc.ref, { assignedClients: arr.map(p => p === phone ? newPhone : p) }).catch(() => {});
+          }
+        });
+
+        // Delete old client_phones entry
+        deleteDoc(doc(db, "client_phones", phone)).catch(() => {});
+
+        // Navigate to new URL (component remounts with new phone)
+        navigate(`/myclaim/clients/${encodeURIComponent(newPhone)}`, { replace: true });
+        return;
+      }
+
+      // ── Update client_phones name if name changed ──────────────────────
+      if (newName && newName !== (client?.name || "")) {
+        setDoc(doc(db, "client_phones", phone), { name: newName }, { merge: true }).catch(() => {});
+      }
+
+      // ── Update local state ─────────────────────────────────────────────
       const saved = {
         claimNumber:  clientFieldsEdit.claimNumber.trim(),
         policyNumber: clientFieldsEdit.policyNumber.trim(),
         address:      addressVal,
         email:        clientFieldsEdit.email.trim(),
+        name:         newName,
+        editPhone:    phone,
       };
       setClientFields(saved);
       setClaimNumber(saved.claimNumber);
+      setClient(prev => ({ ...prev, name: newName || prev?.name, address: addressVal || prev?.address }));
       setEditingClientFields(false);
     } catch (err) {
       console.error("saveClientFields error:", err);
@@ -1345,7 +1425,7 @@ export default function ClientDetail() {
               <div className="cd-section-header">
                 <InfoIcon />
                 <h2>Claim Information</h2>
-                {!editingClientFields && hasPortal && (
+                {!editingClientFields && (
                   <button className="cd-upload-btn" style={{ marginLeft:"auto" }}
                     onClick={() => { setClientFieldsEdit({ ...clientFields }); setEditingClientFields(true); setClientFieldsError(""); }}>
                     <EditIcon /> Edit
@@ -1356,6 +1436,34 @@ export default function ClientDetail() {
               {editingClientFields ? (
                 <form onSubmit={saveClientFields} style={{ display:"flex", flexDirection:"column", gap:14 }}>
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px 20px" }}>
+                    <div style={{ gridColumn:"1 / -1" }}>
+                      <p className="cd-field-label">Client Name</p>
+                      <input className="cd-claim-input" style={{ width:"100%" }} placeholder="Full name"
+                        value={clientFieldsEdit.name}
+                        onChange={e => setClientFieldsEdit(v => ({ ...v, name: e.target.value }))} />
+                    </div>
+                    <div>
+                      <p className="cd-field-label">
+                        Phone
+                        {hasPortal
+                          ? <span style={{ marginLeft:6, fontSize:11, color:"#94a3b8", fontWeight:400 }}>locked — portal active</span>
+                          : <span style={{ marginLeft:6, fontSize:11, color:"#0369a1", fontWeight:400 }}>editable — portal not activated</span>}
+                      </p>
+                      {hasPortal ? (
+                        <input className="cd-claim-input" style={{ width:"100%", background:"#f8fafc", color:"#64748b", cursor:"not-allowed" }}
+                          value={formatPhone(phone)} readOnly />
+                      ) : (
+                        <input className="cd-claim-input" style={{ width:"100%" }} placeholder="(555) 000-0000"
+                          value={clientFieldsEdit.editPhone}
+                          onChange={e => setClientFieldsEdit(v => ({ ...v, editPhone: e.target.value }))} />
+                      )}
+                    </div>
+                    <div>
+                      <p className="cd-field-label">Email</p>
+                      <input className="cd-claim-input" style={{ width:"100%" }} type="email" placeholder="client@example.com"
+                        value={clientFieldsEdit.email}
+                        onChange={e => setClientFieldsEdit(v => ({ ...v, email: e.target.value }))} />
+                    </div>
                     <div>
                       <p className="cd-field-label">Claim Number</p>
                       <input className="cd-claim-input" style={{ width:"100%" }} placeholder="e.g. CLM-2024-00123"
@@ -1374,18 +1482,12 @@ export default function ClientDetail() {
                         ref={addressInputRef}
                         defaultValue={clientFieldsEdit.address} />
                     </div>
-                    <div>
-                      <p className="cd-field-label">Email</p>
-                      <input className="cd-claim-input" style={{ width:"100%" }} type="email" placeholder="client@example.com"
-                        value={clientFieldsEdit.email}
-                        onChange={e => setClientFieldsEdit(v => ({ ...v, email: e.target.value }))} />
-                    </div>
-                    <div>
-                      <p className="cd-field-label">Phone</p>
-                      <input className="cd-claim-input" style={{ width:"100%", background:"#f8fafc", color:"#64748b", cursor:"not-allowed" }}
-                        value={formatPhone(phone)} readOnly />
-                    </div>
                   </div>
+                  {!hasPortal && (
+                    <p style={{ margin:0, fontSize:12, color:"#0369a1", background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:6, padding:"8px 12px" }}>
+                      ⚠ Changing the phone number will update the client's login number across all records. This is only allowed before they activate their portal.
+                    </p>
+                  )}
                   {clientFieldsError && <p style={{ margin:0, fontSize:13, color:"#dc2626" }}>{clientFieldsError}</p>}
                   <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
                     <button type="button" className="cd-btn-secondary"
@@ -1398,11 +1500,11 @@ export default function ClientDetail() {
               ) : (
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:20 }}>
                   {[
-                    { label:"Client Name",  value: client.name || "—" },
+                    { label:"Client Name",  value: client?.name || "—" },
                     { label:"Phone",        value: formatPhone(phone) },
+                    { label:"Email",        value: clientFields.email        || "—" },
                     { label:"Claim #",      value: clientFields.claimNumber  || "—" },
                     { label:"Policy #",     value: clientFields.policyNumber || "—" },
-                    { label:"Email",        value: clientFields.email        || "—" },
                     { label:"Portal",       value: hasPortal ? "Active" : "Not activated" },
                   ].map(row => (
                     <div key={row.label}>
@@ -1415,11 +1517,6 @@ export default function ClientDetail() {
                       <p style={{ margin:"0 0 3px", fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".06em" }}>Home Address</p>
                       <p style={{ margin:0, fontSize:14, color:"#0f172a", fontWeight:500 }}>{clientFields.address}</p>
                     </div>
-                  )}
-                  {!hasPortal && (
-                    <p className="cd-empty-msg" style={{ gridColumn:"1 / -1", marginTop:4 }}>
-                      Client hasn't activated their portal yet. Fields can be edited once active.
-                    </p>
                   )}
                 </div>
               )}

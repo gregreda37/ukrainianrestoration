@@ -5,10 +5,10 @@
 }
 
 .cd-main {
-  max-width: 860px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
-  padding: 40px 24px 80px;
+  padding: 40px 40px 80px;
   display: flex;
   flex-direction: column;
   gap: 24px;

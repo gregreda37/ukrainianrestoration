@@ -15,6 +15,9 @@ import "./OrgInvoices.css";
 function fmtMoney(n) {
   return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+function fmtCurrency(n) {
+  return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+}
 function fmtDate(str) {
   if (!str) return '—'
   const d = new Date(str + 'T12:00:00')
@@ -447,9 +450,15 @@ export default function Dashboard() {
   const [savingOrg,        setSavingOrg]        = useState(false);
   const [saveOrgError,     setSaveOrgError]     = useState("");
   const [role,             setRole]             = useState(null);
+  const [myProfile,        setMyProfile]        = useState(null);
+  const [totalClients,     setTotalClients]     = useState(0);
   const [recentClients,    setRecentClients]    = useState([]);
   const [recentLoading,    setRecentLoading]    = useState(true);
   const [settRows,         setSettRows]         = useState([]);
+  const [editingProfile,   setEditingProfile]   = useState(false);
+  const [profileEdit,      setProfileEdit]      = useState({ displayName: '', phone: '', contactEmail: '' });
+  const [savingProfile,    setSavingProfile]    = useState(false);
+  const [profileError,     setProfileError]     = useState('');
   const [showModal,        setShowModal]        = useState(false);
   const [clientName,       setClientName]       = useState("");
   const [clientPhone,      setClientPhone]      = useState("");
@@ -489,14 +498,23 @@ export default function Dashboard() {
           setOrgInfo(info); setOrgEdit(info);
           if (info.companyName) setCompanyName(info.companyName);
         }
-        const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
+        const contractorData = contractorSnap.exists() ? contractorSnap.data() : {};
+        const contractorRole = contractorData.role || "admin";
         setRole(contractorRole);
+        setMyProfile({
+          displayName: contractorData.displayName || user.displayName || "",
+          email:       contractorData.contactEmail || user.email || "",
+          photoURL:    user.photoURL || null,
+          phone:       contractorData.phone || "",
+          role:        contractorRole,
+        });
         const needsFilter = contractorRole === "project_manager" || contractorRole === "public_adjuster";
-        const assignedPhones = needsFilter ? (contractorSnap.data()?.assignedClients || []) : null;
+        const assignedPhones = needsFilter ? (contractorData.assignedClients || []) : null;
         const all = clientsSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
+        setTotalClients(all.length);
         setRecentClients(all.slice(0, 6));
 
         // Build address, phone, uid→docId, and name→docId lookups from already-loaded clients
@@ -611,11 +629,39 @@ export default function Dashboard() {
       .sort((a, b) => (a.settlementDate || '') < (b.settlementDate || '') ? -1 : 1)
   }, [settRows])
 
+  const openClaimsPipelineValue = openClaims.reduce((sum, s) => {
+    let fee = 0;
+    if (s.partnerId) {
+      const settled = parseFloat(s.totalSettled) || 0;
+      if (settled > 0 && s.partnerFee != null) fee = parseFloat(s.partnerFee) || 0;
+      else if (s.partnerFeeType === 'fixed') fee = parseFloat(s.partnerFeeValue) || 0;
+      else {
+        const expenses = s.partnerFeeOnNet ? (parseFloat(s.totalExpenses) || 0) : 0;
+        const base = Math.max(0, (parseFloat(s.totalEstimate) || 0) - expenses);
+        fee = base * (parseFloat(s.recoupPercent) || 0) / 100;
+      }
+    }
+    const settled = parseFloat(s.totalSettled) || 0;
+    const base = settled > 0 ? settled : (parseFloat(s.totalEstimate) || 0);
+    const coNet = Math.max(0, base - fee);
+    return sum + Math.max(0, coNet - (parseFloat(s.totalPaidAmount) || 0));
+  }, 0)
+
   const awaitingSettlementTotal = awaitingSettlements.reduce((sum, s) => {
-    const settled     = parseFloat(s.totalSettled)     || 0
-    const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
-    const outstanding = parseFloat(s.totalOutstanding) ?? (settled - totalPaid)
-    return sum + Math.max(0, outstanding)
+    let fee = 0;
+    if (s.partnerId) {
+      const settled = parseFloat(s.totalSettled) || 0;
+      if (settled > 0 && s.partnerFee != null) fee = parseFloat(s.partnerFee) || 0;
+      else if (s.partnerFeeType === 'fixed') fee = parseFloat(s.partnerFeeValue) || 0;
+      else {
+        const expenses = s.partnerFeeOnNet ? (parseFloat(s.totalExpenses) || 0) : 0;
+        const base = Math.max(0, (parseFloat(s.totalEstimate) || 0) - expenses);
+        fee = base * (parseFloat(s.recoupPercent) || 0) / 100;
+      }
+    }
+    const base = parseFloat(s.totalSettled) || 0;
+    const coNet = Math.max(0, base - fee);
+    return sum + Math.max(0, coNet - (parseFloat(s.totalPaidAmount) || 0));
   }, 0)
 
   async function handlePipelineStatusChange(s, newStatus) {
@@ -652,6 +698,21 @@ export default function Dashboard() {
       console.error("saveOrg error:", err);
       setSaveOrgError(err.message || "Could not save. Please try again.");
     } finally { setSavingOrg(false); }
+  };
+
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    if (!organizationName || !user) return;
+    setSavingProfile(true); setProfileError('');
+    try {
+      await setDoc(doc(db, 'organization_data', organizationName, 'contractors', user.uid),
+        { displayName: profileEdit.displayName.trim(), phone: profileEdit.phone.trim(), contactEmail: profileEdit.contactEmail.trim() },
+        { merge: true });
+      setMyProfile(p => ({ ...p, displayName: profileEdit.displayName.trim(), phone: profileEdit.phone.trim(), email: profileEdit.contactEmail.trim() || p.email }));
+      setEditingProfile(false);
+    } catch (err) {
+      setProfileError('Could not save. Please try again.');
+    } finally { setSavingProfile(false); }
   };
 
   const openModal  = () => { setShowModal(true); setSaved(false); setSaveError(""); };
@@ -723,93 +784,167 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Split row: company info + clients */}
-        <div className="cw-split-row">
+        {/* Top cards row: Company Info · My Profile · Financial Recap */}
+        <div className="cw-cards-row">
 
-          {/* Company admin card */}
-          <div className="cw-info-card">
-            <div className="cw-card-header">
-              <div className="cw-card-header-left">
-                <BuildingIcon />
-                <h2>Company Info</h2>
-              </div>
-              {!editingOrg && role === 'admin' && (
-                <button className="cw-edit-btn" onClick={() => { setOrgEdit({ ...orgInfo }); setEditingOrg(true); }}>
-                  {orgInfo.companyName ? "Edit" : <><PlusIcon /> Set Up</>}
-                </button>
-              )}
+        {/* Company admin card */}
+        <div className="cw-info-card cw-company-card">
+          <div className="cw-card-header">
+            <div className="cw-card-header-left">
+              <BuildingIcon />
+              <h2>Company Info</h2>
             </div>
-
-            {editingOrg ? (
-              <form className="cw-org-form" onSubmit={saveOrg}>
-                <input className="cw-field-input" placeholder="Company name" value={orgEdit.companyName}
-                  onChange={e => setOrgEdit(o => ({ ...o, companyName: e.target.value }))} />
-                <input ref={companyAddressRef} className="cw-field-input" placeholder="Company address"
-                  defaultValue={orgEdit.companyAddress} autoComplete="off" />
-                <input className="cw-field-input" placeholder="Phone number" value={orgEdit.companyPhone}
-                  onChange={e => setOrgEdit(o => ({ ...o, companyPhone: e.target.value }))} />
-                <input className="cw-field-input" placeholder="Google Reviews URL" value={orgEdit.googleReviewsUrl}
-                  onChange={e => setOrgEdit(o => ({ ...o, googleReviewsUrl: e.target.value }))} />
-                {saveOrgError && <p className="cw-modal-error">{saveOrgError}</p>}
-                <div className="cw-org-actions">
-                  <button type="button" className="cw-btn-secondary" onClick={() => { setEditingOrg(false); setSaveOrgError(""); }}>Cancel</button>
-                  <button type="submit" className="cw-btn-primary" disabled={savingOrg}>
-                    {savingOrg ? "Saving…" : "Save"}
-                  </button>
-                </div>
-              </form>
-            ) : orgInfo.companyName ? (
-              <div className="cw-org-view">
-                <p className="cw-org-name">{orgInfo.companyName}</p>
-                {orgInfo.companyAddress && (
-                  <p className="cw-org-row"><PinIcon /> {orgInfo.companyAddress}</p>
-                )}
-                {orgInfo.companyPhone && (
-                  <p className="cw-org-row"><PhoneIcon /> {formatPhone(orgInfo.companyPhone)}</p>
-                )}
-                {orgInfo.googleReviewsUrl && (
-                  <a href={orgInfo.googleReviewsUrl} target="_blank" rel="noreferrer" className="cw-reviews-link">
-                    <StarIcon /> Google Reviews
-                  </a>
-                )}
-              </div>
-            ) : (
-              <p className="cw-org-empty">No company info set up yet.</p>
+            {!editingOrg && role === 'admin' && (
+              <button className="cw-edit-btn" onClick={() => { setOrgEdit({ ...orgInfo }); setEditingOrg(true); }}>
+                {orgInfo.companyName ? "Edit" : <><PlusIcon /> Set Up</>}
+              </button>
             )}
           </div>
 
-          {/* Clients card */}
-          <div className="cw-info-card cw-clients-card">
-            <div className="cw-card-header">
-              <div className="cw-card-header-left">
-                <PeopleIcon />
-                <h2>Clients</h2>
+          {editingOrg ? (
+            <form className="cw-org-form" onSubmit={saveOrg}>
+              <input className="cw-field-input" placeholder="Company name" value={orgEdit.companyName}
+                onChange={e => setOrgEdit(o => ({ ...o, companyName: e.target.value }))} />
+              <input ref={companyAddressRef} className="cw-field-input" placeholder="Company address"
+                defaultValue={orgEdit.companyAddress} autoComplete="off" />
+              <input className="cw-field-input" placeholder="Phone number" value={orgEdit.companyPhone}
+                onChange={e => setOrgEdit(o => ({ ...o, companyPhone: e.target.value }))} />
+              <input className="cw-field-input" placeholder="Google Reviews URL" value={orgEdit.googleReviewsUrl}
+                onChange={e => setOrgEdit(o => ({ ...o, googleReviewsUrl: e.target.value }))} />
+              {saveOrgError && <p className="cw-modal-error">{saveOrgError}</p>}
+              <div className="cw-org-actions">
+                <button type="button" className="cw-btn-secondary" onClick={() => { setEditingOrg(false); setSaveOrgError(""); }}>Cancel</button>
+                <button type="submit" className="cw-btn-primary" disabled={savingOrg}>
+                  {savingOrg ? "Saving…" : "Save"}
+                </button>
               </div>
+            </form>
+          ) : orgInfo.companyName ? (
+            <div className="cw-org-view">
+              <p className="cw-org-name">{orgInfo.companyName}</p>
+              {orgInfo.companyAddress && (
+                <p className="cw-org-row"><PinIcon /> {orgInfo.companyAddress}</p>
+              )}
+              {orgInfo.companyPhone && (
+                <p className="cw-org-row"><PhoneIcon /> {formatPhone(orgInfo.companyPhone)}</p>
+              )}
+              {orgInfo.googleReviewsUrl && (
+                <a href={orgInfo.googleReviewsUrl} target="_blank" rel="noreferrer" className="cw-reviews-link">
+                  <StarIcon /> Google Reviews
+                </a>
+              )}
             </div>
-            <p className="cw-clients-desc">Add a homeowner so they can track their claim progress and chat with the assistant.</p>
-            <div className="cw-clients-btns">
-              <button className="cw-add-client-btn" onClick={openModal}>
-                <PlusIcon /> Add New Client
-              </button>
-              <button className="cw-view-all-btn" onClick={() => navigate("/myclaim/clients")}>
-                View All <ArrowIcon />
-              </button>
+          ) : (
+            <p className="cw-org-empty">No company info set up yet.</p>
+          )}
+        </div>
+
+        {/* My Profile card */}
+        <div className="cw-info-card">
+          <div className="cw-card-header">
+            <div className="cw-card-header-left">
+              <ProfileIcon />
+              <h2>My Profile</h2>
             </div>
+            {!editingProfile && (
+              <button className="cw-edit-btn" onClick={() => {
+                setProfileEdit({ displayName: myProfile?.displayName || '', phone: myProfile?.phone || '', contactEmail: myProfile?.email || '' });
+                setEditingProfile(true);
+              }}>Edit</button>
+            )}
           </div>
 
+          {editingProfile ? (
+            <form className="cw-org-form" onSubmit={saveProfile}>
+              <input className="cw-field-input" placeholder="Display name" value={profileEdit.displayName}
+                onChange={e => setProfileEdit(p => ({ ...p, displayName: e.target.value }))} />
+              <input className="cw-field-input" placeholder="Phone number" value={profileEdit.phone}
+                onChange={e => setProfileEdit(p => ({ ...p, phone: e.target.value }))} />
+              <input className="cw-field-input" placeholder="Contact email" type="email" value={profileEdit.contactEmail}
+                onChange={e => setProfileEdit(p => ({ ...p, contactEmail: e.target.value }))} />
+              {profileError && <p className="cw-modal-error">{profileError}</p>}
+              <div className="cw-org-actions">
+                <button type="button" className="cw-btn-secondary" onClick={() => { setEditingProfile(false); setProfileError(''); }}>Cancel</button>
+                <button type="submit" className="cw-btn-primary" disabled={savingProfile}>
+                  {savingProfile ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="cw-profile-body">
+              {myProfile?.photoURL
+                ? <img src={myProfile.photoURL} alt={myProfile.displayName} className="cw-profile-photo" referrerPolicy="no-referrer" />
+                : <div className="cw-profile-avatar">{(myProfile?.displayName || myProfile?.email || "?")[0].toUpperCase()}</div>
+              }
+              <div className="cw-profile-info">
+                <p className="cw-profile-name">{myProfile?.displayName || <span className="cw-muted">No name set</span>}</p>
+                <p className="cw-profile-email">{myProfile?.email}</p>
+                {myProfile?.phone && <p className="cw-profile-email">{formatPhone(myProfile.phone)}</p>}
+                <span className={`cw-role-badge cw-role-${myProfile?.role}`}>
+                  {myProfile?.role === 'project_manager' ? 'Project Manager' : myProfile?.role === 'public_adjuster' ? 'Public Adjuster' : 'Admin'}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Financial Recap card */}
+        <div className="cw-info-card">
+          <div className="cw-card-header">
+            <div className="cw-card-header-left">
+              <ChartIcon />
+              <h2>At a Glance</h2>
+            </div>
+          </div>
+          <div className="cw-recap-list">
+            <div className="cw-recap-row">
+              <span className="cw-recap-label">Total Clients</span>
+              <span className="cw-recap-value">{recentLoading ? "—" : totalClients}</span>
+            </div>
+            <div className="cw-recap-divider" />
+            <div className="cw-recap-row">
+              <span className="cw-recap-label">Open Claims</span>
+              <span className="cw-recap-value">{openClaims.length}</span>
+            </div>
+            <div className="cw-recap-row cw-recap-row--sub">
+              <span className="cw-recap-label">Co. Receivables</span>
+              <span className="cw-recap-value cw-recap-value--blue">{fmtCurrency(openClaimsPipelineValue)}</span>
+            </div>
+            <div className="cw-recap-divider" />
+            <div className="cw-recap-row">
+              <span className="cw-recap-label">Awaiting Settlement</span>
+              <span className="cw-recap-value">{awaitingSettlements.length}</span>
+            </div>
+            <div className="cw-recap-row cw-recap-row--sub">
+              <span className="cw-recap-label">Co. Outstanding</span>
+              <span className="cw-recap-value cw-recap-value--green">{fmtCurrency(awaitingSettlementTotal)}</span>
+            </div>
+          </div>
+        </div>
+
+        </div>{/* end cw-cards-row */}
 
         {/* Recent clients */}
         <div className="cw-recent-section">
-          <div className="cw-section-label">
-            Recent Clients{!recentLoading && recentClients.length > 0 && ` · ${recentClients.length}`}
+          <div className="cw-recent-header">
+            <div className="cw-section-label">
+              Recent Clients{!recentLoading && recentClients.length > 0 && ` · ${recentClients.length}`}
+            </div>
+            <div className="cw-recent-actions">
+              <button className="cw-add-client-btn cw-btn-sm" onClick={openModal}>
+                <PlusIcon /> Add Client
+              </button>
+              <button className="cw-view-all-btn cw-btn-sm" onClick={() => navigate("/myclaim/clients")}>
+                View All <ArrowIcon />
+              </button>
+            </div>
           </div>
           {recentLoading ? (
             <div className="cw-recent-loading"><div className="cw-spinner" /></div>
           ) : recentClients.length === 0 ? (
             <p className="cw-org-empty" style={{ padding: "8px 0" }}>No clients added yet.</p>
           ) : (
-            <div className={`cw-recent-grid cw-recent-grid--${Math.min(recentClients.length, 3)}`}>
+            <div className={`cw-recent-grid cw-recent-grid--${Math.min(recentClients.length, 4)}`}>
               {recentClients.map(client => {
                 const label = client.name || client.phone || "?";
                 const [bg, fg] = avatarColor(label);
@@ -982,5 +1117,18 @@ const CheckCircleIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
     strokeLinecap="round" strokeLinejoin="round" width="28" height="28">
     <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+  </svg>
+);
+const ProfileIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+    strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+  </svg>
+);
+const ChartIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+    strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+    <line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/>
   </svg>
 );

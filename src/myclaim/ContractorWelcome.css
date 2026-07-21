@@ -9,10 +9,10 @@
 /* ── Main ───────────────────────────────────────── */
 .cw-main {
   flex: 1;
-  max-width: 860px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
-  padding: 52px 24px 80px;
+  padding: 40px 40px 80px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -182,22 +182,79 @@
 }
 
 /* ── Clients card ───────────────────────────────── */
-.cw-clients-card {
-  gap: 12px;
+/* ── Top cards row ──────────────────────────────── */
+.cw-cards-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: stretch;
 }
 
-.cw-clients-desc {
-  margin: 0;
-  font-size: 13px;
-  color: #64748b;
-  line-height: 1.5;
-}
-
-.cw-clients-btns {
+/* ── My Profile card ────────────────────────────── */
+.cw-profile-body {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
+  align-items: flex-start;
+  gap: 14px;
+}
+.cw-profile-photo {
+  width: 52px; height: 52px;
+  border-radius: 13px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.cw-profile-avatar {
+  width: 52px; height: 52px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #7c3aed, #a78bfa);
+  color: #fff;
+  font-size: 22px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.cw-profile-info {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+}
+.cw-profile-name {
+  font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cw-profile-email {
+  font-size: 12px; color: #64748b; margin: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cw-role-badge {
+  display: inline-block; margin-top: 6px;
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; letter-spacing: .03em;
+}
+.cw-role-admin        { background: #eff6ff; color: #2563eb; }
+.cw-role-project_manager  { background: #f0fdf4; color: #16a34a; }
+.cw-role-public_adjuster  { background: #fff7ed; color: #ea580c; }
+
+/* ── At a Glance card ───────────────────────────── */
+.cw-recap-list {
+  display: flex; flex-direction: column; gap: 0;
+}
+.cw-recap-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 0;
+}
+.cw-recap-row--sub {
+  padding-top: 3px; padding-bottom: 9px; padding-left: 10px;
+}
+.cw-recap-label {
+  font-size: 13px; color: #64748b;
+}
+.cw-recap-row--sub .cw-recap-label {
+  font-size: 12px; color: #94a3b8;
+}
+.cw-recap-value {
+  font-size: 14px; font-weight: 700; color: #0f172a;
+}
+.cw-recap-value--blue  { color: #2563eb; }
+.cw-recap-value--green { color: #16a34a; }
+.cw-recap-divider {
+  border: none; border-top: 1px solid #f1f5f9; margin: 2px 0;
 }
 
 .cw-add-client-btn {
@@ -241,6 +298,26 @@
   gap: 12px;
 }
 
+.cw-recent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cw-recent-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cw-btn-sm {
+  padding: 7px 14px !important;
+  font-size: 12px !important;
+  border-radius: 9px !important;
+  gap: 5px !important;
+}
+
 .cw-recent-loading {
   display: flex;
   justify-content: center;
@@ -249,11 +326,12 @@
 
 .cw-recent-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 .cw-recent-grid--1 { grid-template-columns: 1fr; }
 .cw-recent-grid--2 { grid-template-columns: repeat(2, 1fr); }
+.cw-recent-grid--3 { grid-template-columns: repeat(3, 1fr); }
 
 .cw-recent-card {
   display: flex;
@@ -531,6 +609,13 @@
 .pac-matched { color: #2563eb; font-weight: 600; }
 
 /* ── Responsive ─────────────────────────────────── */
+@media (max-width: 1100px) {
+  .cw-recent-grid { grid-template-columns: repeat(3, 1fr); }
+  .cw-cards-row   { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px) {
+  .cw-cards-row { grid-template-columns: 1fr; }
+}
 @media (max-width: 640px) {
   .cw-main { padding: 32px 16px 60px; }
   .cw-hero-text h1 { font-size: 22px; }

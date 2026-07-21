@@ -252,7 +252,7 @@ export default function ClientDetail() {
 
   // Portal sections
   const [portalSections, setPortalSections] = useState(
-    Object.fromEntries(Object.keys(PORTAL_SECTION_LABELS).map(k => [k, true]))
+    Object.fromEntries(Object.keys(PORTAL_SECTION_LABELS).map(k => [k, k !== 'budget' && k !== 'selections']))
   );
   const [savingPortal, setSavingPortal] = useState(false);
 
@@ -430,7 +430,13 @@ export default function ClientDetail() {
         setClientFieldsEdit(fields);
         if (clientData.claimNumbers?.[0]) setClaimNumber(clientData.claimNumbers[0]);
         if (clientData.adjuster) { setAdjuster(clientData.adjuster); setAdjusterEdit(clientData.adjuster); }
-        setPortalSections(s => ({ ...s, ...(clientData.portalSections || {}) }));
+        setPortalSections(s => {
+          const saved = clientData.portalSections || {};
+          return Object.fromEntries(Object.keys(PORTAL_SECTION_LABELS).map(k => [
+            k,
+            k in saved ? saved[k] : (k !== 'budget' && k !== 'selections'),
+          ]));
+        });
         if (clientData.companyCamProjectId) {
           const projId = clientData.companyCamProjectId;
           setCcProjectId(projId);
@@ -1253,108 +1259,164 @@ export default function ClientDetail() {
           <div className="cd-header-avatar">{initials}</div>
 
           <div className="cd-header-info">
-            <h1 className="cd-header-name">
-              {client.name || <span className="cd-muted">No name</span>}
-            </h1>
-            {client.phone
-              ? <p className="cd-header-phone"><PhoneIcon /> {formatPhone(client.phone)}</p>
-              : <p className="cd-header-phone" style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone on file</p>
-            }
-            {client.address && <p className="cd-header-address"><PinIcon /> {client.address}</p>}
-            {userDoc?.lastLogin && (
-              <p className="cd-header-login"><ClockIcon /> Last login {formatDate(userDoc.lastLogin)}</p>
-            )}
-
-            {/* Claim number */}
-            <div className="cd-header-claim-info">
-              <span className="cd-header-adj-label"><ClaimIcon /> Claim #</span>
-              {editingClaim ? (
-                <form onSubmit={saveClaimNumber} style={{ display:"flex", gap:6, alignItems:"center" }}>
-                  <input className="cd-claim-input" value={editClaimValue}
-                    onChange={e => setEditClaimValue(e.target.value)}
-                    placeholder="Claim number" autoFocus />
-                  <button type="submit" className="cd-claim-add-btn" disabled={savingClaim}>
-                    {savingClaim ? "…" : "Save"}
-                  </button>
-                  <button type="button" className="cd-claim-cancel-btn" onClick={() => setEditingClaim(false)}>
-                    Cancel
-                  </button>
-                </form>
-              ) : (
-                <span className="cd-header-claim-num" style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  {claimNumber || <span style={{ color:"#94a3b8", fontWeight:400 }}>Not set</span>}
-                  <button className="cd-claim-edit-btn" title="Edit claim number"
-                    onClick={() => { setEditClaimValue(claimNumber); setEditingClaim(true); }}>
-                    <EditIcon />
-                  </button>
-                </span>
-              )}
-            </div>
-
-            {/* Adjuster */}
-            <div className="cd-header-adj-section">
-              <div className="cd-header-adj-meta">
-                <span className="cd-header-adj-label"><AdjusterIcon /> Insurance Adjuster</span>
-                {!editingAdjuster && (
-                  <button className="cd-header-adj-edit-btn"
-                    onClick={() => { setAdjusterEdit({ ...adjuster }); setEditingAdjuster(true); }}>
-                    <EditIcon />
-                  </button>
-                )}
-              </div>
-              {editingAdjuster ? (
-                <form className="cd-header-adj-form" onSubmit={saveAdjuster}>
-                  <div className="cd-header-adj-fields">
-                    <input className="cd-header-adj-input" placeholder="Name" value={adjusterEdit.name}
-                      onChange={e => setAdjusterEdit(a => ({ ...a, name: e.target.value }))} />
-                    <InsurerCombobox
-                      className="cd-header-adj-input"
-                      value={adjusterEdit.company}
-                      onChange={v => setAdjusterEdit(a => ({ ...a, company: v }))}
-                      insurers={insurers}
-                      placeholder="Company"
-                      onAdd={addInsurer}
-                      onRemove={removeInsurer}
-                    />
-                    <input className="cd-header-adj-input" placeholder="Phone" value={adjusterEdit.phone}
-                      onChange={e => setAdjusterEdit(a => ({ ...a, phone: e.target.value }))} />
-                    <input className="cd-header-adj-input" placeholder="Email" value={adjusterEdit.email}
-                      onChange={e => setAdjusterEdit(a => ({ ...a, email: e.target.value }))} />
-                    <input className="cd-header-adj-input cd-header-adj-input-full" placeholder="Notes"
-                      value={adjusterEdit.notes}
-                      onChange={e => setAdjusterEdit(a => ({ ...a, notes: e.target.value }))} />
+            {editingClientFields ? (
+              <form onSubmit={saveClientFields} className="cd-header-edit-form">
+                <div className="cd-header-edit-grid">
+                  <div style={{ gridColumn:"1 / -1" }}>
+                    <p className="cd-field-label">Client Name</p>
+                    <input className="cd-claim-input" style={{ width:"100%" }} placeholder="Full name"
+                      value={clientFieldsEdit.name}
+                      onChange={e => setClientFieldsEdit(v => ({ ...v, name: e.target.value }))} />
                   </div>
-                  <div className="cd-header-adj-actions">
-                    <button type="button" className="cd-btn-secondary" onClick={() => setEditingAdjuster(false)}>Cancel</button>
-                    <button type="submit" className="cd-btn-primary" disabled={savingAdjuster}>
-                      {savingAdjuster ? "Saving…" : "Save"}
-                    </button>
+                  <div>
+                    <p className="cd-field-label">
+                      Phone
+                      {hasPortal
+                        ? <span style={{ marginLeft:6, fontSize:11, color:"#94a3b8", fontWeight:400 }}>locked — portal active</span>
+                        : <span style={{ marginLeft:6, fontSize:11, color:"#0369a1", fontWeight:400 }}>editable — no portal yet</span>}
+                    </p>
+                    {hasPortal ? (
+                      <input className="cd-claim-input" style={{ width:"100%", background:"#f8fafc", color:"#64748b", cursor:"not-allowed" }}
+                        value={formatPhone(client?.phone || "")} readOnly />
+                    ) : (
+                      <input className="cd-claim-input" style={{ width:"100%" }} placeholder="(555) 000-0000"
+                        value={clientFieldsEdit.editPhone}
+                        onChange={e => setClientFieldsEdit(v => ({ ...v, editPhone: e.target.value }))} />
+                    )}
                   </div>
-                </form>
-              ) : adjuster.name ? (
-                <div className="cd-header-adj-detail">
-                  <p className="cd-header-adj-name">
-                    <PersonIcon /> {adjuster.name}{adjuster.company && ` · ${adjuster.company}`}
+                  <div>
+                    <p className="cd-field-label">Email</p>
+                    <input className="cd-claim-input" style={{ width:"100%" }} type="email" placeholder="client@example.com"
+                      value={clientFieldsEdit.email}
+                      onChange={e => setClientFieldsEdit(v => ({ ...v, email: e.target.value }))} />
+                  </div>
+                  <div>
+                    <p className="cd-field-label">Claim Number</p>
+                    <input className="cd-claim-input" style={{ width:"100%" }} placeholder="e.g. CLM-2024-00123"
+                      value={clientFieldsEdit.claimNumber}
+                      onChange={e => setClientFieldsEdit(v => ({ ...v, claimNumber: e.target.value }))} />
+                  </div>
+                  <div>
+                    <p className="cd-field-label">Policy Number</p>
+                    <input className="cd-claim-input" style={{ width:"100%" }} placeholder="e.g. POL-987654"
+                      value={clientFieldsEdit.policyNumber}
+                      onChange={e => setClientFieldsEdit(v => ({ ...v, policyNumber: e.target.value }))} />
+                  </div>
+                  <div style={{ gridColumn:"1 / -1" }}>
+                    <p className="cd-field-label">Home Address</p>
+                    <input className="cd-claim-input" style={{ width:"100%" }} placeholder="123 Main St, City, State 12345"
+                      ref={addressInputRef}
+                      defaultValue={clientFieldsEdit.address} />
+                  </div>
+                </div>
+                {!hasPortal && (
+                  <p style={{ margin:"4px 0 0", fontSize:12, color:"#0369a1", background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:6, padding:"8px 12px" }}>
+                    ⚠ Changing the phone number will update the client's login across all records. Only allowed before portal activation.
                   </p>
-                  {adjuster.phone && <p className="cd-header-adj-line"><PhoneIcon /> {adjuster.phone}</p>}
-                  {adjuster.email && (
-                    <p className="cd-header-adj-line">
-                      <EmailIcon /> <a href={`mailto:${adjuster.email}`} className="cd-header-adj-link">{adjuster.email}</a>
-                    </p>
-                  )}
-                  {adjuster.notes && (
-                    <p className="cd-header-adj-notes">
-                      <span className="cd-header-adj-notes-label">Adjuster Notes: </span>{adjuster.notes}
-                    </p>
+                )}
+                {clientFieldsError && <p style={{ margin:"4px 0 0", fontSize:13, color:"#dc2626" }}>{clientFieldsError}</p>}
+                <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:4 }}>
+                  <button type="button" className="cd-btn-secondary"
+                    onClick={() => { setEditingClientFields(false); setClientFieldsError(""); }}>Cancel</button>
+                  <button type="submit" className="cd-btn-primary" disabled={savingClientFields}>
+                    {savingClientFields ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <h1 className="cd-header-name">
+                    {client.name || <span className="cd-muted">No name</span>}
+                  </h1>
+                  <button className="cd-claim-edit-btn" title="Edit client info"
+                    onClick={() => { setClientFieldsEdit({ ...clientFields }); setEditingClientFields(true); setClientFieldsError(""); }}>
+                    <EditIcon />
+                  </button>
+                </div>
+                {client.phone
+                  ? <p className="cd-header-phone"><PhoneIcon /> {formatPhone(client.phone)}</p>
+                  : <p className="cd-header-phone" style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone on file</p>
+                }
+                {clientFields.email && <p className="cd-header-phone"><EmailIcon /> {clientFields.email}</p>}
+                {client.address && <p className="cd-header-address"><PinIcon /> {client.address}</p>}
+                {userDoc?.lastLogin && (
+                  <p className="cd-header-login"><ClockIcon /> Last login {formatDate(userDoc.lastLogin)}</p>
+                )}
+
+                {claimNumber && (
+                  <div className="cd-header-claim-info">
+                    <span className="cd-header-adj-label"><ClaimIcon /> Claim #</span>
+                    <span className="cd-header-claim-num">{claimNumber}</span>
+                  </div>
+                )}
+
+                {/* Adjuster */}
+                <div className="cd-header-adj-section">
+                  <div className="cd-header-adj-meta">
+                    <span className="cd-header-adj-label"><AdjusterIcon /> Insurance Adjuster</span>
+                    {!editingAdjuster && (
+                      <button className="cd-header-adj-edit-btn"
+                        onClick={() => { setAdjusterEdit({ ...adjuster }); setEditingAdjuster(true); }}>
+                        <EditIcon />
+                      </button>
+                    )}
+                  </div>
+                  {editingAdjuster ? (
+                    <form className="cd-header-adj-form" onSubmit={saveAdjuster}>
+                      <div className="cd-header-adj-fields">
+                        <input className="cd-header-adj-input" placeholder="Name" value={adjusterEdit.name}
+                          onChange={e => setAdjusterEdit(a => ({ ...a, name: e.target.value }))} />
+                        <InsurerCombobox
+                          className="cd-header-adj-input"
+                          value={adjusterEdit.company}
+                          onChange={v => setAdjusterEdit(a => ({ ...a, company: v }))}
+                          insurers={insurers}
+                          placeholder="Company"
+                          onAdd={addInsurer}
+                          onRemove={removeInsurer}
+                        />
+                        <input className="cd-header-adj-input" placeholder="Phone" value={adjusterEdit.phone}
+                          onChange={e => setAdjusterEdit(a => ({ ...a, phone: e.target.value }))} />
+                        <input className="cd-header-adj-input" placeholder="Email" value={adjusterEdit.email}
+                          onChange={e => setAdjusterEdit(a => ({ ...a, email: e.target.value }))} />
+                        <input className="cd-header-adj-input cd-header-adj-input-full" placeholder="Notes"
+                          value={adjusterEdit.notes}
+                          onChange={e => setAdjusterEdit(a => ({ ...a, notes: e.target.value }))} />
+                      </div>
+                      <div className="cd-header-adj-actions">
+                        <button type="button" className="cd-btn-secondary" onClick={() => setEditingAdjuster(false)}>Cancel</button>
+                        <button type="submit" className="cd-btn-primary" disabled={savingAdjuster}>
+                          {savingAdjuster ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : adjuster.name ? (
+                    <div className="cd-header-adj-detail">
+                      <p className="cd-header-adj-name">
+                        <PersonIcon /> {adjuster.name}{adjuster.company && ` · ${adjuster.company}`}
+                      </p>
+                      {adjuster.phone && <p className="cd-header-adj-line"><PhoneIcon /> {adjuster.phone}</p>}
+                      {adjuster.email && (
+                        <p className="cd-header-adj-line">
+                          <EmailIcon /> <a href={`mailto:${adjuster.email}`} className="cd-header-adj-link">{adjuster.email}</a>
+                        </p>
+                      )}
+                      {adjuster.notes && (
+                        <p className="cd-header-adj-notes">
+                          <span className="cd-header-adj-notes-label">Adjuster Notes: </span>{adjuster.notes}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <button className="cd-header-adj-add-btn"
+                      onClick={() => { setAdjusterEdit({ ...adjuster }); setEditingAdjuster(true); }}>
+                      <PlusIcon /> Add adjuster info
+                    </button>
                   )}
                 </div>
-              ) : (
-                <button className="cd-header-adj-add-btn"
-                  onClick={() => { setAdjusterEdit({ ...adjuster }); setEditingAdjuster(true); }}>
-                  <PlusIcon /> Add adjuster info
-                </button>
-              )}
-            </div>
+              </>
+            )}
           </div>
 
           {/* Header right-side actions */}
@@ -1420,126 +1482,15 @@ export default function ClientDetail() {
 
         {/* ── Tabs ───────────────────────────────────────────────────── */}
         <div className="cd-tabs">
-          {[
-            { key:"overview", label:"Overview"    },
-            { key:"client",   label:"Client View" },
-          ].map(t => (
-            <button key={t.key} className={`cd-tab${activeTab === t.key ? " active" : ""}`}
-              onClick={() => setActiveTab(t.key)}>
-              {t.label}
-            </button>
-          ))}
+          <button className="cd-tab active">Overview</button>
           <button className="cd-tab cd-tab--invoice"
             onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(id)}/invoices`)}>
             🧾 Invoices
           </button>
         </div>
 
-        {/* ══════════════ OVERVIEW TAB ══════════════ */}
-        {activeTab === "overview" && (
-          <>
-            {/* Claim info — editable by contractor */}
-            <div className="cd-section-card">
-              <div className="cd-section-header">
-                <InfoIcon />
-                <h2>Claim Information</h2>
-                {!editingClientFields && (
-                  <button className="cd-upload-btn" style={{ marginLeft:"auto" }}
-                    onClick={() => { setClientFieldsEdit({ ...clientFields }); setEditingClientFields(true); setClientFieldsError(""); }}>
-                    <EditIcon /> Edit
-                  </button>
-                )}
-              </div>
-
-              {editingClientFields ? (
-                <form onSubmit={saveClientFields} style={{ display:"flex", flexDirection:"column", gap:14 }}>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px 20px" }}>
-                    <div style={{ gridColumn:"1 / -1" }}>
-                      <p className="cd-field-label">Client Name</p>
-                      <input className="cd-claim-input" style={{ width:"100%" }} placeholder="Full name"
-                        value={clientFieldsEdit.name}
-                        onChange={e => setClientFieldsEdit(v => ({ ...v, name: e.target.value }))} />
-                    </div>
-                    <div>
-                      <p className="cd-field-label">
-                        Phone
-                        {hasPortal
-                          ? <span style={{ marginLeft:6, fontSize:11, color:"#94a3b8", fontWeight:400 }}>locked — portal active</span>
-                          : <span style={{ marginLeft:6, fontSize:11, color:"#0369a1", fontWeight:400 }}>editable — portal not activated</span>}
-                      </p>
-                      {hasPortal ? (
-                        <input className="cd-claim-input" style={{ width:"100%", background:"#f8fafc", color:"#64748b", cursor:"not-allowed" }}
-                          value={formatPhone(client?.phone || "")} readOnly />
-                      ) : (
-                        <input className="cd-claim-input" style={{ width:"100%" }} placeholder="(555) 000-0000"
-                          value={clientFieldsEdit.editPhone}
-                          onChange={e => setClientFieldsEdit(v => ({ ...v, editPhone: e.target.value }))} />
-                      )}
-                    </div>
-                    <div>
-                      <p className="cd-field-label">Email</p>
-                      <input className="cd-claim-input" style={{ width:"100%" }} type="email" placeholder="client@example.com"
-                        value={clientFieldsEdit.email}
-                        onChange={e => setClientFieldsEdit(v => ({ ...v, email: e.target.value }))} />
-                    </div>
-                    <div>
-                      <p className="cd-field-label">Claim Number</p>
-                      <input className="cd-claim-input" style={{ width:"100%" }} placeholder="e.g. CLM-2024-00123"
-                        value={clientFieldsEdit.claimNumber}
-                        onChange={e => setClientFieldsEdit(v => ({ ...v, claimNumber: e.target.value }))} />
-                    </div>
-                    <div>
-                      <p className="cd-field-label">Policy Number</p>
-                      <input className="cd-claim-input" style={{ width:"100%" }} placeholder="e.g. POL-987654"
-                        value={clientFieldsEdit.policyNumber}
-                        onChange={e => setClientFieldsEdit(v => ({ ...v, policyNumber: e.target.value }))} />
-                    </div>
-                    <div style={{ gridColumn:"1 / -1" }}>
-                      <p className="cd-field-label">Home Address</p>
-                      <input className="cd-claim-input" style={{ width:"100%" }} placeholder="123 Main St, City, State 12345"
-                        ref={addressInputRef}
-                        defaultValue={clientFieldsEdit.address} />
-                    </div>
-                  </div>
-                  {!hasPortal && (
-                    <p style={{ margin:0, fontSize:12, color:"#0369a1", background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:6, padding:"8px 12px" }}>
-                      ⚠ Changing the phone number will update the client's login number across all records. This is only allowed before they activate their portal.
-                    </p>
-                  )}
-                  {clientFieldsError && <p style={{ margin:0, fontSize:13, color:"#dc2626" }}>{clientFieldsError}</p>}
-                  <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
-                    <button type="button" className="cd-btn-secondary"
-                      onClick={() => { setEditingClientFields(false); setClientFieldsError(""); }}>Cancel</button>
-                    <button type="submit" className="cd-btn-primary" disabled={savingClientFields}>
-                      {savingClientFields ? "Saving…" : "Save"}
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:20 }}>
-                  {[
-                    { label:"Client Name",  value: client?.name || "—" },
-                    { label:"Phone",        value: client?.phone ? formatPhone(client.phone) : "No phone on file" },
-                    { label:"Email",        value: clientFields.email        || "—" },
-                    { label:"Claim #",      value: clientFields.claimNumber  || "—" },
-                    { label:"Policy #",     value: clientFields.policyNumber || "—" },
-                    { label:"Portal",       value: hasPortal ? "Active" : "Not activated" },
-                  ].map(row => (
-                    <div key={row.label}>
-                      <p style={{ margin:"0 0 3px", fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".06em" }}>{row.label}</p>
-                      <p style={{ margin:0, fontSize:14, color:"#0f172a", fontWeight:500, wordBreak:"break-word" }}>{row.value}</p>
-                    </div>
-                  ))}
-                  {clientFields.address && (
-                    <div style={{ gridColumn:"1 / -1" }}>
-                      <p style={{ margin:"0 0 3px", fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".06em" }}>Home Address</p>
-                      <p style={{ margin:0, fontSize:14, color:"#0f172a", fontWeight:500 }}>{clientFields.address}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
+        {/* ══════════════ OVERVIEW ══════════════ */}
+        <>
             {/* Insurance Settlement */}
             <SettlementOverviewCard
               clientUid={clientUid}
@@ -1578,6 +1529,129 @@ export default function ClientDetail() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* CompanyCam */}
+            <div className="cd-section-card">
+              <div className="cd-section-header">
+                <CameraIcon />
+                <h2>CompanyCam</h2>
+                {isAdmin && ccProjectId ? (
+                  <button className="cd-cc-unlink" onClick={unlinkCcProject}>Unlink</button>
+                ) : isAdmin && !ccProjectId ? (
+                  <>
+                    <button className="cd-upload-btn" onClick={openCCPicker}>Link Project</button>
+                    <button
+                      className="cd-upload-btn"
+                      onClick={handleCreateCCProject}
+                      disabled={ccCreating || !clientFields.address && !client?.address}
+                      style={{ marginLeft: 4 }}
+                      title={clientFields.address || client?.address ? "Create a new CompanyCam project for this address" : "Add a client address first"}
+                    >
+                      {ccCreating ? "Creating…" : <><PlusIcon /> New</>}
+                    </button>
+                  </>
+                ) : null}
+              </div>
+
+              {ccError && <p className="cd-cc-error">{ccError}</p>}
+
+              {!ccProjectId ? (
+                <p className="cd-empty-msg">No project linked. Link an existing project or create a new one using this client's address.</p>
+              ) : (
+                <>
+                  <div className="cd-cc-project-info">
+                    <span className="cd-cc-project-name">{ccProjectName || ccProjectId}</span>
+                    <a
+                      href={`https://app.companycam.com/projects/${ccProjectId}`}
+                      target="_blank" rel="noreferrer"
+                      className="cd-cc-open-link"
+                    >
+                      Open in CompanyCam ↗
+                    </a>
+                  </div>
+
+                  {ccPhotoLoad ? (
+                    <div className="cd-cc-photo-loading"><div className="cd-spinner" /></div>
+                  ) : ccPhotos.length === 0 ? (
+                    <p className="cd-empty-msg">No photos in this project yet.</p>
+                  ) : (
+                    <>
+                      <div className="cd-cc-share-bar">
+                        <span className="cd-cc-share-count">
+                          <ClientVisibleIcon />
+                          {ccSharedCount === 0
+                            ? "No photos shared with client"
+                            : ccSharedCount === ccPhotos.length
+                            ? `All ${ccPhotos.length} photos shared with client`
+                            : `${ccSharedCount} of ${ccPhotos.length} photos shared with client`}
+                        </span>
+                        <button className="cd-cc-manage-btn" onClick={() => setShowPhotoGrid(true)}>
+                          <GridIcon /> Manage Photos
+                        </button>
+                      </div>
+                      {ccSharedCount > 0 && (
+                        <div className="cd-cc-photo-strip">
+                          {ccPhotos.filter(p => isCCPhotoShared(p.id)).slice(0, 12).map(photo => {
+                            const thumb = getThumb(photo);
+                            return thumb ? (
+                              <img key={photo.id} src={thumb} alt="" className="cd-cc-photo-thumb" />
+                            ) : null;
+                          })}
+                          {ccSharedCount > 12 && (
+                            <button className="cd-cc-more-tile" onClick={() => setShowPhotoGrid(true)}>
+                              +{ccSharedCount - 12}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div className="cd-cc-classify-bar">
+                    <button
+                      className="cd-cc-classify-btn"
+                      onClick={handleClassify}
+                      disabled={classifying || ccPhotos.length === 0}
+                    >
+                      {classifying
+                        ? <><span className="cd-cc-btn-spin" /> Classifying…</>
+                        : <><SparkleIcon /> Classify Photos</>
+                      }
+                    </button>
+                    {classifyError && <p className="cd-cc-error" style={{ margin: 0 }}>{classifyError}</p>}
+                  </div>
+
+                  {classifyResults && !classifying && (
+                    <div className="cd-cc-results">
+                      {Object.entries(
+                        classifyResults
+                          .filter(r => r.best_match)
+                          .reduce((acc, r) => { (acc[r.best_match] = acc[r.best_match] || []).push(r); return acc; }, {})
+                      )
+                        .sort(([, a], [, b]) => b.length - a.length)
+                        .map(([label, items]) => (
+                          <div key={label} className="cd-cc-result-group">
+                            <div className="cd-cc-result-header">
+                              <span className="cd-cc-result-count">{items.length}</span>
+                              <span className="cd-cc-result-label-text">{label}</span>
+                              <span className="cd-cc-result-avg">
+                                avg {Math.round(items.reduce((s, r) => s + (r.similarity_score || 0), 0) / items.length * 100)}%
+                              </span>
+                            </div>
+                            <div className="cd-cc-result-strip">
+                              {items.slice(0, 8).map((r, i) => (
+                                <a key={i} href={r.image_url} target="_blank" rel="noreferrer">
+                                  <img src={r.image_url} alt={label} className="cd-cc-result-thumb" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Activity log */}
@@ -1620,32 +1694,6 @@ export default function ClientDetail() {
                 </div>
               </div>
             )}
-          </>
-        )}
-
-        {/* ══════════════ CLIENT VIEW TAB ══════════════ */}
-        {activeTab === "client" && (
-          <>
-            {/* Portal Visibility */}
-            <div className="cd-section-card">
-              <div className="cd-section-header">
-                <EyeIcon />
-                <h2>Portal Visibility {savingPortal && <span className="cd-saving">saving…</span>}</h2>
-              </div>
-              {!hasPortal && (
-                <p className="cd-empty-msg">Client hasn't activated their portal yet. Sections will be shown once active.</p>
-              )}
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {Object.entries(PORTAL_SECTION_LABELS).map(([key, label]) => (
-                  <label key={key} style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
-                    <input type="checkbox" checked={!!portalSections[key]} onChange={() => toggleSection(key)}
-                      style={{ width:16, height:16, accentColor:"#2563eb" }} />
-                    <span style={{ fontSize:14, color:"#334155" }}>{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
             {/* Claim Progress */}
             <div className="cd-section-card">
               <div className="cd-section-header">
@@ -2043,127 +2091,24 @@ export default function ClientDetail() {
               )}
             </div>
 
-            {/* CompanyCam */}
+            {/* Portal Visibility */}
             <div className="cd-section-card">
               <div className="cd-section-header">
-                <CameraIcon />
-                <h2>CompanyCam</h2>
-                {isAdmin && ccProjectId ? (
-                  <button className="cd-cc-unlink" onClick={unlinkCcProject}>Unlink</button>
-                ) : isAdmin && !ccProjectId ? (
-                  <>
-                    <button className="cd-upload-btn" onClick={openCCPicker}>Link Project</button>
-                    <button
-                      className="cd-upload-btn"
-                      onClick={handleCreateCCProject}
-                      disabled={ccCreating || !clientFields.address && !client?.address}
-                      style={{ marginLeft: 4 }}
-                      title={clientFields.address || client?.address ? "Create a new CompanyCam project for this address" : "Add a client address first"}
-                    >
-                      {ccCreating ? "Creating…" : <><PlusIcon /> New</>}
-                    </button>
-                  </>
-                ) : null}
+                <EyeIcon />
+                <h2>Portal Visibility {savingPortal && <span className="cd-saving">saving…</span>}</h2>
               </div>
-
-              {ccError && <p className="cd-cc-error">{ccError}</p>}
-
-              {!ccProjectId ? (
-                <p className="cd-empty-msg">No project linked. Link an existing project or create a new one using this client's address.</p>
-              ) : (
-                <>
-                  <div className="cd-cc-project-info">
-                    <span className="cd-cc-project-name">{ccProjectName || ccProjectId}</span>
-                    <a
-                      href={`https://app.companycam.com/projects/${ccProjectId}`}
-                      target="_blank" rel="noreferrer"
-                      className="cd-cc-open-link"
-                    >
-                      Open in CompanyCam ↗
-                    </a>
-                  </div>
-
-                  {ccPhotoLoad ? (
-                    <div className="cd-cc-photo-loading"><div className="cd-spinner" /></div>
-                  ) : ccPhotos.length === 0 ? (
-                    <p className="cd-empty-msg">No photos in this project yet.</p>
-                  ) : (
-                    <>
-                      <div className="cd-cc-share-bar">
-                        <span className="cd-cc-share-count">
-                          <ClientVisibleIcon />
-                          {ccSharedCount === 0
-                            ? "No photos shared with client"
-                            : ccSharedCount === ccPhotos.length
-                            ? `All ${ccPhotos.length} photos shared with client`
-                            : `${ccSharedCount} of ${ccPhotos.length} photos shared with client`}
-                        </span>
-                        <button className="cd-cc-manage-btn" onClick={() => setShowPhotoGrid(true)}>
-                          <GridIcon /> Manage Photos
-                        </button>
-                      </div>
-                      {ccSharedCount > 0 && (
-                        <div className="cd-cc-photo-strip">
-                          {ccPhotos.filter(p => isCCPhotoShared(p.id)).slice(0, 12).map(photo => {
-                            const thumb = getThumb(photo);
-                            return thumb ? (
-                              <img key={photo.id} src={thumb} alt="" className="cd-cc-photo-thumb" />
-                            ) : null;
-                          })}
-                          {ccSharedCount > 12 && (
-                            <button className="cd-cc-more-tile" onClick={() => setShowPhotoGrid(true)}>
-                              +{ccSharedCount - 12}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  <div className="cd-cc-classify-bar">
-                    <button
-                      className="cd-cc-classify-btn"
-                      onClick={handleClassify}
-                      disabled={classifying || ccPhotos.length === 0}
-                    >
-                      {classifying
-                        ? <><span className="cd-cc-btn-spin" /> Classifying…</>
-                        : <><SparkleIcon /> Classify Photos</>
-                      }
-                    </button>
-                    {classifyError && <p className="cd-cc-error" style={{ margin: 0 }}>{classifyError}</p>}
-                  </div>
-
-                  {classifyResults && !classifying && (
-                    <div className="cd-cc-results">
-                      {Object.entries(
-                        classifyResults
-                          .filter(r => r.best_match)
-                          .reduce((acc, r) => { (acc[r.best_match] = acc[r.best_match] || []).push(r); return acc; }, {})
-                      )
-                        .sort(([, a], [, b]) => b.length - a.length)
-                        .map(([label, items]) => (
-                          <div key={label} className="cd-cc-result-group">
-                            <div className="cd-cc-result-header">
-                              <span className="cd-cc-result-count">{items.length}</span>
-                              <span className="cd-cc-result-label-text">{label}</span>
-                              <span className="cd-cc-result-avg">
-                                avg {Math.round(items.reduce((s, r) => s + (r.similarity_score || 0), 0) / items.length * 100)}%
-                              </span>
-                            </div>
-                            <div className="cd-cc-result-strip">
-                              {items.slice(0, 8).map((r, i) => (
-                                <a key={i} href={r.image_url} target="_blank" rel="noreferrer">
-                                  <img src={r.image_url} alt={label} className="cd-cc-result-thumb" />
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </>
+              {!hasPortal && (
+                <p className="cd-empty-msg">Client hasn't activated their portal yet. Sections will be shown once active.</p>
               )}
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {Object.entries(PORTAL_SECTION_LABELS).map(([key, label]) => (
+                  <label key={key} style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+                    <input type="checkbox" checked={!!portalSections[key]} onChange={() => toggleSection(key)}
+                      style={{ width:16, height:16, accentColor:"#2563eb" }} />
+                    <span style={{ fontSize:14, color:"#334155" }}>{label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
 
             {/* Delete zone */}
@@ -2188,8 +2133,7 @@ export default function ClientDetail() {
                 </button>
               )}
             </div>
-          </>
-        )}
+        </>
 
 
       </div>

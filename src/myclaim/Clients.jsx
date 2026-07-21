@@ -39,6 +39,46 @@ const formatPhone = (phone = "") => {
   return phone;
 };
 
+const CATEGORIES = [
+  { key: "dryClean",       label: "Dry Cleaning / Contents" },
+  { key: "mitigation",     label: "Mitigation"               },
+  { key: "reconstruction", label: "Reconstruction"           },
+  { key: "packout",        label: "Packout"                  },
+];
+const STATUS_META = {
+  estimating:    { label: "Estimating",    color: "#64748b", bg: "#f1f5f9" },
+  submitted:     { label: "Submitted",     color: "#2563eb", bg: "#eff6ff" },
+  negotiating:   { label: "Negotiating",   color: "#d97706", bg: "#fffbeb" },
+  supplementing: { label: "Supplementing", color: "#7c3aed", bg: "#f5f3ff" },
+  settled:       { label: "Settled ✓",     color: "#15803d", bg: "#dcfce7" },
+};
+const n = v => parseFloat(v) || 0;
+const fmtMoney = v => (parseFloat(v) || 0).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function computeTotals(form) {
+  let Estimate = 0, Settled = 0, Supplement = 0, Expenses = 0;
+  for (const cat of CATEGORIES) {
+    Estimate   += n(form[`${cat.key}Estimate`]);
+    Settled    += n(form[`${cat.key}Settled`]);
+    Supplement += n(form[`${cat.key}Supplement`]);
+    Expenses   += n(form[`${cat.key}Expenses`]);
+  }
+  return { Estimate, Settled, Supplement, Expenses, gap: Math.max(0, Estimate - Settled), recoveryRate: Estimate > 0 ? Settled / Estimate * 100 : 0 };
+}
+function computeCategoryRecoups(form) {
+  const masterPct = n(form.recoupPercent);
+  let companyRecoup = 0;
+  for (const cat of CATEGORIES) {
+    const ov = form[`${cat.key}RecoupPct`];
+    const pct = (ov !== null && ov !== undefined && ov !== "") ? n(ov) : masterPct;
+    companyRecoup += n(form[`${cat.key}Settled`]) * pct / 100;
+  }
+  return { companyRecoup };
+}
+function computePartnerFee(form, companyRecoup) {
+  if (!form.partnerId) return 0;
+  return form.partnerFeeType === "fixed" ? n(form.partnerFeeValue) : companyRecoup * n(form.partnerFeeValue) / 100;
+}
+
 export default function Clients() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -64,6 +104,12 @@ export default function Clients() {
   const [confirmPermDelete,      setConfirmPermDelete]      = useState(null);
   const [permDeleting,           setPermDeleting]           = useState(false);
   const [permDeleteError,        setPermDeleteError]        = useState("");
+
+  const [expandedId,        setExpandedId]        = useState(null);
+  const [settlementData,    setSettlementData]    = useState(null);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [qeForm,            setQeForm]            = useState({});
+  const [qeSaving,          setQeSaving]          = useState(false);
 
   const addressInputRef = useRef(null);
   const autocompleteRef = useRef(null);
@@ -280,6 +326,133 @@ export default function Clients() {
     }
   };
 
+  const loadAndExpandSettlement = async (client) => {
+    setExpandedId(client.id);
+    setSettlementData(null);
+    setQeForm({});
+    setSettlementLoading(true);
+    try {
+      // Fetch both paths without orderBy — avoids silent exclusion of docs missing createdAt
+      const [orgSnap, userSnap] = await Promise.all([
+        getDocs(collection(db, "organization_data", organizationName, "clients", client.id, "settlements"))
+          .catch(e => { console.warn("org settlements:", e); return null; }),
+        client.uid
+          ? getDocs(collection(db, "users", client.uid, "settlements"))
+              .catch(e => { console.warn("user settlements:", e); return null; })
+          : Promise.resolve(null),
+      ]);
+
+      const orgSets  = orgSnap?.docs.map(d => ({ id: d.id, _isOrgSettlement: true, ...d.data() })) ?? [];
+      const userSets = userSnap?.docs.map(d => ({ id: d.id, ...d.data() })) ?? [];
+      const seen = new Set(userSets.map(x => x.id));
+      const all  = [...userSets, ...orgSets.filter(x => !seen.has(x.id))];
+
+      const ts = v => v?.toMillis?.() ?? 0;
+      const s = all.sort((a, b) => ts(b.updatedAt ?? b.createdAt) - ts(a.updatedAt ?? a.createdAt))[0] ?? null;
+
+      setSettlementData(s);
+      if (s) {
+        setQeForm({
+          status:                   s.status                   || "estimating",
+          settlementDate:           s.settlementDate           || "",
+          dryCleanEstimate:         s.dryCleanEstimate         ?? "",
+          mitigationEstimate:       s.mitigationEstimate       ?? "",
+          reconstructionEstimate:   s.reconstructionEstimate   ?? "",
+          packoutEstimate:          s.packoutEstimate          ?? "",
+          dryCleanSupplement:       s.dryCleanSupplement       ?? "",
+          mitigationSupplement:     s.mitigationSupplement     ?? "",
+          reconstructionSupplement: s.reconstructionSupplement ?? "",
+          packoutSupplement:        s.packoutSupplement        ?? "",
+          dryCleanSettled:          s.dryCleanSettled          ?? "",
+          mitigationSettled:        s.mitigationSettled        ?? "",
+          reconstructionSettled:    s.reconstructionSettled    ?? "",
+          packoutSettled:           s.packoutSettled           ?? "",
+          dryCleanExpenses:         s.dryCleanExpenses         ?? "",
+          mitigationExpenses:       s.mitigationExpenses       ?? "",
+          reconstructionExpenses:   s.reconstructionExpenses   ?? "",
+          packoutExpenses:          s.packoutExpenses          ?? "",
+        });
+      }
+    } catch (err) {
+      console.error("Settlement load error:", err);
+    } finally {
+      setSettlementLoading(false);
+    }
+  };
+
+  const doQuickSave = async (client) => {
+    if (!settlementData || !organizationName) return;
+    setQeSaving(true);
+    try {
+      const s = settlementData;
+      const merged = { ...s, ...qeForm };
+      const totals = computeTotals(merged);
+      const hasSettled = totals.Settled > 0;
+      const settlementDate = qeForm.settlementDate ||
+        (hasSettled && qeForm.status === "settled" ? new Date().toISOString().slice(0, 10) : s.settlementDate || "");
+      const recoups    = computeCategoryRecoups(merged);
+      const partnerFee = hasSettled ? computePartnerFee(merged, recoups.companyRecoup) : 0;
+      const patch = {
+        status:                   qeForm.status,
+        settlementDate,
+        dryCleanEstimate:         qeForm.dryCleanEstimate,
+        mitigationEstimate:       qeForm.mitigationEstimate,
+        reconstructionEstimate:   qeForm.reconstructionEstimate,
+        packoutEstimate:          qeForm.packoutEstimate,
+        dryCleanSupplement:       qeForm.dryCleanSupplement,
+        mitigationSupplement:     qeForm.mitigationSupplement,
+        reconstructionSupplement: qeForm.reconstructionSupplement,
+        packoutSupplement:        qeForm.packoutSupplement,
+        dryCleanSettled:          qeForm.dryCleanSettled,
+        mitigationSettled:        qeForm.mitigationSettled,
+        reconstructionSettled:    qeForm.reconstructionSettled,
+        packoutSettled:           qeForm.packoutSettled,
+        dryCleanExpenses:         qeForm.dryCleanExpenses,
+        mitigationExpenses:       qeForm.mitigationExpenses,
+        reconstructionExpenses:   qeForm.reconstructionExpenses,
+        packoutExpenses:          qeForm.packoutExpenses,
+        totalEstimate:            totals.Estimate,
+        totalSettled:             totals.Settled,
+        recoveryRate:             hasSettled ? totals.recoveryRate : null,
+        gap:                      hasSettled ? totals.gap          : null,
+        companyRecoup:            hasSettled ? recoups.companyRecoup : null,
+        partnerFee:               hasSettled && merged.partnerId ? partnerFee : null,
+        companyNetAfterPartner:   hasSettled ? recoups.companyRecoup - (merged.partnerId ? partnerFee : 0) : null,
+        updatedAt:                serverTimestamp(),
+      };
+      const settRef = s._isOrgSettlement
+        ? doc(db, "organization_data", organizationName, "clients", client.id, "settlements", s.id)
+        : doc(db, "users", client.uid, "settlements", s.id);
+      await updateDoc(settRef, patch);
+      updateDoc(doc(db, "organization_data", organizationName, "settlement_summary", s.id), {
+        status:                 qeForm.status,
+        settlementDate,
+        dryCleanEstimate:       n(qeForm.dryCleanEstimate),
+        mitigationEstimate:     n(qeForm.mitigationEstimate),
+        reconstructionEstimate: n(qeForm.reconstructionEstimate),
+        packoutEstimate:        n(qeForm.packoutEstimate),
+        dryCleanSettled:        n(qeForm.dryCleanSettled),
+        mitigationSettled:      n(qeForm.mitigationSettled),
+        reconstructionSettled:  n(qeForm.reconstructionSettled),
+        packoutSettled:         n(qeForm.packoutSettled),
+        totalEstimate:          totals.Estimate,
+        totalSettled:           totals.Settled,
+        recoveryRate:           hasSettled ? totals.recoveryRate : null,
+        gap:                    hasSettled ? totals.gap          : null,
+        companyRecoup:          hasSettled ? recoups.companyRecoup : null,
+        partnerFee:             hasSettled && merged.partnerId ? partnerFee : null,
+        companyNetAfterPartner: hasSettled ? recoups.companyRecoup - (merged.partnerId ? partnerFee : 0) : null,
+        updatedAt:              serverTimestamp(),
+      }).catch(e => console.warn("settlement_summary quick update:", e));
+      setSettlementData(prev => ({ ...prev, ...patch, settlementDate }));
+      setExpandedId(null);
+    } catch (err) {
+      console.error("Quick save error:", err);
+    } finally {
+      setQeSaving(false);
+    }
+  };
+
   const filtered = clients.filter(c => {
     const q = search.toLowerCase();
     return (
@@ -326,53 +499,164 @@ export default function Clients() {
         ) : (() => {
           const openClients   = filtered.filter(c => (c.claimStatus || "open") === "open");
           const closedClients = filtered.filter(c => c.claimStatus === "closed");
-          const renderCard = (client) => {
-            const isClosed = client.claimStatus === "closed";
+
+          const renderRow = (client) => {
+            const isClosed   = client.claimStatus === "closed";
+            const isExpanded = expandedId === client.id;
+            const claimNum   = client.claimNumbers?.[0] || "";
+
             return (
-              <div key={client.id} className={`cl-card${client.hasAccount ? " cl-card-active" : ""}${isClosed ? " cl-card--closed" : ""}`}>
-                <div className="cl-card-top">
-                  <div className="cl-card-info">
-                    <div className="cl-card-name-row">
-                      <span
-                        className={`cl-account-dot cl-account-dot--${client.hasAccount ? "active" : "pending"}`}
-                        title={client.hasAccount ? "Active" : "Awaiting first login"}
-                      />
-                      <h3 className={`cl-card-name${client.nameFromUser ? " cl-confirmed" : ""}`}>
-                        {client.name || <span className="cl-no-name">No name</span>}
-                      </h3>
-                    </div>
-                    <p className="cl-card-phone">{client.phone ? formatPhone(client.phone) : <span style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone</span>}</p>
-                  </div>
-                  <div className="cl-card-badges">
-                    <span className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}>
-                      {isClosed ? "Closed" : "Open"}
+              <div key={client.id} className={`cl-row${isClosed ? " cl-row--closed" : ""}${isExpanded ? " cl-row--expanded" : ""}`}>
+                <div className="cl-row-main">
+                  <span className={`cl-account-dot cl-account-dot--${client.hasAccount ? "active" : "pending"}`}
+                    title={client.hasAccount ? "Portal active" : "Awaiting first login"} />
+
+                  <div className="cl-row-identity">
+                    <span className={`cl-row-name${client.nameFromUser ? " cl-confirmed" : ""}`}>
+                      {client.name || <span className="cl-no-name">No name</span>}
                     </span>
-                    {(client.openContractorTodos > 0) && <span className="cl-todo-badge">{client.openContractorTodos}</span>}
+                    <div className="cl-row-meta">
+                      {client.phone && <span className="cl-row-meta-phone">{formatPhone(client.phone)}</span>}
+                      {client.address && (
+                        <span className="cl-row-meta-addr"><PinIcon /> {client.address}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="cl-row-claim">
+                    {claimNum && (
+                      <span className="cl-row-claim-num"><ClaimIcon /> {claimNum}</span>
+                    )}
+                  </div>
+
+                  <span className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}>
+                    {isClosed ? "Closed" : "Open"}
+                  </span>
+
+                  {client.lastLogin
+                    ? <span className="cl-row-login"><ClockIcon /> {formatDate(client.lastLogin)}</span>
+                    : <span className="cl-row-login cl-row-login--never">Never logged in</span>
+                  }
+
+                  <div className="cl-row-actions">
+                    <button className="cl-delete-btn" onClick={() => setConfirmDelete(client)} title="Archive client">
+                      <TrashIcon />
+                    </button>
+                    <button
+                      className={`cl-row-expand-btn${isExpanded ? " cl-row-expand-btn--active" : ""}`}
+                      onClick={() => {
+                        if (isExpanded) { setExpandedId(null); return; }
+                        loadAndExpandSettlement(client);
+                      }}
+                    >
+                      <ChevronIcon up={isExpanded} /> Quick Edit
+                    </button>
+                    <button className="cl-row-open-btn"
+                      onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
+                      Open <ArrowIcon />
+                    </button>
                   </div>
                 </div>
-                {client.address && (
-                  <p className={`cl-card-address${client.addressFromUser ? " cl-confirmed" : ""}`}>
-                    <PinIcon /> {client.address}
-                  </p>
+
+                {isExpanded && (
+                  <div className="cl-qe-panel">
+                    {settlementLoading ? (
+                      <div className="cl-qe-loading"><div className="cl-spinner" style={{ width:24, height:24, borderWidth:2 }} /></div>
+                    ) : !settlementData ? (
+                      <div className="cl-qe-no-sett">
+                        <span>No settlement tracked yet.</span>
+                        <button className="cl-qe-full-btn"
+                          onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
+                          Open full details to add one →
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="cl-qe-top">
+                          <div className="cl-qe-field">
+                            <label className="cl-qe-label">Status</label>
+                            <select className="cl-qe-input cl-qe-select" value={qeForm.status || "estimating"}
+                              onChange={e => setQeForm(p => ({ ...p, status: e.target.value }))}>
+                              {Object.entries(STATUS_META).map(([v, m]) => (
+                                <option key={v} value={v}>{m.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="cl-qe-field">
+                            <label className="cl-qe-label">Settlement Date</label>
+                            <input className="cl-qe-input" type="date" value={qeForm.settlementDate || ""}
+                              onChange={e => setQeForm(p => ({ ...p, settlementDate: e.target.value }))} />
+                          </div>
+                          {settlementData.claimNumber && (
+                            <div className="cl-qe-field">
+                              <label className="cl-qe-label">Claim #</label>
+                              <span className="cl-qe-static">{settlementData.claimNumber}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="cl-qe-table-scroll">
+                          <table className="cl-qe-table">
+                            <thead>
+                              <tr>
+                                <th className="cl-qe-th-cat">Category</th>
+                                <th className="cl-qe-th-num" style={{ color: "#0f172a" }}>Estimate</th>
+                                <th className="cl-qe-th-num" style={{ color: "#16a34a" }}>Settled</th>
+                                <th className="cl-qe-th-num" style={{ color: "#0891b2" }}>Supplement</th>
+                                <th className="cl-qe-th-num" style={{ color: "#dc2626" }}>Expenses</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {CATEGORIES.map(cat => (
+                                <tr key={cat.key}>
+                                  <td className="cl-qe-td-cat">{cat.label}</td>
+                                  {["Estimate", "Settled", "Supplement", "Expenses"].map(col => (
+                                    <td key={col} className="cl-qe-td-amt">
+                                      <input className="cl-qe-amount-input" type="number" min="0" step="0.01" placeholder="—"
+                                        value={qeForm[`${cat.key}${col}`] ?? ""}
+                                        onChange={e => setQeForm(p => ({ ...p, [`${cat.key}${col}`]: e.target.value }))} />
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              {(() => {
+                                const qt = computeTotals({ ...settlementData, ...qeForm });
+                                return (
+                                  <tr className="cl-qe-tfoot-row">
+                                    <td className="cl-qe-td-cat">Total</td>
+                                    <td className="cl-qe-td-amt" style={{ color:"#0f172a", fontWeight:700 }}>{qt.Estimate   > 0 ? fmtMoney(qt.Estimate)   : "—"}</td>
+                                    <td className="cl-qe-td-amt" style={{ color:"#16a34a", fontWeight:700 }}>{qt.Settled    > 0 ? fmtMoney(qt.Settled)    : "—"}</td>
+                                    <td className="cl-qe-td-amt" style={{ color:"#0891b2", fontWeight:700 }}>{qt.Supplement > 0 ? fmtMoney(qt.Supplement) : "—"}</td>
+                                    <td className="cl-qe-td-amt" style={{ color:"#dc2626", fontWeight:700 }}>{qt.Expenses   > 0 ? fmtMoney(qt.Expenses)   : "—"}</td>
+                                  </tr>
+                                );
+                              })()}
+                            </tfoot>
+                          </table>
+                        </div>
+                        <div className="cl-qe-actions">
+                          <button className="cl-btn-secondary" onClick={() => setExpandedId(null)}>Cancel</button>
+                          <button className="cl-btn-primary" onClick={() => doQuickSave(client)} disabled={qeSaving}>
+                            {qeSaving ? "Saving…" : "Save"}
+                          </button>
+                          <button className="cl-qe-full-btn"
+                            onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
+                            Full Details →
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
-                <div className="cl-card-actions">
-                  <button className="cl-open-btn"
-                    onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
-                    Open Job <ArrowIcon />
-                  </button>
-                  <button className="cl-delete-btn" onClick={() => setConfirmDelete(client)} title="Delete client">
-                    <TrashIcon />
-                  </button>
-                </div>
               </div>
             );
           };
+
           return (
             <>
               {openClients.length > 0 && (
-                <div className="cl-scroll-wrap">
-                  <div className="cl-grid">{openClients.map(renderCard)}</div>
-                </div>
+                <div className="cl-list">{openClients.map(renderRow)}</div>
               )}
               {closedClients.length > 0 && (
                 <>
@@ -380,9 +664,7 @@ export default function Clients() {
                     <span>Closed Claims</span>
                     <span className="cl-section-count">{closedClients.length}</span>
                   </div>
-                  <div className="cl-scroll-wrap">
-                    <div className="cl-grid">{closedClients.map(renderCard)}</div>
-                  </div>
+                  <div className="cl-list">{closedClients.map(renderRow)}</div>
                 </>
               )}
             </>
@@ -467,48 +749,48 @@ export default function Clients() {
         <div style={{ marginTop: 32 }}>
           <button
             className="cl-section-label"
-            style={{ width: "100%", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", textAlign: "left" }}
+            style={{ width:"100%", background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 0", textAlign:"left" }}
             onClick={() => setShowArchive(v => !v)}
           >
-            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span>Archived</span>
               <span className="cl-section-count">{archivedClients.length}</span>
             </span>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>{showArchive ? "Hide ▲" : "Show ▼"}</span>
+            <span style={{ fontSize:12, color:"#94a3b8" }}>{showArchive ? "Hide ▲" : "Show ▼"}</span>
           </button>
           {showArchive && (
-            <div className="cl-scroll-wrap" style={{ marginTop: 8 }}>
-            <div className="cl-grid">
+            <div className="cl-list" style={{ marginTop:8, opacity:0.75 }}>
               {archivedClients.map(client => (
-                <div key={client.id} className="cl-card" style={{ opacity: 0.75, border: "1px dashed #cbd5e1" }}>
-                  <div className="cl-card-top">
-                    <div className="cl-card-info">
-                      <p className="cl-card-name">{client.name || <span className="cl-no-name">No name</span>}</p>
-                      <p className="cl-card-phone">{client.phone}</p>
+                <div key={client.id} className="cl-row" style={{ borderStyle:"dashed" }}>
+                  <div className="cl-row-main">
+                    <span className="cl-account-dot cl-account-dot--pending" />
+                    <div className="cl-row-identity">
+                      <span className="cl-row-name">{client.name || <span className="cl-no-name">No name</span>}</span>
+                      <div className="cl-row-meta">
+                        {client.phone && <span className="cl-row-meta-phone">{formatPhone(client.phone)}</span>}
+                        {client.address && <span className="cl-row-meta-addr"><PinIcon /> {client.address}</span>}
+                      </div>
                     </div>
-                  </div>
-                  {client.address && <p className="cl-card-address"><PinIcon /> {client.address}</p>}
-                  <div className="cl-card-actions">
-                    <button
-                      className="cl-open-btn"
-                      onClick={() => restoreClient(client)}
-                      disabled={restoringId === client.id}
-                      style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }}
-                    >
-                      {restoringId === client.id ? "Restoring…" : "↩ Restore"}
-                    </button>
-                    <button
-                      className="cl-delete-btn"
-                      onClick={() => { setConfirmPermDelete(client); setPermDeleteError(""); }}
-                      title="Permanently delete all client data"
-                      style={{ color: "#dc2626" }}
-                    >
-                      <TrashIcon />
-                    </button>
+                    <div className="cl-row-claim" />
+                    <span />
+                    <span />
+                    <div className="cl-row-actions">
+                      <button className="cl-row-open-btn"
+                        style={{ background:"#f0fdf4", color:"#16a34a", borderColor:"#bbf7d0" }}
+                        onClick={() => restoreClient(client)}
+                        disabled={restoringId === client.id}>
+                        {restoringId === client.id ? "Restoring…" : "↩ Restore"}
+                      </button>
+                      <button className="cl-delete-btn"
+                        style={{ color:"#dc2626" }}
+                        onClick={() => { setConfirmPermDelete(client); setPermDeleteError(""); }}
+                        title="Permanently delete all client data">
+                        <TrashIcon />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
-            </div>
             </div>
           )}
         </div>
@@ -561,3 +843,10 @@ const ActiveDotIcon = () => <svg viewBox="0 0 8 8" width="7" height="7" fill="cu
 const ClaimIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="12" height="12" style={{flexShrink:0}}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>;
 const ClockIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="12" height="12" style={{flexShrink:0}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
 const EmptyIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="40" height="40"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>;
+const ChevronIcon = ({ up }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+    strokeLinecap="round" strokeLinejoin="round" width="13" height="13"
+    style={{ transform: up ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
+    <polyline points="6 9 12 15 18 9"/>
+  </svg>
+);

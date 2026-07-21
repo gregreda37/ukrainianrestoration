@@ -590,3 +590,45 @@
 }
 
 .sovc-partner-net { color: #374151; }
+
+/* ── Quick edit button ── */
+.sovc-qe-edit-btn {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+.sovc-qe-edit-btn:hover { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
+.sovc-qe-edit-btn--active { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+
+/* ── Quick edit panel ── */
+.sovc-qe-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1.5px dashed #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sovc-qe-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.sovc-qe-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

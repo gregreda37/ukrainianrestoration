@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, getDoc, getDocs, deleteDoc, collection } from 'firebase/firestore'
+import { doc, getDoc, getDocs, deleteDoc, collection, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import './OrgInvoices.css'
 
@@ -31,6 +31,8 @@ const STATUS_META = {
   sent:      { label: 'Sent',      color: '#2563eb', bg: '#eff6ff' },
   viewed:    { label: 'Viewed',    color: '#7c3aed', bg: '#f5f3ff' },
   approved:  { label: 'Approved',  color: '#16a34a', bg: '#f0fdf4' },
+  paid:      { label: 'Paid',      color: '#15803d', bg: '#dcfce7' },
+  cancelled: { label: 'Cancelled', color: '#94a3b8', bg: '#f8fafc' },
   overdue:   { label: 'Overdue',   color: '#dc2626', bg: '#fef2f2' },
 }
 
@@ -98,8 +100,9 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const settled     = parseFloat(s.totalSettled)     || 0
                 const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
                 const outstanding = parseFloat(s.totalOutstanding) ?? Math.max(0, settled - totalPaid)
-                const href = s.clientPhone
-                  ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
+                const settNav = s.clientPhone || s.clientDocId
+                const href = settNav
+                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
                   : null
                 return (
                   <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
@@ -152,8 +155,9 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const paid     = parseFloat(s.totalPaidAmount) || 0
                 const coNet    = Math.max(0, settled - fee)
                 const coOuts   = Math.max(0, coNet - paid)
-                const href = s.clientPhone
-                  ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
+                const settNav = s.clientPhone || s.clientDocId
+                const href = settNav
+                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
                   : null
                 return (
                   <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
@@ -259,7 +263,10 @@ function PaidInvoicesSection({ items, total, goTo }) {
   )
 }
 
-function Section({ title, accent, accentBg, items, onRowClick, onDelete, dateLabel, dateKey }) {
+const INVOICE_STATUSES = ['draft', 'sent', 'viewed', 'approved', 'paid', 'cancelled']
+const ESTIMATE_STATUSES = ['draft', 'sent', 'viewed', 'approved', 'cancelled']
+
+function Section({ title, accent, accentBg, items, onRowClick, onDelete, onStatusChange, savingStatus, dateLabel, dateKey }) {
   const total = items.reduce((s, r) => s + (r.total || 0), 0)
   return (
     <div className="oil-section">
@@ -287,17 +294,30 @@ function Section({ title, accent, accentBg, items, onRowClick, onDelete, dateLab
           </thead>
           <tbody>
             {items.map(r => {
-              const sm = STATUS_META[r._overdue ? 'overdue' : r.status] || STATUS_META.draft
+              const storedStatus = r.status || 'draft'
+              const displayKey   = r._overdue ? 'overdue' : storedStatus
+              const sm           = STATUS_META[displayKey] || STATUS_META.draft
+              const statuses     = r.type === 'estimate' ? ESTIMATE_STATUSES : INVOICE_STATUSES
+              const isSaving     = savingStatus === r.id
               return (
                 <tr key={r.id} className="oil-row" onClick={() => onRowClick(r)}>
                   <td className="oil-td oil-td--client">{r.clientName || '—'}</td>
                   <td className="oil-td oil-td--num">{r.invoiceNumber || '—'}</td>
                   <td className="oil-td oil-td--amount">{fmtMoney(r.total)}</td>
                   <td className="oil-td oil-td--date">{fmtDate(r[dateKey])}</td>
-                  <td className="oil-td">
-                    <span className="oil-badge" style={{ color: sm.color, background: sm.bg }}>
-                      {sm.label}
-                    </span>
+                  <td className="oil-td" onClick={e => e.stopPropagation()}>
+                    <select
+                      className="oil-status-select"
+                      value={storedStatus}
+                      disabled={isSaving}
+                      style={{ color: sm.color, background: sm.bg }}
+                      onChange={e => onStatusChange(r, e.target.value)}
+                    >
+                      {statuses.map(s => {
+                        const m = STATUS_META[s] || STATUS_META.draft
+                        return <option key={s} value={s}>{m.label}</option>
+                      })}
+                    </select>
                   </td>
                   <td className="oil-td oil-td--action" onClick={e => e.stopPropagation()}>
                     <button className="oil-action-btn" onClick={() => onRowClick(r)}>View</button>
@@ -320,8 +340,9 @@ export default function OpenWork() {
   const [rows, setRows]             = useState([])
   const [settRows, setSettRows]     = useState([])
   const [orgId, setOrgId]           = useState(null)
-  const [confirmDel, setConfirmDel] = useState(null)
-  const [deleting, setDeleting]     = useState(false)
+  const [confirmDel, setConfirmDel]   = useState(null)
+  const [deleting, setDeleting]       = useState(false)
+  const [savingStatus, setSavingStatus] = useState(null)
 
   useEffect(() => { if (user) load() }, [user])
 
@@ -332,11 +353,19 @@ export default function OpenWork() {
       const oid = userSnap.data()?.organizationId
       if (!oid) return
       setOrgId(oid)
-      const [invSnap, settSnap] = await Promise.all([
+      const [invSnap, settSnap, clientsSnap] = await Promise.all([
         getDocs(collection(db, 'organization_data', oid, 'invoice_summary')),
         getDocs(collection(db, 'organization_data', oid, 'settlement_summary')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'organization_data', oid, 'clients')).catch(() => ({ docs: [] })),
       ])
       setRows(invSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+
+      const uidToDocId = {}, nameToDocId = {}
+      clientsSnap.docs.forEach(d => {
+        const { uid, name } = d.data()
+        if (uid)  uidToDocId[uid] = d.id
+        if (name) nameToDocId[name.trim().toLowerCase()] = d.id
+      })
 
       const rawSetts = settSnap.docs.map(d => ({ id: d.id, ...d.data() }))
       const missing  = rawSetts.filter(s => !s.clientPhone && (s.clientDocId || s.clientUid))
@@ -354,7 +383,17 @@ export default function OpenWork() {
           if (phone) phoneMap[s.id] = phone
         })
       }
-      setSettRows(rawSetts.map(s => phoneMap[s.id] ? { ...s, clientPhone: phoneMap[s.id] } : s))
+      setSettRows(rawSetts.map(s => {
+        const phone = phoneMap[s.id] || s.clientPhone
+        const docId = s.clientDocId
+          || (s.clientUid  ? uidToDocId[s.clientUid]  : null)
+          || (s.clientName ? nameToDocId[s.clientName.trim().toLowerCase()] : null)
+        return {
+          ...s,
+          ...(phone ? { clientPhone: phone } : {}),
+          ...(docId ? { clientDocId: docId } : {}),
+        }
+      }))
     } finally {
       setLoading(false)
     }
@@ -412,11 +451,38 @@ export default function OpenWork() {
     return sum + Math.max(0, outstanding)
   }, 0)
 
-  function goTo(r) {
-    const phone = r.clientPhone
+  async function handleStatusChange(r, newStatus) {
+    if (!orgId || savingStatus) return
     const invId = r.invoiceId || r.id
-    if (!phone || !invId) return
-    navigate(`/myclaim/clients/${encodeURIComponent(phone)}/invoices/${invId}`)
+    setSavingStatus(r.id)
+    try {
+      const updates = { status: newStatus, updatedAt: serverTimestamp() }
+      if (newStatus === 'paid') updates.paidDate = todayStr()
+      const ops = [
+        updateDoc(doc(db, 'organization_data', orgId, 'invoice_summary', r.id), updates).catch(() => {}),
+      ]
+      if (r.clientDocId) {
+        ops.push(updateDoc(doc(db, 'organization_data', orgId, 'clients', r.clientDocId, 'invoices', invId), updates).catch(() => {}))
+      }
+      if (r.clientUid) {
+        ops.push(updateDoc(doc(db, 'users', r.clientUid, 'invoices', invId), updates).catch(() => {}))
+      }
+      await Promise.all(ops)
+      setRows(prev => prev.map(x =>
+        x.id === r.id
+          ? { ...x, status: newStatus, ...(newStatus === 'paid' ? { paidDate: todayStr() } : {}) }
+          : x
+      ))
+    } finally {
+      setSavingStatus(null)
+    }
+  }
+
+  function goTo(r) {
+    const param = r.clientPhone || r.clientDocId
+    const invId = r.invoiceId || r.id
+    if (!param || !invId) return
+    navigate(`/myclaim/clients/${encodeURIComponent(param)}/invoices/${invId}`)
   }
 
   async function doDelete(r) {
@@ -492,6 +558,8 @@ export default function OpenWork() {
               items={overdue}
               onRowClick={goTo}
               onDelete={setConfirmDel}
+              onStatusChange={handleStatusChange}
+              savingStatus={savingStatus}
               dateLabel="Was due"
               dateKey="dueDate"
             />
@@ -504,6 +572,8 @@ export default function OpenWork() {
               items={openInvoices}
               onRowClick={goTo}
               onDelete={setConfirmDel}
+              onStatusChange={handleStatusChange}
+              savingStatus={savingStatus}
               dateLabel="Due"
               dateKey="dueDate"
             />
@@ -516,6 +586,8 @@ export default function OpenWork() {
               items={estimates}
               onRowClick={goTo}
               onDelete={setConfirmDel}
+              onStatusChange={handleStatusChange}
+              savingStatus={savingStatus}
               dateLabel="Issued"
               dateKey="issueDate"
             />

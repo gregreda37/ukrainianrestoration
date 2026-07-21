@@ -5,7 +5,7 @@ import { loadGoogleMaps } from "./loadMaps";
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5000' : '/api/backend');
 import {
-  doc, getDoc, addDoc, setDoc, getDocs,
+  doc, getDoc, addDoc, setDoc, getDocs, updateDoc,
   collection, serverTimestamp,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
@@ -28,7 +28,7 @@ const PIPELINE_STATUS_META = {
   estimating:    { label: 'Estimating',    color: '#7c3aed', bg: '#f5f3ff' },
 }
 
-function OpenClaimsPipelineSection({ items, navigate }) {
+function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStatus }) {
   const [view, setView] = useState('net')
 
   const statusGroups = Object.keys(PIPELINE_STATUS_META)
@@ -69,7 +69,8 @@ function OpenClaimsPipelineSection({ items, navigate }) {
   function PipelineRow({ s }) {
     const statusKey = s.status || 'estimating'
     const meta      = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
-    const href      = s.clientPhone ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement` : null
+    const settNav   = s.clientPhone || s.clientDocId
+    const href      = settNav ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement` : null
     const settled   = parseFloat(s.totalSettled)  || 0
     const estimate  = parseFloat(s.totalEstimate) || 0
     const base      = settled > 0 ? settled : estimate
@@ -84,10 +85,18 @@ function OpenClaimsPipelineSection({ items, navigate }) {
       </td>
     )
     const statusBadge = (
-      <td className="oil-td">
-        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: meta.bg, color: meta.color, fontWeight: 600 }}>
-          {meta.label}
-        </span>
+      <td className="oil-td" onClick={e => e.stopPropagation()}>
+        <select
+          className="oil-status-select"
+          value={statusKey}
+          disabled={savingStatus === s.id}
+          style={{ color: meta.color, background: meta.bg }}
+          onChange={e => onStatusChange(s, e.target.value)}
+        >
+          {Object.entries(PIPELINE_STATUS_META).map(([k, v]) => (
+            <option key={k} value={k}>{v.label}</option>
+          ))}
+        </select>
       </td>
     )
     const arrow = (
@@ -286,8 +295,9 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const settled     = parseFloat(s.totalSettled)     || 0
                 const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
                 const outstanding = parseFloat(s.totalOutstanding) ?? Math.max(0, settled - totalPaid)
-                const href = s.clientPhone
-                  ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
+                const settNav = s.clientPhone || s.clientDocId
+                const href = settNav
+                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
                   : null
                 return (
                   <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
@@ -340,8 +350,9 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const paid     = parseFloat(s.totalPaidAmount) || 0
                 const coNet    = Math.max(0, settled - fee)
                 const coOuts   = Math.max(0, coNet - paid)
-                const href = s.clientPhone
-                  ? `/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`
+                const settNav = s.clientPhone || s.clientDocId
+                const href = settNav
+                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
                   : null
                 return (
                   <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
@@ -442,9 +453,10 @@ export default function Dashboard() {
   const [showModal,        setShowModal]        = useState(false);
   const [clientName,       setClientName]       = useState("");
   const [clientPhone,      setClientPhone]      = useState("");
-  const [saving,           setSaving]           = useState(false);
-  const [saved,            setSaved]            = useState(false);
-  const [saveError,        setSaveError]        = useState("");
+  const [saving,                setSaving]                = useState(false);
+  const [saved,                 setSaved]                 = useState(false);
+  const [saveError,             setSaveError]             = useState("");
+  const [savingPipelineStatus,  setSavingPipelineStatus]  = useState(null);
 
   const clientAddressRef       = useRef(null);
   const clientAutocompleteRef  = useRef(null);
@@ -487,10 +499,12 @@ export default function Dashboard() {
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
         setRecentClients(all.slice(0, 6));
 
-        // Build address + phone lookup from already-loaded clients
-        const addrByDocId = {}, addrByPhone = {}
+        // Build address, phone, uid→docId, and name→docId lookups from already-loaded clients
+        const addrByDocId = {}, addrByPhone = {}, uidToDocId = {}, nameToDocId = {}
         clientsSnap.docs.forEach(d => {
-          const { address, phone } = d.data()
+          const { address, phone, uid, name } = d.data()
+          if (uid)  uidToDocId[uid] = d.id
+          if (name) nameToDocId[name.trim().toLowerCase()] = d.id
           if (address) {
             addrByDocId[d.id] = address
             if (phone) addrByPhone[phone] = address
@@ -515,8 +529,16 @@ export default function Dashboard() {
         }
         setSettRows(rawSetts.map(s => {
           const phone = phoneMap[s.id] || s.clientPhone
-          const address = addrByDocId[s.clientDocId] || addrByPhone[phone] || null
-          return { ...s, ...(phone ? { clientPhone: phone } : {}), ...(address ? { clientAddress: address } : {}) }
+          const docId = s.clientDocId
+            || (s.clientUid  ? uidToDocId[s.clientUid]  : null)
+            || (s.clientName ? nameToDocId[s.clientName.trim().toLowerCase()] : null)
+          const address = addrByDocId[docId] || addrByPhone[phone] || null
+          return {
+            ...s,
+            ...(phone   ? { clientPhone:   phone   } : {}),
+            ...(docId   ? { clientDocId:   docId   } : {}),
+            ...(address ? { clientAddress: address } : {}),
+          }
         }))
       } catch (err) {
         console.error("Dashboard load error:", err);
@@ -595,6 +617,19 @@ export default function Dashboard() {
     const outstanding = parseFloat(s.totalOutstanding) ?? (settled - totalPaid)
     return sum + Math.max(0, outstanding)
   }, 0)
+
+  async function handlePipelineStatusChange(s, newStatus) {
+    if (!organizationName || savingPipelineStatus) return
+    setSavingPipelineStatus(s.id)
+    try {
+      await updateDoc(doc(db, 'organization_data', organizationName, 'settlement_summary', s.id), { status: newStatus })
+      setSettRows(prev => prev.map(x => x.id === s.id ? { ...x, status: newStatus } : x))
+    } catch (err) {
+      console.error('handlePipelineStatusChange error:', err)
+    } finally {
+      setSavingPipelineStatus(null)
+    }
+  }
 
   const saveOrg = async (e) => {
     e.preventDefault();
@@ -805,7 +840,12 @@ export default function Dashboard() {
         {/* Open Claims Pipeline */}
         {openClaims.length > 0 && (
           <div style={{ marginTop: 28 }}>
-            <OpenClaimsPipelineSection items={openClaims} navigate={navigate} />
+            <OpenClaimsPipelineSection
+              items={openClaims}
+              navigate={navigate}
+              onStatusChange={handlePipelineStatusChange}
+              savingStatus={savingPipelineStatus}
+            />
           </div>
         )}
 

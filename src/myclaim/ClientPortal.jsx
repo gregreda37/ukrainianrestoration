@@ -32,6 +32,7 @@ const EmailIcon      = ({size=13}) => <svg viewBox="0 0 24 24" fill="none" strok
 const HomeIcon       = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="11" height="11"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>;
 const PhoneIcon      = ({size=13}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.87a19.79 19.79 0 01-3-8.59A2 2 0 012.11 1H5.1a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91A16 16 0 0015.1 17.9l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 18.92z"/></svg>;
 const MapPinIcon     = ({size=13}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>;
+const LicenseIcon    = ({size=13}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="13" x2="13" y2="13"/></svg>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const InfoCell = ({ label, value, full }) => (
@@ -722,9 +723,10 @@ export default function ClientPortal() {
               {orgInfo ? (
                 <div className="cp-contractor">
                   <div className="cp-contractor-top">
-                    <div className="cp-contractor-avatar">
-                      {(orgInfo.companyName||orgInfo.domain||"U")[0].toUpperCase()}
-                    </div>
+                    {orgInfo.companyLogoUrl
+                      ? <img src={orgInfo.companyLogoUrl} alt={orgInfo.companyName||"Company logo"} className="cp-contractor-logo" />
+                      : <div className="cp-contractor-avatar">{(orgInfo.companyName||orgInfo.domain||"U")[0].toUpperCase()}</div>
+                    }
                     <div>
                       <p className="cp-contractor-company">{orgInfo.companyName||orgInfo.domain}</p>
                       <p className="cp-contractor-sub">Your restoration contractor</p>
@@ -742,6 +744,12 @@ export default function ClientPortal() {
                       <span className="cp-contractor-link">
                         <span className="cp-contractor-link-icon"><MapPinIcon size={13} /></span>
                         {orgInfo.companyAddress}
+                      </span>
+                    )}
+                    {orgInfo.companyLicense && (
+                      <span className="cp-contractor-link">
+                        <span className="cp-contractor-link-icon"><LicenseIcon size={13} /></span>
+                        License: {orgInfo.companyLicense}
                       </span>
                     )}
                   </div>

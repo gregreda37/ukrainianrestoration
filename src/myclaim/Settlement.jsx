@@ -104,7 +104,7 @@ function computePartnerFee(form, companyRecoup) {
   return n(form.partnerFeePct) / 100 * companyRecoup
 }
 
-function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
+function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone, clientDocId) {
   const hasSettled = totals.Settled > 0
   const masterPct = n(data.recoupPercent)
   const recoups = computeCategoryRecoups(data, !!data.partnerFeeOnNet)
@@ -115,6 +115,7 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
   return {
     settlementId:                id,
     clientUid:                   clientUid ?? null,
+    clientDocId:                 clientDocId ?? null,
     clientPhone:                 clientPhone || null,
     clientName:                  clientName || '',
     claimNumber:                 data.claimNumber            || '',
@@ -331,7 +332,7 @@ export default function Settlement() {
       if (orgId) {
         await setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', ref.id),
-          buildSummaryDoc(ref.id, newFormMut, totals, clientUid, clientName, clientPhone)
+          buildSummaryDoc(ref.id, newFormMut, totals, clientUid, clientName, clientPhone, clientDocId)
         )
       }
       setSettlements(prev => [{ id: ref.id, ...data, ...(!clientUid && { _isOrgSettlement: true }) }, ...prev])
@@ -520,7 +521,10 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
 
   useEffect(() => {
     if (editing) {
-      setEditForm({ ...s })
+      setEditForm({
+        ...s,
+        partnerFeeOnNet: s.partnerFeeOnNet !== false,
+      })
       setSaveError(null)
     } else {
       setEditForm(null)
@@ -580,7 +584,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
       if (orgId) {
         setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', s.id),
-          buildSummaryDoc(s.id, updates, totals, clientUid, clientName, phone)
+          buildSummaryDoc(s.id, updates, totals, clientUid, clientName, phone, clientDocId)
         ).catch(e => console.warn('settlement_summary update:', e))
       }
       onSaved(updates)
@@ -1245,12 +1249,17 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
         <div className="sl-recoup-cats">
           <div className="sl-recoup-cats-label">Per-Category Override (blank = use default)</div>
           {CATEGORIES.map(cat => {
-            const fieldKey = `${cat.key}RecoupPct`
-            const val = form[fieldKey]
-            const masterPct = n(form.recoupPercent)
+            const fieldKey   = `${cat.key}RecoupPct`
+            const val        = form[fieldKey]
+            const masterPct  = n(form.recoupPercent)
             const effectivePct = (val !== null && val !== undefined && val !== '') ? n(val) : masterPct
-            const settled = n(form[`${cat.key}Settled`])
-            const recoup = settled * effectivePct / 100
+            const settled    = n(form[`${cat.key}Settled`])
+            const estimate   = n(form[`${cat.key}Estimate`])
+            const baseAmt    = settled > 0 ? settled : estimate
+            const expenses   = form.partnerFeeOnNet ? n(form[`${cat.key}Expenses`]) : 0
+            const base       = Math.max(0, baseAmt - expenses)
+            const recoup     = base * effectivePct / 100
+            const isEstimate = settled === 0 && estimate > 0
             return (
               <div key={cat.key} className="sl-recoup-cat-row">
                 <span className="sl-recoup-cat-name">{cat.label}</span>
@@ -1264,9 +1273,9 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
                   />
                   <span className="sl-recoup-cat-unit">%</span>
                 </div>
-                {settled > 0 && (
+                {baseAmt > 0 && (
                   <span className="sl-recoup-cat-preview">
-                    → {fmtMoney(recoup)} ({effectivePct}%)
+                    → {fmtMoney(recoup)} ({effectivePct}%){isEstimate ? ' est.' : ''}
                   </span>
                 )}
               </div>
@@ -1277,13 +1286,26 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
         {/* Total recoup preview */}
         {(() => {
           const t = computeTotals(form)
-          if (t.Settled <= 0) return null
-          const { companyRecoup } = computeCategoryRecoups(form, !!form.partnerFeeOnNet)
+          const hasSettled  = t.Settled  > 0
+          const hasEstimate = t.Estimate > 0
+          if (!hasSettled && !hasEstimate) return null
+          const calcForm = hasSettled ? form : {
+            ...form,
+            ...CATEGORIES.reduce((acc, cat) => ({
+              ...acc, [`${cat.key}Settled`]: form[`${cat.key}Estimate`] || '',
+            }), {})
+          }
+          const { companyRecoup } = computeCategoryRecoups(calcForm, !!form.partnerFeeOnNet)
+          const effectiveAmt = hasSettled ? t.Settled : t.Estimate
+          const effectiveExp = form.partnerFeeOnNet ? (hasSettled ? t.Expenses : 0) : 0
           return (
             <div className="sl-recoup-total-preview">
-              <span>Your recoup total: <strong>{fmtMoney(companyRecoup)}</strong></span>
+              <span>
+                Your recoup total: <strong>{fmtMoney(companyRecoup)}</strong>
+                {!hasSettled && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 5 }}>(based on estimates)</span>}
+              </span>
               <span className="sl-recoup-split-note">
-                (of {fmtMoney(form.partnerFeeOnNet ? Math.max(0, t.Settled - t.Expenses) : t.Settled)} {form.partnerFeeOnNet ? 'net settled' : 'settled'})
+                (of {fmtMoney(Math.max(0, effectiveAmt - effectiveExp))} {form.partnerFeeOnNet ? 'net ' : ''}{hasSettled ? 'settled' : 'estimated'})
               </span>
             </div>
           )
@@ -1338,14 +1360,29 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
         {(() => {
           if (!form.partnerId) return null
           const t = computeTotals(form)
-          if (t.Settled <= 0) return null
-          const { companyRecoup } = computeCategoryRecoups(form, !!form.partnerFeeOnNet)
-          const pct = n(form.partnerFeePct)
-          const fee = computePartnerFee(form, companyRecoup)
-          const netToCompany = t.Settled - t.Expenses - fee
-          const partnerName = partners.find(p => p.id === form.partnerId)?.name || 'Partner'
+          const hasSettled  = t.Settled  > 0
+          const hasEstimate = t.Estimate > 0
+          if (!hasSettled && !hasEstimate) return null
+          const calcForm = hasSettled ? form : {
+            ...form,
+            ...CATEGORIES.reduce((acc, cat) => ({
+              ...acc, [`${cat.key}Settled`]: form[`${cat.key}Estimate`] || '',
+            }), {})
+          }
+          const { companyRecoup } = computeCategoryRecoups(calcForm, !!form.partnerFeeOnNet)
+          const pct             = n(form.partnerFeePct)
+          const fee             = computePartnerFee(form, companyRecoup)
+          const effectiveTotal  = hasSettled ? t.Settled  : t.Estimate
+          const effectiveExp    = hasSettled ? t.Expenses : 0
+          const netToCompany    = effectiveTotal - effectiveExp - fee
+          const partnerName     = partners.find(p => p.id === form.partnerId)?.name || 'Partner'
           return (
             <div className="sl-partner-preview">
+              {!hasSettled && (
+                <div style={{ fontSize: 11, color: '#d97706', marginBottom: 4 }}>
+                  Based on estimates — updates when settled
+                </div>
+              )}
               <span>
                 {partnerName} earns:{' '}
                 {pct > 0
@@ -1354,7 +1391,9 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
                 <span className="sl-fee-basis-chip">{form.partnerFeeOnNet ? 'on net' : 'on gross'}</span>
               </span>
               {pct > 0 && (
-                <span className="sl-partner-net">Company nets: <strong style={{ color: netToCompany >= 0 ? '#2563eb' : '#dc2626' }}>{fmtMoney(netToCompany)}</strong></span>
+                <span className="sl-partner-net">
+                  Company nets: <strong style={{ color: netToCompany >= 0 ? '#2563eb' : '#dc2626' }}>{fmtMoney(netToCompany)}</strong>
+                </span>
               )}
             </div>
           )

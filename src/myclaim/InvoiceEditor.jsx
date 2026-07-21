@@ -356,7 +356,8 @@ const STATE_TAXES = {
 }
 
 export default function InvoiceEditor() {
-  const { id: phone, invoiceId } = useParams()
+  const { id: routeParam, invoiceId } = useParams()
+  const isPhoneParam = (routeParam || '').startsWith('+')
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -407,7 +408,7 @@ export default function InvoiceEditor() {
   useEffect(() => {
     if (!user) return
     load()
-  }, [user, phone, invoiceId])
+  }, [user, routeParam, invoiceId])
 
   async function load() {
     setLoading(true)
@@ -438,12 +439,18 @@ export default function InvoiceEditor() {
         }
       }
 
-      // Find client by phone
-      const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
-      const clientDoc = clientsSnap.docs.find(d => {
-        const p = d.data().phone || ''
-        return p === phone || p.replace(/\D/g,'') === phone.replace(/\D/g,'')
-      })
+      // Find client by phone param or direct clientDocId fetch
+      let clientDoc
+      if (isPhoneParam) {
+        const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
+        clientDoc = clientsSnap.docs.find(d => {
+          const p = d.data().phone || ''
+          return p === routeParam || p.replace(/\D/g,'') === routeParam.replace(/\D/g,'')
+        })
+      } else {
+        const snap = await getDoc(doc(db, 'organization_data', oid, 'clients', routeParam))
+        if (snap.exists()) clientDoc = snap
+      }
       if (!clientDoc) return
 
       const cdata = clientDoc.data()
@@ -621,7 +628,7 @@ export default function InvoiceEditor() {
         inv.createdBy = user.uid
         const newRef = await addDoc(invColRef, inv)
         await writeSummary(newRef.id, inv.status, 0)
-        navigate(`/myclaim/clients/${encodeURIComponent(phone)}/invoices/${newRef.id}`, { replace: true })
+        navigate(`/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${newRef.id}`, { replace: true })
       } else {
         const invDocRef = clientUid
           ? doc(db, 'users', clientUid, 'invoices', invoiceId)
@@ -671,7 +678,7 @@ export default function InvoiceEditor() {
           updatedAt: serverTimestamp(),
         })
       }
-      navigate(`/myclaim/clients/${encodeURIComponent(phone)}/invoices/${newRef.id}`)
+      navigate(`/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${newRef.id}`)
     } catch (e) {
       console.error(e)
     } finally {

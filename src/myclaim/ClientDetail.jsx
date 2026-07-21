@@ -138,8 +138,10 @@ const ACTIVITY_LABELS = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function ClientDetail() {
-  const { id }   = useParams();
-  const phone    = decodeURIComponent(id || "");
+  const { id }       = useParams();
+  const routeParam   = decodeURIComponent(id || "");
+  // A phone param in E.164 always starts with '+'; otherwise it's a Firestore clientDocId
+  const isPhoneParam = routeParam.startsWith('+');
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
 
@@ -310,7 +312,7 @@ export default function ClientDetail() {
         const needsFilter = contractorRole === "project_manager" || contractorRole === "public_adjuster";
         if (needsFilter) {
           const assignedPhones = contractorSnap.data()?.assignedClients || [];
-          if (!assignedPhones.includes(phone)) {
+          if (!assignedPhones.includes(routeParam)) {
             setAccessDenied(true);
             setLoading(false);
             return;
@@ -322,7 +324,7 @@ export default function ClientDetail() {
         console.error("ClientDetail orgId error:", err);
       }
     })();
-  }, [user, phone]);
+  }, [user, routeParam]);
 
   // ── Load insurers when orgId resolves ───────────────────────────────
   useEffect(() => {
@@ -343,20 +345,27 @@ export default function ClientDetail() {
 
   // ── Load client data when orgId resolves ─────────────────────────────
   useEffect(() => {
-    if (!orgId || !phone) return;
+    if (!orgId || !routeParam) return;
     let cancelled = false;
     // Only show full-page spinner on first load; re-loads (auth refresh) stay silent
     if (!initialLoadDone.current) setLoading(true);
     (async () => {
       try {
-        // 1. Find client in org clients collection by phone
-        const clientsSnap = await getDocs(
-          query(collection(db, "organization_data", orgId, "clients"), where("phone", "==", phone))
-        );
-        if (cancelled) return;
-        if (clientsSnap.empty) { setLoading(false); return; }
+        // 1. Find client — by phone (E.164 route param) or direct doc fetch (clientDocId param)
+        let clientDocSnap;
+        if (isPhoneParam) {
+          const clientsSnap = await getDocs(
+            query(collection(db, "organization_data", orgId, "clients"), where("phone", "==", routeParam))
+          );
+          if (cancelled) return;
+          if (clientsSnap.empty) { setLoading(false); return; }
+          clientDocSnap = clientsSnap.docs[0];
+        } else {
+          clientDocSnap = await getDoc(doc(db, "organization_data", orgId, "clients", routeParam));
+          if (cancelled) return;
+          if (!clientDocSnap.exists()) { setLoading(false); return; }
+        }
 
-        const clientDocSnap = clientsSnap.docs[0];
         const clientData = { id: clientDocSnap.id, ...clientDocSnap.data() };
 
         // Block non-admins from viewing archived clients
@@ -415,7 +424,7 @@ export default function ClientDetail() {
           address:      clientData.address || "",
           email:        clientData.email || "",
           name:         clientData.name || "",
-          editPhone:    phone,
+          editPhone:    clientData.phone || "",
         };
         setClientFields(fields);
         setClientFieldsEdit(fields);
@@ -470,7 +479,7 @@ export default function ClientDetail() {
       }
     })();
     return () => { cancelled = true; };
-  }, [orgId, phone]);
+  }, [orgId, routeParam]);
 
   // Close notify dropdown on outside click
   useEffect(() => {
@@ -671,15 +680,15 @@ export default function ClientDetail() {
 
   // ── Google Drive helpers ───────────────────────────────────────────────
   const setupDriveFolder = async () => {
-    if (!orgId || !phone) return;
+    if (!orgId || !clientDocId) return;
     setDriveSetupLoading(true); setDriveError('');
     try {
       const r = await fetch(`${API}/integrations/google-drive/create-client-folder`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orgId,
-          phone,
-          clientName: client?.name || phone,
+          phone: client?.phone || "",
+          clientName: client?.name || "",
           clientDocId: clientDocId || '',
         }),
       });
@@ -696,12 +705,12 @@ export default function ClientDetail() {
   };
 
   const syncFromDrive = async () => {
-    if (!orgId || !phone || !driveConnected || !driveFolderUrl || !clientDocId) return;
+    if (!orgId || !driveConnected || !driveFolderUrl || !clientDocId) return;
     setDriveSyncing(true); setDriveSyncMessage('');
     try {
       const r = await fetch(`${API}/integrations/google-drive/list-client-files`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgId, phone }),
+        body: JSON.stringify({ orgId, phone: client?.phone || "" }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Sync failed');
@@ -776,8 +785,8 @@ export default function ClientDetail() {
             orgId,
             fileUrl: downloadURL,
             fileName: file.name,
-            clientName: client?.name || phone,
-            clientPhone: phone,
+            clientName: client?.name || "",
+            clientPhone: client?.phone || "",
             clientDocId: clientDocId || '',
             visibleToClient: folder !== 'internal',
             targetFolderId,
@@ -915,7 +924,7 @@ export default function ClientDetail() {
       const newName     = clientFieldsEdit.name.trim();
       const rawPhone    = clientFieldsEdit.editPhone.trim();
       const newPhone    = toE164(rawPhone);
-      const phoneChanged = newPhone !== phone && rawPhone !== "";
+      const phoneChanged = rawPhone !== "" && newPhone !== (client?.phone || "");
 
       // ── Validate phone change ──────────────────────────────────────────
       if (phoneChanged) {
@@ -955,9 +964,9 @@ export default function ClientDetail() {
 
       // ── Phone number change ────────────────────────────────────────────
       if (phoneChanged) {
-        // Read current client_phones entry to copy its metadata
-        const oldSnap    = await getDoc(doc(db, "client_phones", phone));
-        const oldData    = oldSnap.exists() ? oldSnap.data() : {};
+        // Read current client_phones entry to copy its metadata (may not exist if phone was not set)
+        const oldSnap    = client?.phone ? await getDoc(doc(db, "client_phones", client.phone)) : null;
+        const oldData    = oldSnap?.exists() ? oldSnap.data() : {};
 
         // Write new client_phones entry
         await setDoc(doc(db, "client_phones", newPhone), {
@@ -972,16 +981,17 @@ export default function ClientDetail() {
         await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { phone: newPhone });
 
         // Swap old phone → new phone in every contractor's assignedClients array
-        const contractorsSnap = await getDocs(collection(db, "organization_data", orgId, "contractors"));
-        contractorsSnap.docs.forEach(cDoc => {
-          const arr = cDoc.data().assignedClients;
-          if (Array.isArray(arr) && arr.includes(phone)) {
-            updateDoc(cDoc.ref, { assignedClients: arr.map(p => p === phone ? newPhone : p) }).catch(() => {});
-          }
-        });
-
-        // Delete old client_phones entry
-        deleteDoc(doc(db, "client_phones", phone)).catch(() => {});
+        if (client?.phone) {
+          const contractorsSnap = await getDocs(collection(db, "organization_data", orgId, "contractors"));
+          contractorsSnap.docs.forEach(cDoc => {
+            const arr = cDoc.data().assignedClients;
+            if (Array.isArray(arr) && arr.includes(client.phone)) {
+              updateDoc(cDoc.ref, { assignedClients: arr.map(p => p === client.phone ? newPhone : p) }).catch(() => {});
+            }
+          });
+          // Delete old client_phones entry
+          deleteDoc(doc(db, "client_phones", client.phone)).catch(() => {});
+        }
 
         // Navigate to new URL (component remounts with new phone)
         navigate(`/myclaim/clients/${encodeURIComponent(newPhone)}`, { replace: true });
@@ -989,8 +999,8 @@ export default function ClientDetail() {
       }
 
       // ── Update client_phones name if name changed ──────────────────────
-      if (newName && newName !== (client?.name || "")) {
-        setDoc(doc(db, "client_phones", phone), { name: newName }, { merge: true }).catch(() => {});
+      if (newName && newName !== (client?.name || "") && client?.phone) {
+        setDoc(doc(db, "client_phones", client.phone), { name: newName }, { merge: true }).catch(() => {});
       }
 
       // ── Update local state ─────────────────────────────────────────────
@@ -1000,7 +1010,7 @@ export default function ClientDetail() {
         address:      addressVal,
         email:        clientFieldsEdit.email.trim(),
         name:         newName,
-        editPhone:    phone,
+        editPhone:    client?.phone || "",
       };
       setClientFields(saved);
       setClaimNumber(saved.claimNumber);
@@ -1157,7 +1167,7 @@ export default function ClientDetail() {
       const res = await fetch(`${API}/notify-client`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, type }),
+        body: JSON.stringify({ phone: client?.phone || "", type }),
       });
       if (!res.ok) throw new Error("Server error");
       setNotifySent(true);
@@ -1208,7 +1218,7 @@ export default function ClientDetail() {
     </div>
   );
 
-  const label    = client.name || phone;
+  const label    = client.name || client.phone || "Client";
   const initials = label.charAt(0).toUpperCase();
   const hasPortal = !!clientUid;
 
@@ -1242,7 +1252,10 @@ export default function ClientDetail() {
             <h1 className="cd-header-name">
               {client.name || <span className="cd-muted">No name</span>}
             </h1>
-            <p className="cd-header-phone"><PhoneIcon /> {formatPhone(phone)}</p>
+            {client.phone
+              ? <p className="cd-header-phone"><PhoneIcon /> {formatPhone(client.phone)}</p>
+              : <p className="cd-header-phone" style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone on file</p>
+            }
             {client.address && <p className="cd-header-address"><PinIcon /> {client.address}</p>}
             {userDoc?.lastLogin && (
               <p className="cd-header-login"><ClockIcon /> Last login {formatDate(userDoc.lastLogin)}</p>
@@ -1359,9 +1372,9 @@ export default function ClientDetail() {
                 {docs.length > 0 && <span className="cd-docs-nav-count">{docs.length}</span>}
               </button>
             )}
-            {phone && (
+            {client.phone && (
               <Link
-                to={`/myclaim/opt-in-policy?phone=${encodeURIComponent(phone)}`}
+                to={`/myclaim/opt-in-policy?phone=${encodeURIComponent(client.phone)}`}
                 target="_blank"
                 className="cd-notify-btn"
                 title="View SMS opt-in proof for this client">
@@ -1372,7 +1385,8 @@ export default function ClientDetail() {
               <button
                 className={`cd-notify-btn${notifySent ? " cd-notify-sent" : ""}${notifyError ? " cd-notify-error" : ""}`}
                 onClick={() => { setNotifyOpen(v => !v); setNotifyError(""); }}
-                disabled={notifySending}>
+                disabled={notifySending || !client?.phone}
+                title={!client?.phone ? "Add a phone number to send notifications" : undefined}>
                 {notifySending ? <><span className="cd-notify-spinner" /> Sending…</>
                   : notifySent ? "✓ Sent"
                   : <><BellIcon /> Notify Client</>}
@@ -1451,7 +1465,7 @@ export default function ClientDetail() {
                       </p>
                       {hasPortal ? (
                         <input className="cd-claim-input" style={{ width:"100%", background:"#f8fafc", color:"#64748b", cursor:"not-allowed" }}
-                          value={formatPhone(phone)} readOnly />
+                          value={formatPhone(client?.phone || "")} readOnly />
                       ) : (
                         <input className="cd-claim-input" style={{ width:"100%" }} placeholder="(555) 000-0000"
                           value={clientFieldsEdit.editPhone}
@@ -1501,7 +1515,7 @@ export default function ClientDetail() {
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:20 }}>
                   {[
                     { label:"Client Name",  value: client?.name || "—" },
-                    { label:"Phone",        value: formatPhone(phone) },
+                    { label:"Phone",        value: client?.phone ? formatPhone(client.phone) : "No phone on file" },
                     { label:"Email",        value: clientFields.email        || "—" },
                     { label:"Claim #",      value: clientFields.claimNumber  || "—" },
                     { label:"Policy #",     value: clientFields.policyNumber || "—" },
@@ -1528,7 +1542,7 @@ export default function ClientDetail() {
               clientDocId={clientDocId}
               clientName={client?.name || ''}
               orgId={orgId}
-              phone={phone}
+              phone={client?.phone || ""}
               insurers={insurers}
               onAddInsurer={addInsurer}
               onRemoveInsurer={removeInsurer}
@@ -2153,7 +2167,7 @@ export default function ClientDetail() {
               {confirmDelete ? (
                 <div className="cd-delete-confirm">
                   <p className="cd-delete-confirm-msg">
-                    Permanently delete <strong>{client.name || phone}</strong>? This removes all invoices, estimates, receipts, and settlements. This cannot be undone.
+                    Permanently delete <strong>{client.name || client.phone || "this client"}</strong>? This removes all invoices, estimates, receipts, and settlements. This cannot be undone.
                   </p>
                   <div className="cd-delete-confirm-actions">
                     <button className="cd-btn-secondary" onClick={() => setConfirmDelete(false)} disabled={deletingClient}>
@@ -2314,7 +2328,7 @@ export default function ClientDetail() {
             <div className="cd-docs-drawer-header">
               <DocIcon />
               <h2>Documents</h2>
-              <span className="cd-docs-drawer-subtitle">{client.name || phone}</span>
+              <span className="cd-docs-drawer-subtitle">{client.name || client.phone || "this client"}</span>
               <button className="cd-docs-drawer-close" onClick={() => setShowDocsDrawer(false)}>✕</button>
             </div>
 

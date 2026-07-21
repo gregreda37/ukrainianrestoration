@@ -624,31 +624,38 @@ export default function Dashboard() {
 
   const handleAddClient = async (e) => {
     e.preventDefault();
-    if (!clientPhone || !organizationName) return;
+    if (!organizationName) return;
     setSaving(true); setSaveError("");
-    const normalizedPhone = toE164(clientPhone);
+    const normalizedPhone = clientPhone.trim() ? toE164(clientPhone) : null;
     const address = clientAddressRef.current?.value?.trim() || null;
     try {
-      const existing = await getDoc(doc(db, "client_phones", normalizedPhone));
-      if (existing.exists()) { setSaveError("A client with this phone number is already registered."); setSaving(false); return; }
+      if (normalizedPhone) {
+        const existing = await getDoc(doc(db, "client_phones", normalizedPhone));
+        if (existing.exists()) { setSaveError("A client with this phone number is already registered."); setSaving(false); return; }
+      }
       const clientRef = await addDoc(collection(db, "organization_data", organizationName, "clients"), {
-        name: clientName.trim() || null, address, phone: normalizedPhone,
+        name: clientName.trim() || null, address,
+        ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         addedBy: userDetails?.email || null, addedAt: serverTimestamp(),
       });
-      await setDoc(doc(db, "client_phones", normalizedPhone), {
-        orgId: organizationName, name: clientName.trim() || null, address, registeredAt: serverTimestamp(),
-      }, { merge: true });
+      if (normalizedPhone) {
+        await setDoc(doc(db, "client_phones", normalizedPhone), {
+          orgId: organizationName, name: clientName.trim() || null, address, registeredAt: serverTimestamp(),
+        }, { merge: true });
+      }
 
-      // Auto-create Drive folder structure — fire and forget, non-blocking
-      fetch(`${API}/integrations/google-drive/create-client-folder`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orgId: organizationName,
-          phone: normalizedPhone,
-          clientName: clientName.trim() || normalizedPhone,
-          clientDocId: clientRef.id,
-        }),
-      }).catch(() => {});
+      // Auto-create Drive folder structure — fire and forget, only when phone is available
+      if (normalizedPhone) {
+        fetch(`${API}/integrations/google-drive/create-client-folder`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orgId: organizationName,
+            phone: normalizedPhone,
+            clientName: clientName.trim() || normalizedPhone,
+            clientDocId: clientRef.id,
+          }),
+        }).catch(() => {});
+      }
 
       setSaved(true);
       const snap = await getDocs(collection(db, "organization_data", organizationName, "clients"));
@@ -782,7 +789,7 @@ export default function Dashboard() {
                     </div>
                     <div className="cw-recent-info">
                       <p className="cw-recent-name">{client.name || <span className="cw-muted">No name</span>}</p>
-                      <p className="cw-recent-phone">{formatPhone(client.phone)}</p>
+                      <p className="cw-recent-phone">{client.phone ? formatPhone(client.phone) : <span style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone</span>}</p>
                     </div>
                     {(client.openContractorTodos > 0) && (
                       <span className="cw-todo-badge">{client.openContractorTodos}</span>
@@ -850,12 +857,12 @@ export default function Dashboard() {
                 <label className="cw-field-label">Client Address (optional)</label>
                 <input ref={clientAddressRef} className="cw-field-input" type="text"
                   placeholder="123 Main St, City, State" autoComplete="off" />
-                <label className="cw-field-label">Phone Number <span className="cw-required">*</span></label>
+                <label className="cw-field-label">Phone Number (optional)</label>
                 <input className="cw-field-input" type="tel" placeholder="(555) 123-4567"
-                  value={clientPhone} onChange={e => setClientPhone(e.target.value)} required />
+                  value={clientPhone} onChange={e => setClientPhone(e.target.value)} />
                 <div className="cw-modal-actions">
                   <button type="button" className="cw-btn-secondary" onClick={closeModal}>Cancel</button>
-                  <button type="submit" className="cw-btn-primary" disabled={!clientPhone.trim() || saving}>
+                  <button type="submit" className="cw-btn-primary" disabled={saving}>
                     {saving ? "Saving…" : "Add Client"}
                   </button>
                 </div>

@@ -189,21 +189,26 @@ export default function Clients() {
 
   const handleAddClient = async (e) => {
     e.preventDefault();
-    if (!clientPhone || !organizationName) return;
+    if (!organizationName) return;
     setSaving(true); setSaveError("");
-    const normalizedPhone = toE164(clientPhone);
+    const normalizedPhone = clientPhone.trim() ? toE164(clientPhone) : null;
     const address = addressInputRef.current?.value?.trim() || null;
     try {
-      const existing = await getDoc(doc(db, "client_phones", normalizedPhone));
-      if (existing.exists()) { setSaveError("A client with this phone number is already registered."); setSaving(false); return; }
+      if (normalizedPhone) {
+        const existing = await getDoc(doc(db, "client_phones", normalizedPhone));
+        if (existing.exists()) { setSaveError("A client with this phone number is already registered."); setSaving(false); return; }
+      }
       const clientDocRef = await addDoc(collection(db, "organization_data", organizationName, "clients"), {
-        name: clientName.trim() || null, address, phone: normalizedPhone,
+        name: clientName.trim() || null, address,
+        ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         addedBy: userDetails?.email || null, addedAt: serverTimestamp(),
       });
-      await setDoc(doc(db, "client_phones", normalizedPhone), {
-        orgId: organizationName, clientDocId: clientDocRef.id,
-        name: clientName.trim() || null, address, registeredAt: serverTimestamp(),
-      }, { merge: true });
+      if (normalizedPhone) {
+        await setDoc(doc(db, "client_phones", normalizedPhone), {
+          orgId: organizationName, clientDocId: clientDocRef.id,
+          name: clientName.trim() || null, address, registeredAt: serverTimestamp(),
+        }, { merge: true });
+      }
       setSaved(true);
       await refreshClients(organizationName);
       setTimeout(closeModal, 1400);
@@ -336,7 +341,7 @@ export default function Clients() {
                         {client.name || <span className="cl-no-name">No name</span>}
                       </h3>
                     </div>
-                    <p className="cl-card-phone">{formatPhone(client.phone)}</p>
+                    <p className="cl-card-phone">{client.phone ? formatPhone(client.phone) : <span style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone</span>}</p>
                   </div>
                   <div className="cl-card-badges">
                     <span className={`cl-status-toggle cl-status-toggle--${isClosed ? "closed" : "open"}`}>
@@ -528,12 +533,12 @@ export default function Clients() {
                 <label className="cl-field-label">Client Address (optional)</label>
                 <input ref={addressInputRef} className="cl-field-input" type="text"
                   placeholder="123 Main St, City, State" autoComplete="off" />
-                <label className="cl-field-label">Phone Number <span className="cl-required">*</span></label>
+                <label className="cl-field-label">Phone Number (optional)</label>
                 <input className="cl-field-input" type="tel" placeholder="(555) 123-4567"
-                  value={clientPhone} onChange={e => setClientPhone(e.target.value)} required />
+                  value={clientPhone} onChange={e => setClientPhone(e.target.value)} />
                 <div className="cl-modal-actions">
                   <button type="button" className="cl-btn-secondary" onClick={closeModal}>Cancel</button>
-                  <button type="submit" className="cl-btn-primary" disabled={!clientPhone.trim() || saving}>
+                  <button type="submit" className="cl-btn-primary" disabled={saving}>
                     {saving ? "Saving…" : "Add Client"}
                   </button>
                 </div>

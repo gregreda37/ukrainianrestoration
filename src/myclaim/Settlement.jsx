@@ -177,9 +177,11 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Settlement() {
-  const { id: phone } = useParams()
+  const { id: routeParam } = useParams()
+  const isPhoneParam = (routeParam || '').startsWith('+')
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [clientPhone,  setClientPhone]  = useState('')
 
   const [loading,      setLoading]      = useState(true)
   const [clientUid,    setClientUid]    = useState(null)
@@ -197,7 +199,7 @@ export default function Settlement() {
   const [newForm,      setNewForm]      = useState(EMPTY_FORM())
   const [savingNew,    setSavingNew]    = useState(false)
 
-  useEffect(() => { if (user) load() }, [user, phone])
+  useEffect(() => { if (user) load() }, [user, routeParam])
 
   async function load() {
     setLoading(true)
@@ -214,11 +216,17 @@ export default function Settlement() {
       setPartners(partnerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       setInsurers(insurerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
 
-      const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
-      const clientDoc = clientsSnap.docs.find(d => {
-        const p = d.data().phone || ''
-        return p === phone || p.replace(/\D/g,'') === phone.replace(/\D/g,'')
-      })
+      let clientDoc
+      if (isPhoneParam) {
+        const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
+        clientDoc = clientsSnap.docs.find(d => {
+          const p = d.data().phone || ''
+          return p === routeParam || p.replace(/\D/g,'') === routeParam.replace(/\D/g,'')
+        })
+      } else {
+        const snap = await getDoc(doc(db, 'organization_data', oid, 'clients', routeParam))
+        if (snap.exists()) clientDoc = snap
+      }
       if (!clientDoc) return
 
       const cdata = clientDoc.data()
@@ -226,6 +234,7 @@ export default function Settlement() {
       const uid   = cdata.uid
       setClientUid(uid)
       setClientDocId(docId)
+      setClientPhone(cdata.phone || '')
 
       const orgSettSnap = await getDocs(
         query(collection(db, 'organization_data', oid, 'clients', docId, 'settlements'), orderBy('createdAt', 'desc'))
@@ -324,7 +333,7 @@ export default function Settlement() {
       if (orgId) {
         await setDoc(
           doc(db, 'organization_data', orgId, 'settlement_summary', ref.id),
-          buildSummaryDoc(ref.id, newFormMut, totals, clientUid, clientName, phone)
+          buildSummaryDoc(ref.id, newFormMut, totals, clientUid, clientName, clientPhone)
         )
       }
       setSettlements(prev => [{ id: ref.id, ...data, ...(!clientUid && { _isOrgSettlement: true }) }, ...prev])
@@ -338,7 +347,7 @@ export default function Settlement() {
 
   if (loading) return <div className="sl-loading">Loading…</div>
 
-  const backPath = `/myclaim/clients/${encodeURIComponent(phone)}`
+  const backPath = `/myclaim/clients/${encodeURIComponent(routeParam)}`
 
   return (
     <div className="sl-root">
@@ -439,7 +448,7 @@ export default function Settlement() {
             clientDocId={clientDocId}
             clientName={clientName}
             orgId={orgId}
-            phone={phone}
+            phone={clientPhone}
             userId={user.uid}
             userEmail={user.email}
             partners={partners}

@@ -29,7 +29,8 @@ function fmtMoney(n) {
 }
 
 export default function Invoices() {
-  const { id: phone } = useParams()
+  const { id: routeParam } = useParams()
+  const isPhoneParam = (routeParam || '').startsWith('+')
   const navigate = useNavigate()
   const { user } = useAuth()
 
@@ -45,7 +46,7 @@ export default function Invoices() {
   useEffect(() => {
     if (!user) return
     load()
-  }, [user, phone])
+  }, [user, routeParam])
 
   async function load() {
     setLoading(true)
@@ -55,11 +56,17 @@ export default function Invoices() {
       if (!oid) return
       setOrgId(oid)
 
-      const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
-      const clientDoc = clientsSnap.docs.find(d => {
-        const p = d.data().phone || ''
-        return p === phone || p.replace(/\D/g,'') === phone.replace(/\D/g,'')
-      })
+      let clientDoc
+      if (isPhoneParam) {
+        const clientsSnap = await getDocs(collection(db, 'organization_data', oid, 'clients'))
+        clientDoc = clientsSnap.docs.find(d => {
+          const p = d.data().phone || ''
+          return p === routeParam || p.replace(/\D/g,'') === routeParam.replace(/\D/g,'')
+        })
+      } else {
+        const snap = await getDoc(doc(db, 'organization_data', oid, 'clients', routeParam))
+        if (snap.exists()) clientDoc = snap
+      }
       if (!clientDoc) return
 
       const cdata = clientDoc.data()
@@ -122,7 +129,7 @@ export default function Invoices() {
   const invList   = invoices.filter(i => i.type === 'invoice' && i.status !== 'paid')
   const receipts  = invoices.filter(i => i.type === 'receipt' || (i.type === 'invoice' && i.status === 'paid'))
 
-  const basePath = `/myclaim/clients/${encodeURIComponent(phone)}/invoices`
+  const basePath = `/myclaim/clients/${encodeURIComponent(routeParam)}/invoices`
 
   return (
     <div className="inv-root">

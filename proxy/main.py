@@ -41,7 +41,7 @@ def add_cors(response):
     if origin in CORS_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Firebase-ID-Token"
         response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 

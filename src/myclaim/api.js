@@ -8,6 +8,10 @@ async function request(path, options = {}) {
   if (user) {
     const token = await user.getIdToken()
     headers['Authorization'] = `Bearer ${token}`
+    // Firebase Hosting replaces Authorization when rewiring to Cloud Run.
+    // Send the Firebase token in a custom header so Flask can verify it on
+    // both the staging (Hosting→Cloud Run) and production (App Engine proxy) paths.
+    headers['X-Firebase-ID-Token'] = `Bearer ${token}`
   }
   const res = await fetch(`${BASE}${path}`, { ...options, headers })
   if (!res.ok) {

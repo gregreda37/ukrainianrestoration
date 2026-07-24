@@ -1,0 +1,24 @@
+{
+  "hosting": {
+    "site": "ukrainianrestoration-50993",
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/backend/**",
+        "run": {
+          "serviceId": "myclaim-backend-staging",
+          "region": "us-east1"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

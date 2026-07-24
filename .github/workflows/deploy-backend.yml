@@ -7,8 +7,47 @@ on:
       - 'backend/**'
 
 jobs:
-  deploy:
+  # ─── Build once, share image tag across jobs ──────────────────────────────────
+  build:
+    name: Build Container Image
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Build and push container
+        id: push
+        run: |
+          IMAGE=gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }}
+          docker build -t $IMAGE backend/
+          docker push $IMAGE
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+
+  # ─── Staging ─────────────────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: staging
 
     permissions:
       contents: read
@@ -36,13 +75,63 @@ jobs:
               --quiet || true
           done
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker gcr.io --quiet
-
-      - name: Build and push container
+      - name: Deploy to Cloud Run (staging)
         run: |
-          docker build -t gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }} backend/
-          docker push gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }}
+          gcloud run deploy myclaim-backend-staging \
+            --image ${{ needs.build.outputs.image }} \
+            --region us-east1 \
+            --project ukrainianrestoration-50993 \
+            --platform managed \
+            --allow-unauthenticated \
+            --update-env-vars "^|^CORS_ORIGINS=https://ukrainianrestoration-50993--staging.web.app,http://localhost:5173,http://localhost:5174,http://localhost:5175" \
+            --update-env-vars "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" \
+            --update-env-vars "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" \
+            --update-env-vars "TWILIO_FROM_NUMBER=${{ secrets.TWILIO_FROM_NUMBER }}" \
+            --update-env-vars "FLASK_SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" \
+            --update-env-vars "AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}" \
+            --update-env-vars "AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+            --update-env-vars "AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}" \
+            --update-env-vars "AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
+            --update-env-vars "OPENSIGN_APP_ID=${{ secrets.OPENSIGN_APP_ID }}" \
+            --update-env-vars "OPENSIGN_REST_KEY=${{ secrets.OPENSIGN_REST_KEY }}" \
+            --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
+            --update-env-vars "FIREBASE_PROJECT_ID=ukrainianrestoration-50993" \
+            --update-env-vars "FIREBASE_STORAGE_BUCKET=ukrainianrestoration-50993.appspot.com" \
+            --remove-env-vars "ANTHROPIC_API_KEY" \
+            --set-secrets "GOOGLE_CLIENT_SECRETS_JSON=google-drive-client-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest"
+
+      - name: Grant Firebase service agent Cloud Run invoker (staging)
+        run: |
+          gcloud run services add-iam-policy-binding myclaim-backend-staging \
+            --member="serviceAccount:service-352830294101@gcp-sa-firebase.iam.gserviceaccount.com" \
+            --role="roles/run.invoker" \
+            --region=us-east1 \
+            --project=ukrainianrestoration-50993 \
+            --quiet || true
+
+  # ─── Production ──────────────────────────────────────────────────────────────
+  # Requires manual approval in GitHub → Settings → Environments → production.
+  deploy-production:
+    name: Deploy to Production
+    needs: [build, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/352830294101/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: firebase-github-actions@ukrainianrestoration-50993.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Grant deploy SA Cloud Run admin
         run: |
@@ -51,10 +140,10 @@ jobs:
             --role="roles/run.admin" \
             --quiet || true
 
-      - name: Deploy to Cloud Run
+      - name: Deploy to Cloud Run (production)
         run: |
           gcloud run deploy myclaim-backend \
-            --image gcr.io/ukrainianrestoration-50993/myclaim-backend:${{ github.sha }} \
+            --image ${{ needs.build.outputs.image }} \
             --region us-east1 \
             --project ukrainianrestoration-50993 \
             --platform managed \
@@ -76,7 +165,7 @@ jobs:
             --remove-env-vars "ANTHROPIC_API_KEY" \
             --set-secrets "GOOGLE_CLIENT_SECRETS_JSON=google-drive-client-secret:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest"
 
-      - name: Grant Firebase service agent Cloud Run invoker
+      - name: Grant Firebase service agent Cloud Run invoker (production)
         run: |
           gcloud run services add-iam-policy-binding myclaim-backend \
             --member="serviceAccount:service-352830294101@gcp-sa-firebase.iam.gserviceaccount.com" \

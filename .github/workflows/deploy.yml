@@ -54,7 +54,7 @@ jobs:
           npx firebase hosting:channel:deploy staging \
             --config firebase.staging.json \
             --project ukrainianrestoration-50993 \
-            --expires 365d
+            --expires 30d
 
       - name: Deploy Firestore rules and indexes
         run: npx firebase deploy --only firestore:rules,firestore:indexes --project ukrainianrestoration-50993

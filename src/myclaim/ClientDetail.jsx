@@ -7,6 +7,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "./useAuth";
+import { api } from "./api";
 import { loadGoogleMaps } from "./loadMaps";
 import "./ClientDetail.css";
 import ContractorSignModal from "./ContractorSignModal";
@@ -286,10 +287,11 @@ export default function ClientDetail() {
   const [activeTab, setActiveTab] = useState("overview");
 
   // Notify
-  const [notifyOpen,    setNotifyOpen]    = useState(false);
-  const [notifySent,    setNotifySent]    = useState(false);
-  const [notifyError,   setNotifyError]   = useState("");
-  const [notifySending, setNotifySending] = useState(false);
+  const [notifyOpen,      setNotifyOpen]      = useState(false);
+  const [notifySent,      setNotifySent]      = useState(false);
+  const [notifyError,     setNotifyError]     = useState("");
+  const [notifySending,   setNotifySending]   = useState(false);
+  const [googleReviewUrl, setGoogleReviewUrl] = useState("");
   const notifyRef = useRef(null);
 
   // Confirm delete client
@@ -305,8 +307,15 @@ export default function ClientDetail() {
         const oid = userSnap.data()?.organizationId || null;
         if (!oid) return;
 
-        // Project managers can only open clients assigned to them
-        const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid));
+        const [contractorSnap, orgSnap] = await Promise.all([
+          getDoc(doc(db, "organization_data", oid, "contractors", user.uid)),
+          getDoc(doc(db, "organization_data", oid)),
+        ]);
+
+        if (orgSnap.exists()) {
+          setGoogleReviewUrl(orgSnap.data()?.googleReviewUrl || "");
+        }
+
         const contractorRole = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
         setPmRole(contractorRole);
         const needsFilter = contractorRole === "project_manager" || contractorRole === "public_adjuster";
@@ -1174,16 +1183,13 @@ export default function ClientDetail() {
   const sendNotification = async (type) => {
     setNotifyOpen(false); setNotifySending(true); setNotifyError("");
     try {
-      const res = await fetch(`${API}/notify-client`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: client?.phone || "", type }),
-      });
-      if (!res.ok) throw new Error("Server error");
+      const body = { phone: client?.phone || "", type };
+      if (type === "review_request" && googleReviewUrl) body.googleReviewUrl = googleReviewUrl;
+      await api.post("/notify-client", body);
       setNotifySent(true);
       setTimeout(() => setNotifySent(false), 3000);
     } catch (err) {
-      setNotifyError("Could not send notification. Is the server running?");
+      setNotifyError(err.message || "Could not send notification.");
     } finally { setNotifySending(false); }
   };
 

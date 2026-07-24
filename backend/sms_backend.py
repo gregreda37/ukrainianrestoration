@@ -3,6 +3,7 @@ import time
 from flask import Blueprint, request, jsonify
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
+from firebase_admin import auth as admin_auth
 
 sms_app = Blueprint("sms", __name__)
 
@@ -11,6 +12,19 @@ _TF_ERRORS = {
     30032: "Toll-free number not verified. Complete verification at console.twilio.com → Phone Numbers → Manage → Toll-Free Verification.",
     30034: "Toll-free number pending verification. Approval may take 1-3 business days.",
 }
+
+def _require_auth():
+    raw = (
+        request.headers.get("X-Firebase-ID-Token", "")
+        or request.headers.get("Authorization", "")
+    )
+    token = raw[7:] if raw.startswith("Bearer ") else raw
+    if not token:
+        return None
+    try:
+        return admin_auth.verify_id_token(token)
+    except Exception:
+        return None
 
 def _twilio_client():
     sid   = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
@@ -32,82 +46,61 @@ _NOTIFICATION_MESSAGES = {
     "review_request":  "Ukrainian Restoration: We'd love your feedback! If you're happy with our work, please leave us a Google review. Thank you for choosing us!",
 }
 
+def _normalise_phone(raw):
+    """Return E.164 string or raise ValueError."""
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) == 10:
+        digits = "1" + digits
+    if not digits.startswith("1") or len(digits) != 11:
+        raise ValueError(f"Cannot normalise phone number: {raw}")
+    return "+" + digits
+
+def _send_sms(to_phone, message):
+    """Send message and poll once for instant carrier rejections. Returns (sid, status)."""
+    client = _twilio_client()
+    msg = client.messages.create(body=message, from_=_from_number(), to=to_phone)
+    time.sleep(2)
+    msg = client.messages(msg.sid).fetch()
+    if msg.status in ("failed", "undelivered"):
+        code = msg.error_code
+        hint = _TF_ERRORS.get(code, f"Message undelivered (error {code}).")
+        raise TwilioRestException(status=400, uri="", msg=hint, code=code)
+    return msg.sid, msg.status
+
+
 @sms_app.route("/notify-client", methods=["POST"])
 def notify_client():
-    data     = request.json or {}
-    to_phone = (data.get("phone") or "").strip()
+    if not _require_auth():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data       = request.json or {}
+    to_phone   = (data.get("phone") or "").strip()
     notif_type = (data.get("type") or "").strip()
-    message  = _NOTIFICATION_MESSAGES.get(notif_type) or data.get("message", "").strip()
+    review_url = (data.get("googleReviewUrl") or "").strip()
 
     if not to_phone:
         return jsonify({"error": "Missing phone"}), 400
+
+    # Build message — review_request gets the link appended when available
+    if notif_type == "review_request":
+        if review_url:
+            message = f"Ukrainian Restoration: We'd love your feedback! Please leave us a Google review: {review_url}"
+        else:
+            message = _NOTIFICATION_MESSAGES["review_request"]
+    else:
+        message = _NOTIFICATION_MESSAGES.get(notif_type) or data.get("message", "").strip()
+
     if not message:
         return jsonify({"error": "Unknown notification type"}), 400
 
-    digits = "".join(c for c in to_phone if c.isdigit())
-    if len(digits) == 10:
-        digits = "1" + digits
-    if not digits.startswith("1") or len(digits) != 11:
-        return jsonify({"error": f"Cannot normalise phone number: {to_phone}"}), 400
-    e164 = "+" + digits
+    try:
+        e164 = _normalise_phone(to_phone)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     try:
-        client = _twilio_client()
-        msg = client.messages.create(body=message, from_=_from_number(), to=e164)
-        time.sleep(2)
-        msg = client.messages(msg.sid).fetch()
-        if msg.status in ("failed", "undelivered"):
-            code = msg.error_code
-            hint = _TF_ERRORS.get(code, f"Message undelivered (error {code}).")
-            return jsonify({"error": hint, "code": code}), 400
-        return jsonify({"sid": msg.sid, "status": msg.status})
-    except TwilioRestException as e:
-        return jsonify({"error": str(e), "code": e.code}), 400
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@sms_app.route("/sms/notify", methods=["POST"])
-def notify():
-    data     = request.json or {}
-    to_phone = (data.get("phone") or "").strip()
-    message  = (data.get("message") or "").strip()
-
-    if not to_phone:
-        return jsonify({"error": "Missing phone"}), 400
-    if not message:
-        return jsonify({"error": "Missing message"}), 400
-
-    # Normalise to E.164 — strip non-digits, add +1 if 10 digits
-    digits = "".join(c for c in to_phone if c.isdigit())
-    if len(digits) == 10:
-        digits = "1" + digits
-    if not digits.startswith("1") or len(digits) != 11:
-        return jsonify({"error": f"Cannot normalise phone number: {to_phone}"}), 400
-    e164 = "+" + digits
-
-    try:
-        client = _twilio_client()
-        msg = client.messages.create(
-            body=message,
-            from_=_from_number(),
-            to=e164,
-        )
-
-        # Poll once after a short delay — catches instant carrier rejections
-        # (e.g. 30032 toll-free unverified, 30006 landline unreachable)
-        time.sleep(2)
-        msg = client.messages(msg.sid).fetch()
-
-        if msg.status in ("failed", "undelivered"):
-            code = msg.error_code
-            hint = _TF_ERRORS.get(code, f"Message undelivered (error {code}).")
-            return jsonify({"error": hint, "code": code}), 400
-
-        return jsonify({"sid": msg.sid, "status": msg.status})
-
+        sid, status = _send_sms(e164, message)
+        return jsonify({"sid": sid, "status": status})
     except TwilioRestException as e:
         return jsonify({"error": str(e), "code": e.code}), 400
     except RuntimeError as e:

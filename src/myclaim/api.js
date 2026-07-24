@@ -41,7 +41,4 @@ export const api = {
     disconnect: (body)  => request('/integrations/google-drive/disconnect', { method: 'POST', body: JSON.stringify(body) }),
   },
 
-  sms: {
-    notify: (body) => request('/sms/notify', { method: 'POST', body: JSON.stringify(body) }),
-  },
 }

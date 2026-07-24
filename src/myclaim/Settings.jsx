@@ -94,15 +94,16 @@ export default function Settings() {
   useEffect(() => { if (role !== null) setActiveTab(isAdmin ? 'Company' : 'My Profile') }, [role])
 
   // ── Company ──────────────────────────────────────────────────────────────
-  const [companyName,     setCompanyName]     = useState('')
-  const [companyAddress,  setCompanyAddress]  = useState('')
-  const [companyPhone,    setCompanyPhone]    = useState('')
-  const [companyLicense,  setCompanyLicense]  = useState('')
-  const [companyLogoUrl,  setCompanyLogoUrl]  = useState('')
-  const [defaultTaxState, setDefaultTaxState] = useState('')
-  const [uploadingLogo,   setUploadingLogo]   = useState(false)
-  const [savingCompany,   setSavingCompany]   = useState(false)
-  const [companyMsg,      setCompanyMsg]      = useState('')
+  const [companyName,      setCompanyName]      = useState('')
+  const [companyAddress,   setCompanyAddress]   = useState('')
+  const [companyPhone,     setCompanyPhone]     = useState('')
+  const [companyLicense,   setCompanyLicense]   = useState('')
+  const [companyLogoUrl,   setCompanyLogoUrl]   = useState('')
+  const [defaultTaxState,  setDefaultTaxState]  = useState('')
+  const [googleReviewUrl,  setGoogleReviewUrl]  = useState('')
+  const [uploadingLogo,    setUploadingLogo]    = useState(false)
+  const [savingCompany,    setSavingCompany]    = useState(false)
+  const [companyMsg,       setCompanyMsg]       = useState('')
   const logoInputRef = useRef(null)
 
   // ── My Profile ───────────────────────────────────────────────────────────
@@ -199,6 +200,7 @@ export default function Settings() {
           setCompanyLicense(od.companyLicense || '')
           setCompanyLogoUrl(od.companyLogoUrl || '')
           setDefaultTaxState(od.defaultTaxState || '')
+          setGoogleReviewUrl(od.googleReviewUrl || '')
           setCcApiKey(od.companyCamAPI || '')
         }
 
@@ -268,7 +270,7 @@ export default function Settings() {
       await setDoc(doc(db, 'organization_data', orgId), {
         companyName: companyName.trim(), companyAddress: companyAddress.trim(),
         companyPhone: companyPhone.trim(), companyLicense: companyLicense.trim(),
-        defaultTaxState,
+        defaultTaxState, googleReviewUrl: googleReviewUrl.trim(),
       }, { merge: true })
       setCompanyMsg('ok')
     } catch { setCompanyMsg('err') }
@@ -607,6 +609,12 @@ export default function Settings() {
                       <input className="st-input" type="text" value={companyLicense}
                         onChange={e => setCompanyLicense(e.target.value)} placeholder="e.g. IL-GC-123456" />
                       <span className="st-hint">Displayed on invoices and estimates.</span>
+                    </div>
+                    <div className="st-field">
+                      <label className="st-label">Google Review Link</label>
+                      <input className="st-input" type="url" value={googleReviewUrl}
+                        onChange={e => setGoogleReviewUrl(e.target.value)} placeholder="https://g.page/r/…/review" />
+                      <span className="st-hint">Included in the "Request Google review" SMS sent from a client's page.</span>
                     </div>
                     <div className="st-actions">
                       <button className="st-btn st-btn--primary" type="submit" disabled={savingCompany || !orgId}>

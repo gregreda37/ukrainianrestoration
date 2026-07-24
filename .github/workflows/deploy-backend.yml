@@ -84,7 +84,7 @@ jobs:
             --project ukrainianrestoration-50993 \
             --platform managed \
             --allow-unauthenticated \
-            --update-env-vars "^|^CORS_ORIGINS=https://ukrainianrestoration-50993--staging.web.app,http://localhost:5173,http://localhost:5174,http://localhost:5175" \
+            --update-env-vars "^|^CORS_ORIGINS=https://ukrainianrestoration-50993--staging-48ujpzj7.web.app,http://localhost:5173,http://localhost:5174,http://localhost:5175" \
             --update-env-vars "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" \
             --update-env-vars "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" \
             --update-env-vars "TWILIO_FROM_NUMBER=${{ secrets.TWILIO_FROM_NUMBER }}" \

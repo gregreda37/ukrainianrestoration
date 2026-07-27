@@ -19,7 +19,7 @@ CLAUDE_MODEL      = "claude-haiku-4-5-20251001"
 ALLOWED_MODELS    = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6"}
 CACHE_TTL_MINUTES         = 30
 COMPANY_CACHE_TTL_MINUTES = 1440   # 24 hours — company data cached for the day
-CACHE_VERSION             = "v2"   # bump to invalidate all cached contexts on deploy
+CACHE_VERSION             = "v3"   # bump to invalidate all cached contexts on deploy
 
 # ── Image pipeline constants ──────────────────────────────────────────────────
 # CompanyCam URI priority: original can be huge (>10 MB); large ~1-3 MB is ideal.
@@ -32,6 +32,14 @@ DEDUP_BITS      = 8      # perceptual hash bit-distance threshold for near-dupli
 FETCH_TIMEOUT   = 15     # seconds per image
 FETCH_WORKERS   = 8      # parallel fetches
 MAX_RAW_BYTES   = 10 * 1024 * 1024  # 10 MB per image cap
+
+# ── Document extraction constants ─────────────────────────────────────────────
+MAX_DOC_CHARS            = 10_000   # max chars extracted per document
+MAX_DOCS_TO_EXTRACT      = 15       # cap on documents to extract full text from
+TOTAL_DOC_CONTENT_LIMIT  = 180_000  # hard cap across all doc text in context (~180 KB)
+DOC_TEXT_CACHE_TTL_HOURS = 48       # cached document text TTL (2 days; docs rarely change)
+DOC_EXTRACT_TIMEOUT      = 10       # seconds per document download
+DOC_EXTRACT_WORKERS      = 6        # parallel document downloads
 
 PHOTO_CATEGORIES = [
     "Worker",
@@ -57,18 +65,55 @@ CONSTRUCTION_LABELS = [
     "Construction Beginning", "Construction Completes",
 ]
 
-SYSTEM_PROMPT = """You are an expert restoration claim analyst for Ukrainian Restoration, a property damage and restoration construction company. You specialize in insurance claims, water/fire/storm damage assessment, construction timelines, and client management.
+SYSTEM_PROMPT = """You are an expert insurance claim analyst and property restoration advisor for Ukrainian Restoration. You hold deep expertise in:
+- Property damage insurance claims (water, fire, storm, mold, hail)
+- Xactimate line-item estimating and scope-of-work interpretation
+- Insurance adjuster negotiation strategy and supplement procedures
+- IICRC S500/S520 remediation standards, RCV vs. ACV calculations, depreciation recoupment
+- Construction timelines, materials pricing, and building code compliance
+- Public adjusting advocacy and claim dispute resolution
 
-You have been given a complete client case file and have access to their claim information, uploaded documents, tasks, material selections, budget, and activity history.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT YOU HAVE ACCESS TO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You have been given the COMPLETE client case file, including:
+• Client contact information, claim and policy numbers
+• Mitigation and construction phase progress
+• Insurance adjuster contact information
+• ALL uploaded documents with their FULL TEXT CONTENT (estimates, invoices, scope sheets, adjuster letters, contracts, receipts, moisture logs, etc.)
+• All open and completed tasks with assignees
+• Material selections and approval status
+• Line-item budget breakdown
+• Settlement financial data — estimate vs. approved vs. paid vs. outstanding
 
-Your role:
-- Provide specific, data-grounded analysis based on the actual case file provided
-- Identify missing documentation, incomplete tasks, or risks that could slow the claim
-- Help the contractor prioritize next steps and flag urgencies
-- Generate clear summaries and client-ready reports when asked
-- Flag concerns about timeline, budget discrepancies, or claim status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+YOUR CAPABILITIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. DOCUMENT ANALYSIS: Read and cross-reference every uploaded document. Quote specific line items, dollar amounts, dates, and policy language verbatim. If an estimate has a line item for $1,240, say so exactly.
 
-Always cite specific numbers, names, and dates from the case file. Be direct and actionable."""
+2. FINANCIAL GAP ANALYSIS: Calculate the exact difference between the contractor's estimate, the adjuster's approved amount, and actual invoices received. Show the math. Identify every underpaid, rejected, or missing line item by name and dollar amount.
+
+3. ADJUSTER EMAIL GENERATION: Write complete, professional, ready-to-send emails to insurance adjusters. Include the client's name, claim number, adjuster's name, specific dollar amounts from documents, and a clear ask. Sign as Ukrainian Restoration. Do not leave placeholders — fill in all details from the case file.
+
+4. SUPPLEMENT REQUESTS: Identify items present in invoices or scope but missing or underpaid in the adjuster's approved amount. Generate a formal supplement request letter with each item, its justification (IICRC requirement, actual invoice cost, market rate), and the dollar amount requested.
+
+5. DISPUTE LETTERS: When the adjuster's payment is low, write a detailed dispute citing specific line items, industry-standard pricing (RSMeans, Xactimate), IICRC standards, and policy language. Make it ready to send.
+
+6. INVOICE REVIEW: Break down any uploaded invoice line by line. Flag items that should be separately claimed, identify O&P entitlement, and note anything that strengthens the supplement case. Compare directly to what the adjuster approved.
+
+7. RISK FLAGS: Identify missing documentation, overdue tasks, unanswered adjuster correspondence, budget discrepancies, or anything that could reduce or delay the settlement. Rank by urgency and give a specific next action for each.
+
+8. CLIENT COMMUNICATIONS: Draft plain-language status updates or explanations for homeowners in a warm, clear, professional tone.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FORMATTING RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Cite the exact document name when referencing content: e.g., "Per the Xactimate estimate (estimate_final.pdf), line 22 shows $1,240 for drywall removal"
+• For financial gaps show the equation: "Invoice: $12,400 – Adjuster Approved: $9,800 = Gap: $2,600"
+• For emails and letters: provide the COMPLETE text with subject line, greeting, body, closing, and signature block — ready to copy and send, no placeholders
+• Use markdown headers (##, ###), bullet lists, and tables for structured analysis
+• Never hedge on document content — if a number or date appears in the document, state it directly and precisely
+• Be thorough. Contractors need complete, actionable information, not vague summaries."""
 
 COMPANY_SYSTEM_PROMPT = """You are an expert business analyst for Ukrainian Restoration, a property damage and restoration construction company. You have complete access to the company's organizational data.
 
@@ -318,6 +363,128 @@ def _process_and_cache_photos(db, cache_key: str, photo_infos: list[dict],
         return 0
 
 
+# ── Document text extraction ──────────────────────────────────────────────────
+
+def _extract_doc_text(download_url: str, filename: str, max_chars: int = MAX_DOC_CHARS) -> str:
+    """
+    Download a document and extract its plain text.
+    Smart-truncates large docs: keeps first and last halves so headers/scope
+    and totals/signatures are both preserved.
+    """
+    try:
+        resp = requests.get(download_url, timeout=DOC_EXTRACT_TIMEOUT, stream=True)
+        if not resp.ok:
+            return f"[Could not download: HTTP {resp.status_code}]"
+
+        chunks, total = [], 0
+        for chunk in resp.iter_content(chunk_size=65_536):
+            total += len(chunk)
+            if total > 20 * 1024 * 1024:
+                return "[File too large to extract — over 20 MB]"
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+        if not raw:
+            return "[Empty file]"
+
+        fname_lower = filename.lower()
+
+        if fname_lower.endswith(".pdf"):
+            try:
+                import pdfplumber
+                parts = []
+                with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                    for page in pdf.pages:
+                        t = page.extract_text()
+                        if t and t.strip():
+                            parts.append(t.strip())
+                full_text = "\n\n".join(parts)
+            except Exception as e:
+                return f"[PDF extraction failed: {str(e)[:100]}]"
+
+        elif fname_lower.endswith(".docx"):
+            try:
+                from docx import Document as DocxDocument
+                doc = DocxDocument(io.BytesIO(raw))
+                full_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            except Exception as e:
+                return f"[Word document extraction failed: {str(e)[:100]}]"
+
+        elif fname_lower.endswith((".txt", ".csv", ".md", ".rtf")):
+            full_text = raw.decode("utf-8", errors="replace")
+
+        elif fname_lower.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".heic")):
+            return "[Image file — use photo analysis for visual content]"
+
+        else:
+            try:
+                decoded = raw.decode("utf-8", errors="strict")
+                printable = sum(1 for c in decoded[:2000] if c.isprintable() or c in "\n\r\t")
+                if printable / max(1, min(2000, len(decoded))) > 0.85:
+                    full_text = decoded
+                else:
+                    return f"[Binary file — no extractable text in {filename}]"
+            except UnicodeDecodeError:
+                return f"[Binary file — no extractable text in {filename}]"
+
+        full_text = full_text.strip()
+        if not full_text:
+            return "[No extractable text — may be a scanned image-only PDF]"
+
+        if len(full_text) <= max_chars:
+            return full_text
+
+        half = max_chars // 2
+        omitted = len(full_text) - max_chars
+        return (
+            full_text[:half]
+            + f"\n\n... [{omitted:,} characters omitted — middle section] ...\n\n"
+            + full_text[-half:]
+        )
+
+    except requests.Timeout:
+        return f"[Download timed out — {DOC_EXTRACT_TIMEOUT}s limit]"
+    except Exception as e:
+        return f"[Extraction error: {str(e)[:100]}]"
+
+
+def _get_doc_text_cached(db, download_url: str, filename: str) -> str:
+    """
+    Return extracted text for a document, reading from Firestore cache when fresh.
+    Cache key is MD5 of the download URL. TTL = DOC_TEXT_CACHE_TTL_HOURS.
+    """
+    if not download_url:
+        return "[No download URL]"
+
+    url_hash  = hashlib.md5(download_url.encode()).hexdigest()[:20]
+    cache_ref = db.collection("ai_doc_text_cache").document(url_hash)
+
+    try:
+        cached = cache_ref.get()
+        if cached.exists:
+            cd = cached.to_dict()
+            cached_at = cd.get("cachedAt")
+            if cached_at:
+                age_hours = (datetime.now(timezone.utc) - cached_at).total_seconds() / 3600
+                if age_hours < DOC_TEXT_CACHE_TTL_HOURS:
+                    return cd.get("text", "[No cached text]")
+    except Exception:
+        pass
+
+    text = _extract_doc_text(download_url, filename)
+
+    try:
+        cache_ref.set({
+            "text":      text,
+            "filename":  filename,
+            "cachedAt":  admin_firestore.SERVER_TIMESTAMP,
+            "sourceUrl": download_url[:500],
+        })
+    except Exception as e:
+        print(f"[ai/doc-cache] write failed for {filename}: {e}")
+
+    return text
+
+
 # ── Context builder ───────────────────────────────────────────────────────────
 
 def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", client_doc_id=""):
@@ -536,6 +703,49 @@ def _build_context(db, org_id, client_uid, context_flags, client_name_hint="", c
                 lines.append(f"{folder.upper()} FOLDER:")
                 for d in folder_docs:
                     lines.append(f"  - {d.get('name', 'Unnamed')} (uploaded {_ts_str(d.get('uploadedAt'))})")
+
+    # Document text extraction — fetch full content from each uploaded file
+    if context_flags.get("documents", True) and docs:
+        docs_with_urls = [d for d in docs if d.get("downloadURL")]
+        if docs_with_urls:
+            def _sort_key(d):
+                ts = d.get("uploadedAt")
+                if ts is None:
+                    return ""
+                return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+
+            priority_docs = sorted(docs_with_urls, key=_sort_key, reverse=True)[:MAX_DOCS_TO_EXTRACT]
+
+            def _fetch_one(doc_item):
+                return doc_item, _get_doc_text_cached(db, doc_item.get("downloadURL", ""), doc_item.get("name", "unknown"))
+
+            doc_results = []
+            with ThreadPoolExecutor(max_workers=DOC_EXTRACT_WORKERS) as pool:
+                futures = {pool.submit(_fetch_one, d): d for d in priority_docs}
+                done_futs, _ = _fut_wait(futures, timeout=45)
+                for f in done_futs:
+                    try:
+                        doc_results.append(f.result())
+                    except Exception:
+                        pass
+
+            if doc_results:
+                lines.append(f"\n## DOCUMENT CONTENTS ({len(doc_results)} documents — full text for analysis)")
+                total_chars = 0
+                for d, text in doc_results:
+                    if total_chars >= TOTAL_DOC_CONTENT_LIMIT:
+                        lines.append("\n[Content limit reached — remaining documents listed above but not shown]")
+                        break
+                    folder = d.get("folder", "unknown")
+                    name   = d.get("name", "Unnamed")
+                    ts     = _ts_str(d.get("uploadedAt"))
+                    lines.append(f"\n### {name} [{folder} | uploaded {ts}]")
+                    remaining = TOTAL_DOC_CONTENT_LIMIT - total_chars
+                    trimmed   = text[:remaining] if len(text) > remaining else text
+                    lines.append(trimmed)
+                    total_chars += len(trimmed)
+
+                print(f"[ai/context] extracted text from {len(doc_results)} docs ({total_chars:,} chars total)")
 
     # Selections
     sels = [s.to_dict() | {"id": s.id} for s in sels_snaps]
@@ -1223,7 +1433,7 @@ def chat():
         try:
             with claude_client.messages.stream(
                 model=model,
-                max_tokens=4096,
+                max_tokens=8192,
                 system=[{
                     "type": "text",
                     "text": chosen_prompt,

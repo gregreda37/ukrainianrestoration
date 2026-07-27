@@ -20,21 +20,35 @@ const CONSTRUCTION_LABELS = [
 const QUICK_PROMPTS = [
   {
     icon: '📋', label: 'Claim Summary',
-    prompt: 'Provide a comprehensive claim summary for this client. Include: claim and policy numbers, current mitigation progress stage and what it means, current construction progress stage, all pending tasks and who they are assigned to, outstanding documents or approvals needed, budget overview with total, adjuster contact information, and any risks or blockers. Format with clear section headers.',
+    prompt: 'Provide a comprehensive claim summary. Include: client name, claim and policy numbers, current mitigation and construction stage, adjuster contact info, all pending tasks with assignees, a list of all uploaded documents, budget totals, settlement financial data (estimate vs. approved vs. outstanding), and any risks or blockers. Use clear section headers and cite specific amounts and dates from the case file.',
   },
   {
-    icon: '📧', label: 'Adjuster Reply', needsInput: true,
-    inputLabel: "Paste the adjuster's question:", inputPlaceholder: "Paste the adjuster's question here…", inputRows: 5,
-    buildPrompt: (question) =>
-      `An insurance adjuster has sent the following question:\n\n---\n${question}\n---\n\nUsing the complete client case file, write a thorough, professional response. Include specific facts, dates, and figures from the case file. The response should be ready to send directly to the adjuster.`,
+    icon: '📧', label: 'Adjuster Email', needsInput: true,
+    inputLabel: "What do you need to communicate to the adjuster?",
+    inputPlaceholder: "e.g., The adjuster approved $8,000 but our invoice is $12,400 — we need them to address the $4,400 gap on the demolition line items.",
+    inputRows: 4,
+    buildPrompt: (context) =>
+      `Using the complete case file and all uploaded documents, write a professional email to the insurance adjuster.\n\nContext: ${context}\n\nThe email must include:\n- Subject line\n- Client name and claim number from the case file\n- Adjuster's name from the case file\n- Specific dollar amounts and document references\n- Clear, professional ask\n- Ukrainian Restoration signature block\n\nWrite the COMPLETE, ready-to-send email. Fill in every detail from the case file — no placeholders.`,
+  },
+  {
+    icon: '📄', label: 'Document Analysis', needsInput: true,
+    inputLabel: "What should I analyze or compare?",
+    inputPlaceholder: "e.g., Compare the demolition invoice to what the adjuster approved and show me exactly what's missing.",
+    inputRows: 3,
+    buildPrompt: (context) =>
+      `${context}\n\nUsing the uploaded documents in the case file, perform a detailed analysis. Reference exact document names, break down specific line items and dollar amounts, compare figures where relevant, identify any gaps or discrepancies, and provide clear actionable findings. Be thorough and specific.`,
+  },
+  {
+    icon: '💰', label: 'Gap Analysis',
+    prompt: "Perform a complete financial gap analysis. Compare: (1) the contractor's estimate, (2) the adjuster's approved amount, and (3) actual invoices received. For each gap, show the calculation (e.g., Invoice $12,400 – Approved $9,800 = Gap $2,600) and identify which specific line items were rejected, underpaid, or missing from the adjuster's scope. Reference exact amounts from the uploaded documents.",
+  },
+  {
+    icon: '📝', label: 'Supplement Request',
+    prompt: 'Based on the uploaded documents, invoices, and approved scope, identify every item that should be supplemented. Write a formal supplement request letter to the adjuster listing each supplemental item, its justification (IICRC requirement, actual invoice cost, or market rate), and the exact dollar amount requested. Make it complete and ready to send.',
   },
   {
     icon: '⚠️', label: 'Risk Assessment',
-    prompt: 'Analyze this claim for risks and blockers. Identify: missing documentation, stalled approvals, overdue tasks, budget gaps, communication issues with the adjuster, and anything that could delay settlement. Rank by urgency and provide a specific recommended next action for each risk.',
-  },
-  {
-    icon: '💰', label: 'Settlement Gap',
-    prompt: 'Review the financial data in this claim and calculate any settlement gap. Compare the estimate totals against what has been approved or settled so far. Identify which line items are under-approved and suggest documentation or supplemental claims that could close the gap. Show all numbers clearly.',
+    prompt: 'Analyze this claim for risks and blockers. Check: missing or incomplete documents, stalled approvals, overdue tasks, unanswered adjuster communications, undocumented work, budget discrepancies, and anything that could reduce or delay the settlement. Rank each risk by urgency and give a specific recommended next action for each one.',
   },
 ]
 
@@ -121,11 +135,11 @@ function MarkdownMessage({ text }) {
 // ── Thinking phrases ─────────────────────────────────────────────────────────
 
 const THINKING_PHRASES = [
-  'Reading claim documents…',
-  'Reviewing tasks and todos…',
-  'Checking budget entries…',
-  'Scanning document history…',
-  'Preparing your response…',
+  'Reading uploaded documents…',
+  'Analyzing estimates and invoices…',
+  'Reviewing tasks and approvals…',
+  'Checking budget and settlement data…',
+  'Preparing detailed response…',
 ]
 
 const COMPANY_THINKING_PHRASES = [
@@ -917,6 +931,7 @@ export default function AIAnalysis() {
           <div className="aa-empty-state aa-empty-state--loading">
             <div className="aa-loading-ring" />
             <p className="aa-loading-label">Loading claim context…</p>
+            <p className="aa-loading-sublabel">Reading documents — first load may take 15–30 seconds</p>
           </div>
         )}
 
@@ -941,7 +956,14 @@ export default function AIAnalysis() {
           <div className="aa-welcome">
             <div className="aa-welcome-header">
               <span className="aa-welcome-icon">✓</span>
-              <span>Context loaded for <strong>{summary?.name}</strong></span>
+              <span>
+                Context loaded for <strong>{summary?.name}</strong>
+                {stats?.documentCount > 0 && (
+                  <span style={{ marginLeft: 8, fontSize: 13, color: '#64748b', fontWeight: 400 }}>
+                    — {stats.documentCount} document{stats.documentCount !== 1 ? 's' : ''} read
+                  </span>
+                )}
+              </span>
             </div>
             <p className="aa-welcome-hint">Ask anything or pick a quick prompt:</p>
             <div className="aa-quick-prompts">

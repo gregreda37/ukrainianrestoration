@@ -459,7 +459,8 @@
 
 @keyframes aa-spin { to { transform: rotate(360deg); } }
 
-.aa-loading-label { font-size: 15px; font-weight: 600; color: #0f172a; margin: 0 0 16px; }
+.aa-loading-label { font-size: 15px; font-weight: 600; color: #0f172a; margin: 0 0 6px; }
+.aa-loading-sublabel { font-size: 12px; color: #94a3b8; margin: 0 0 16px; }
 
 /* ── Context loading steps ───────────────────────────────────────────────────── */
 

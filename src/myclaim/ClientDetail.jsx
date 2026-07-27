@@ -372,6 +372,18 @@ export default function ClientDetail() {
         } else {
           clientDocSnap = await getDoc(doc(db, "organization_data", orgId, "clients", routeParam));
           if (cancelled) return;
+          if (!clientDocSnap.exists() && /^\d+$/.test(routeParam)) {
+            // Fallback: param is all-digits — client phone stored without '+' prefix.
+            // Try exact match then +1 prefix for 10-digit US numbers.
+            const phones = [routeParam, `+1${routeParam}`];
+            for (const ph of phones) {
+              const snap = await getDocs(
+                query(collection(db, "organization_data", orgId, "clients"), where("phone", "==", ph))
+              );
+              if (cancelled) return;
+              if (!snap.empty) { clientDocSnap = snap.docs[0]; break; }
+            }
+          }
           if (!clientDocSnap.exists()) { setLoading(false); return; }
         }
 

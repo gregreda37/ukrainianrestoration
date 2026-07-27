@@ -576,11 +576,18 @@ export default function ClientPortal() {
         <div className="cp-todo-body">
           <span className="cp-todo-label">{t.label||t.text||info.label}</span>
           {t.type==="upload_file"      && !isDone && <span className="cp-todo-hint">Tap Upload to add a document</span>}
-          {t.type==="sign_forms"       && t.docusignUrl && !isDone && <span className="cp-todo-hint">Tap Sign to sign the document</span>}
+          {t.type==="sign_forms" && t.contractorFirst && !t.contractorSigned && !isDone && <span className="cp-todo-hint">Waiting for contractor signature</span>}
+          {t.type==="sign_forms" && t.contractorFirst && t.contractorSigned && !isDone && <span className="cp-todo-hint">Contractor has signed — your counter-signature is needed</span>}
+          {t.type==="sign_forms" && !t.contractorFirst && t.docusignUrl && !isDone && <span className="cp-todo-hint">Tap Sign to sign the document</span>}
           {t.type==="add_selection"    && t.selectionCategory && !isDone && <span className="cp-todo-hint">Category: {t.selectionCategory}</span>}
           {t.type==="review_selection" && !isDone && <span className="cp-todo-hint">Tap Review to approve or reject</span>}
         </div>
-        {t.type==="sign_forms" && t.docusignUrl && !isDone && <button className="cp-todo-cta cp-sign-cta" onClick={e=>{ e.stopPropagation(); setSigningTodo(t); }}>Sign →</button>}
+        {/* Client-first: client signs original doc */}
+        {t.type==="sign_forms" && !t.contractorFirst && t.docusignUrl && !isDone && <button className="cp-todo-cta cp-sign-cta" onClick={e=>{ e.stopPropagation(); setSigningTodo(t); }}>Sign →</button>}
+        {/* Contractor-first: client counter-signs contractor-signed doc */}
+        {t.type==="sign_forms" && t.contractorFirst && t.contractorSigned && t.contractorSignedDocUrl && !isDone && (
+          <button className="cp-todo-cta cp-sign-cta" onClick={e=>{ e.stopPropagation(); setSigningTodo({ ...t, docusignUrl: t.contractorSignedDocUrl }); }}>Counter-Sign →</button>
+        )}
         {t.type==="sign_forms" && isDone && t.signedDocumentUrl && <a href={t.signedDocumentUrl} target="_blank" rel="noreferrer" className="cp-todo-cta" onClick={e=>e.stopPropagation()}>View Signed →</a>}
         {t.type==="upload_file"      && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); openSidebar(); }}>Upload →</button>}
         {t.type==="add_selection"    && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); setSwapTargetId(null); setPickTodoId(t.id); setSelCategory(t.selectionCategory||SELECTION_CATEGORIES[0]); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelError(""); setShowAddSel(true); }}>Pick →</button>}

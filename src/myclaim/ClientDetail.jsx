@@ -193,8 +193,10 @@ export default function ClientDetail() {
   const [adHocFields,       setAdHocFields]       = useState(null);
   const [showAdHocPlacer,   setShowAdHocPlacer]   = useState(false);
 
-  // Contractor counter-signing
+  // Contractor counter-signing (client signs first)
   const [counterSigningTodo, setCounterSigningTodo] = useState(null);
+  // Contractor signs first flow
+  const [contractorFirstSigningTodo, setContractorFirstSigningTodo] = useState(null);
   const [addingTodo,      setAddingTodo]      = useState(false);
   const [todoError,       setTodoError]       = useState("");
 
@@ -609,7 +611,12 @@ export default function ClientDetail() {
     setTodoError("");
 
     if (todoType === "sign_forms") {
-      if (!clientUid) { setTodoError("Client must activate their portal account before signing documents."); return; }
+      const contractorFirst = todoAssigned === "contractor";
+      // Client-first requires client portal account; contractor-first does not
+      if (!contractorFirst && !clientUid) {
+        setTodoError("Client must activate their portal account before signing documents.");
+        return;
+      }
       if (!todoLabel.trim()) { setTodoError("Enter a document label."); return; }
       if (signMode === "template" && !selectedTemplate) {
         setTodoError("Select a template or switch to Raw PDF.");
@@ -626,7 +633,9 @@ export default function ClientDetail() {
         if (signMode === "template" && selectedTemplate) {
           payload = {
             label: todoLabel.trim(), type: "sign_forms",
-            assignedTo: "client", completed: false,
+            assignedTo: contractorFirst ? "contractor" : "client",
+            ...(contractorFirst ? { contractorFirst: true } : {}),
+            completed: false,
             createdAt: serverTimestamp(),
             docusignUrl:    selectedTemplate.pdfUrl,
             templateFields: selectedTemplate.fields,
@@ -645,7 +654,9 @@ export default function ClientDetail() {
           }
           payload = {
             label: todoLabel.trim(), type: "sign_forms",
-            assignedTo: "client", completed: false,
+            assignedTo: contractorFirst ? "contractor" : "client",
+            ...(contractorFirst ? { contractorFirst: true } : {}),
+            completed: false,
             createdAt: serverTimestamp(),
             docusignUrl: docUrl,
             ...(adHocFields && adHocFields.length > 0
@@ -2015,7 +2026,8 @@ export default function ClientDetail() {
                              `Selection${todo.selectionCategory ? ` · ${todo.selectionCategory}` : ""}`}
                           </span>
                         )}
-                        {todo.type === "sign_forms" && todo.signedDocumentUrl && !todo.contractorSigned && (
+                        {/* Client-first: contractor counter-signs after client */}
+                        {todo.type === "sign_forms" && !todo.contractorFirst && todo.signedDocumentUrl && !todo.contractorSigned && (
                           <button
                             className="cd-todo-approve-btn"
                             onClick={e => { e.stopPropagation(); setCounterSigningTodo(todo); }}
@@ -2023,10 +2035,27 @@ export default function ClientDetail() {
                             Approve & Sign
                           </button>
                         )}
-                        {todo.type === "sign_forms" && todo.contractorSigned && (
+                        {todo.type === "sign_forms" && !todo.contractorFirst && todo.contractorSigned && (
                           <span className="cd-todo-countersigned-badge">Countersigned ✓</span>
                         )}
-                        {todo.type === "sign_forms" && todo.signedDocumentUrl && (
+                        {/* Contractor-first: contractor signs original doc, then client counter-signs */}
+                        {todo.type === "sign_forms" && todo.contractorFirst && !todo.contractorSigned && (
+                          <button
+                            className="cd-todo-approve-btn"
+                            onClick={e => { e.stopPropagation(); setContractorFirstSigningTodo(todo); }}
+                          >
+                            Sign Document
+                          </button>
+                        )}
+                        {todo.type === "sign_forms" && todo.contractorFirst && todo.contractorSigned && !todo.completed && (
+                          <span className="cd-todo-countersigned-badge" style={{ background: "#f59e0b", color: "#fff" }}>
+                            Awaiting Client Counter-Sign
+                          </span>
+                        )}
+                        {todo.type === "sign_forms" && todo.contractorFirst && todo.completed && (
+                          <span className="cd-todo-countersigned-badge">Fully Signed ✓</span>
+                        )}
+                        {todo.type === "sign_forms" && (todo.signedDocumentUrl || todo.contractorSignedDocUrl) && (
                           <a href={todo.contractorSignedDocUrl || todo.signedDocumentUrl} target="_blank" rel="noreferrer"
                             className="cd-todo-signed-link" onClick={e => e.stopPropagation()}>
                             Download
@@ -2481,6 +2510,32 @@ export default function ClientDetail() {
             setCounterSigningTodo(null);
           }}
           onClose={() => setCounterSigningTodo(null)}
+        />
+      )}
+
+      {/* ── Contractor signs first, then client counter-signs ── */}
+      {contractorFirstSigningTodo && (
+        <ContractorSignModal
+          todo={contractorFirstSigningTodo}
+          sourcePdfUrl={contractorFirstSigningTodo.docusignUrl}
+          clientUid={clientUid}
+          user={user}
+          onCounterSigned={async (todo, contractorSignedDocUrl) => {
+            const { updateDoc, doc: firestoreDoc, serverTimestamp: st } = await import("firebase/firestore");
+            const todoRef = firestoreDoc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id);
+            await updateDoc(todoRef, {
+              contractorSigned: true,
+              contractorSignedAt: st(),
+              contractorSignedDocUrl,
+              assignedTo: "client",
+            });
+            setTodos(prev => prev.map(t => t.id === todo.id
+              ? { ...t, contractorSigned: true, contractorSignedDocUrl, assignedTo: "client" }
+              : t
+            ));
+            setContractorFirstSigningTodo(null);
+          }}
+          onClose={() => setContractorFirstSigningTodo(null)}
         />
       )}
     </div>

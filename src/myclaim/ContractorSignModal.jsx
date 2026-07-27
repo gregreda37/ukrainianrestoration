@@ -37,7 +37,7 @@ const todayStr = () => new Date().toLocaleDateString("en-US", {
   month: "long", day: "numeric", year: "numeric",
 });
 
-export default function ContractorSignModal({ todo, clientUid, user, onCounterSigned, onClose }) {
+export default function ContractorSignModal({ todo, clientUid, user, onCounterSigned, onClose, sourcePdfUrl }) {
   const contractorFields = (todo?.templateFields || []).filter(f => f.signer === "contractor");
   const hasTemplateFields = contractorFields.length > 0;
 
@@ -98,7 +98,7 @@ export default function ContractorSignModal({ todo, clientUid, user, onCounterSi
 
   // ── Load signed PDF ─────────────────────────────────────────────────────────
   useEffect(() => {
-    const pdfUrl = todo?.signedDocumentUrl;
+    const pdfUrl = sourcePdfUrl || todo?.signedDocumentUrl;
     if (!pdfUrl || !user) return;
     setPdfLoading(true);
     setPdfError("");
@@ -143,7 +143,7 @@ export default function ContractorSignModal({ todo, clientUid, user, onCounterSi
         setPdfLoading(false);
       }
     })();
-  }, [todo?.signedDocumentUrl, user]); // eslint-disable-line
+  }, [sourcePdfUrl, todo?.signedDocumentUrl, user]); // eslint-disable-line
 
   // ── Init pads + live preview via endStroke ──────────────────────────────────
   useLayoutEffect(() => {
@@ -243,7 +243,7 @@ export default function ContractorSignModal({ todo, clientUid, user, onCounterSi
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
-          signedPdfUrl:     todo.signedDocumentUrl,
+          signedPdfUrl:     sourcePdfUrl || todo.signedDocumentUrl,
           contractorName:   contractorName.trim(),
           contractorEmail:  user.email || "",
           contractorIp,
@@ -470,8 +470,8 @@ export default function ContractorSignModal({ todo, clientUid, user, onCounterSi
       {showFieldPlacer && (
         <TemplateBuilder
           existingTemplate={adHocFields !== null
-            ? { pdfUrl: todo.signedDocumentUrl, fields: adHocFields }
-            : { pdfUrl: todo.signedDocumentUrl }
+            ? { pdfUrl: sourcePdfUrl || todo.signedDocumentUrl, fields: adHocFields }
+            : { pdfUrl: sourcePdfUrl || todo.signedDocumentUrl }
           }
           oneTime={true}
           user={user}

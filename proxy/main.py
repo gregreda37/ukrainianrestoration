@@ -13,7 +13,10 @@ from flask import Flask, request, Response, jsonify
 import requests as http_requests
 from google.cloud import secretmanager
 
-CLOUD_RUN_URL = "https://myclaim-backend-fr6sb3q2na-ue.a.run.app"
+CLOUD_RUN_URL = os.environ.get(
+    "CLOUD_RUN_URL",
+    "https://myclaim-backend-fr6sb3q2na-ue.a.run.app",
+)
 PROJECT_ID = "ukrainianrestoration-50993"
 _METADATA_IDENTITY = (
     "http://metadata.google.internal/computeMetadata/v1"
@@ -26,6 +29,7 @@ CORS_ORIGINS = {
     "https://www.ukrainianrestoration.com",
     "https://ukrainianrestoration-50993.web.app",
     "https://ukrainianrestoration-50993.firebaseapp.com",
+    "https://ukrainianrestoration-50993--staging-48ujpzj7.web.app",
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5175",

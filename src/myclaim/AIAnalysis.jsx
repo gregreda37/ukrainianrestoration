@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback, useContext } from 'react'
+import { useState, useRef, useEffect, useCallback, useContext, useMemo } from 'react'
 import { db, auth } from '../firebase'
-import { collection, getDocs, getDoc, doc, query, where, setDoc } from 'firebase/firestore'
+import { collection, getDocs, getDoc, doc, query, where, setDoc, addDoc, writeBatch, orderBy, serverTimestamp } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import { NavCollapseContext } from './ClaimLayout'
 import './AIAnalysis.css'
@@ -197,6 +197,20 @@ const fmtPhone = (p = '') => {
 const fmtCurrency = (n) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n || 0)
 
+const fmtRelTime = (ts) => {
+  if (!ts) return ''
+  const date = ts instanceof Date ? ts : (ts.toDate ? ts.toDate() : new Date(ts))
+  const diffMs = Date.now() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60_000)
+  if (diffMins < 1)  return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffH = Math.floor(diffMins / 60)
+  if (diffH < 24)    return `${diffH}h ago`
+  const diffD = Math.floor(diffH / 24)
+  if (diffD < 7)     return `${diffD}d ago`
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 const AVATAR_COLORS = [
   ['#eff6ff','#2563eb'], ['#ecfeff','#0891b2'], ['#f0fdf4','#16a34a'],
   ['#fef9c3','#ca8a04'], ['#fdf4ff','#9333ea'], ['#fff1f2','#e11d48'],
@@ -245,6 +259,12 @@ export default function AIAnalysis() {
   const [activeQuickPrompt, setActiveQuickPrompt] = useState(null)
   const [quickInputText, setQuickInputText] = useState('')
   const [copiedIdx, setCopiedIdx] = useState(null)
+
+  // Chat thread persistence
+  const [chatThreads, setChatThreads] = useState({})   // clientDocId → { lastMessageAt, messageCount, clientName }
+  const [threadLoading, setThreadLoading] = useState(false)
+  const nextMsgOrderRef = useRef(0)
+  const threadLoadIdRef = useRef(0)
 
   const scrollContainerRef = useRef(null)
   const isNearBottomRef = useRef(true)
@@ -326,6 +346,24 @@ export default function AIAnalysis() {
     handleLoadCompanyContext()
   }, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Load chat thread metadata (which clients have history) ────────────────
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const snap = await getDocs(collection(db, 'users', user.uid, 'ai_chat_threads'))
+        if (cancelled) return
+        const threads = {}
+        snap.docs.forEach(d => { threads[d.id] = d.data() })
+        setChatThreads(threads)
+      } catch (err) {
+        console.error('[ai/threads] failed to load thread metadata:', err)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [user])
+
   // ── Auto-resize textarea ──────────────────────────────────────────────────
   useEffect(() => {
     if (inputRef.current) {
@@ -334,17 +372,34 @@ export default function AIAnalysis() {
     }
   }, [input])
 
-  // ── Filtered clients ──────────────────────────────────────────────────────
-  const filteredClients = clients.filter(c => {
-    const q = filter.toLowerCase()
-    if (!q) return true
-    return (
+  // ── Sorted clients (history first, then open/name) ───────────────────────
+  const sortedClients = useMemo(() => {
+    const withHistory    = clients.filter(c =>  chatThreads[c.docId])
+    const withoutHistory = clients.filter(c => !chatThreads[c.docId])
+    withHistory.sort((a, b) => {
+      const ta = chatThreads[a.docId]?.lastMessageAt
+      const tb = chatThreads[b.docId]?.lastMessageAt
+      if (!ta && !tb) return 0
+      if (!ta) return 1
+      if (!tb) return -1
+      const da = ta instanceof Date ? ta : (ta.toDate ? ta.toDate() : new Date(ta))
+      const db2 = tb instanceof Date ? tb : (tb.toDate ? tb.toDate() : new Date(tb))
+      return db2 - da
+    })
+    return [...withHistory, ...withoutHistory]
+  }, [clients, chatThreads])
+
+  // ── Filtered clients (search applied to sorted list) ─────────────────────
+  const filteredClients = useMemo(() => {
+    const q = filter.toLowerCase().trim()
+    if (!q) return sortedClients
+    return sortedClients.filter(c =>
       (c.name || '').toLowerCase().includes(q) ||
       (c.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')) ||
       (c.address || '').toLowerCase().includes(q) ||
-      (c.claimNumbers || []).some(n => n.toLowerCase().includes(q))
+      (c.claimNumbers || []).some(n => (n || '').toLowerCase().includes(q))
     )
-  })
+  }, [sortedClients, filter])
 
   // ── Switch mode ───────────────────────────────────────────────────────────
   const handleSwitchMode = useCallback((newMode) => {
@@ -357,15 +412,41 @@ export default function AIAnalysis() {
   }, [mode])
 
   // ── Select client ─────────────────────────────────────────────────────────
-  const handleSelectClient = useCallback((client) => {
+  const handleSelectClient = useCallback(async (client) => {
+    const loadId = ++threadLoadIdRef.current
     setSelectedClient(client)
     setClientView('detail')
     setContextLoaded(false)
     setClientContext(null)
     setMessages([])
+    nextMsgOrderRef.current = 0
     setStreamError('')
     collapseNav?.()
-  }, [collapseNav])
+
+    // Load persisted messages for this client if a thread exists
+    if (user && chatThreads[client.docId]) {
+      setThreadLoading(true)
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, 'users', user.uid, 'ai_chat_threads', client.docId, 'messages'),
+            orderBy('order', 'asc')
+          )
+        )
+        if (loadId !== threadLoadIdRef.current) return // user switched client mid-load
+        const loaded = snap.docs.map(d => {
+          const data = d.data()
+          return { role: data.role, content: data.content, label: data.label || null }
+        })
+        setMessages(loaded)
+        nextMsgOrderRef.current = loaded.length
+      } catch (err) {
+        console.error('[ai/threads] load messages failed:', err)
+      } finally {
+        if (loadId === threadLoadIdRef.current) setThreadLoading(false)
+      }
+    }
+  }, [user, chatThreads, collapseNav])
 
   // ── Terminate session ─────────────────────────────────────────────────────
   const handleTerminateSession = useCallback(() => {
@@ -377,6 +458,7 @@ export default function AIAnalysis() {
     setMessages([])
     setStreamError('')
     setFilter('')
+    nextMsgOrderRef.current = 0
   }, [])
 
   // ── Load client context ───────────────────────────────────────────────────
@@ -384,7 +466,6 @@ export default function AIAnalysis() {
     if (!selectedClient || !orgId) return
     setContextLoading(true)
     setContextLoaded(false)
-    setMessages([])
     setStreamError('')
     try {
       // Resolve UID if not cached on the client doc (same pattern as ClientDetail)
@@ -492,9 +573,65 @@ export default function AIAnalysis() {
     } catch {}
   }, [])
 
+  // ── Persist a message to the client's Firestore thread ───────────────────
+  const saveMessageToThread = useCallback(async (msg, order) => {
+    if (!selectedClient || !user || !orgId) return
+    const threadDocId = selectedClient.docId
+    const threadRef   = doc(db, 'users', user.uid, 'ai_chat_threads', threadDocId)
+    const msgsCol     = collection(db, 'users', user.uid, 'ai_chat_threads', threadDocId, 'messages')
+    await addDoc(msgsCol, {
+      role:      msg.role,
+      content:   msg.content,
+      label:     msg.label || null,
+      order,
+      createdAt: serverTimestamp(),
+    })
+    await setDoc(threadRef, {
+      clientDocId:   threadDocId,
+      clientName:    selectedClient.name || selectedClient.phone || '',
+      orgId,
+      lastMessageAt: serverTimestamp(),
+      messageCount:  order + 1,
+    }, { merge: true })
+    setChatThreads(prev => ({
+      ...prev,
+      [threadDocId]: {
+        ...prev[threadDocId],
+        lastMessageAt: new Date(),
+        messageCount:  order + 1,
+        clientName:    selectedClient.name || '',
+      },
+    }))
+  }, [selectedClient, user, orgId])
+
+  // ── Clear local + Firestore thread ────────────────────────────────────────
+  const handleClearMessages = useCallback(async () => {
+    setMessages([])
+    setStreamError('')
+    nextMsgOrderRef.current = 0
+    if (!user || !selectedClient) return
+    const threadDocId = selectedClient.docId
+    try {
+      const msgsSnap = await getDocs(
+        collection(db, 'users', user.uid, 'ai_chat_threads', threadDocId, 'messages')
+      )
+      const batch = writeBatch(db)
+      msgsSnap.docs.forEach(d => batch.delete(d.ref))
+      batch.delete(doc(db, 'users', user.uid, 'ai_chat_threads', threadDocId))
+      await batch.commit()
+      setChatThreads(prev => {
+        const next = { ...prev }
+        delete next[threadDocId]
+        return next
+      })
+    } catch (err) {
+      console.error('[ai/threads] clear failed:', err)
+    }
+  }, [user, selectedClient])
+
   // ── Send message ──────────────────────────────────────────────────────────
   const handleSend = useCallback(async (text, opts = {}) => {
-    const isCompany         = mode === 'company'
+    const isCompany           = mode === 'company'
     const activeContextLoaded = isCompany ? companyContextLoaded : contextLoaded
     const activeContext       = isCompany ? companyContext       : clientContext
     const activeMsgs          = isCompany ? companyMessages      : messages
@@ -505,8 +642,6 @@ export default function AIAnalysis() {
 
     setInput('')
     setStreamError('')
-    // Scroll to show the user's outgoing message, then pin to the top of the
-    // AI response when the first token arrives (isFirstTokenRef).
     isNearBottomRef.current = false
     isFirstTokenRef.current = true
     setShowScrollFab(false)
@@ -514,13 +649,21 @@ export default function AIAnalysis() {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
     }
 
-    const userMsg = { role: 'user', content: msg, label: opts.label || null }
+    const userMsg     = { role: 'user', content: msg, label: opts.label || null }
     const nextMessages = [...activeMsgs, userMsg]
     setActiveMsgs(nextMessages)
     const apiMessages = nextMessages.map(({ role, content }) => ({ role, content }))
 
     setActiveMsgs(prev => [...prev, { role: 'assistant', content: '', streaming: true }])
     setStreaming(true)
+
+    // Persist user message immediately
+    const userMsgOrder = nextMsgOrderRef.current
+    nextMsgOrderRef.current += 1
+    if (!isCompany) saveMessageToThread(userMsg, userMsgOrder).catch(console.error)
+
+    let assistantContent = ''
+    let wasAborted = false
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -532,10 +675,10 @@ export default function AIAnalysis() {
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages:     apiMessages,
-          cacheKey:     activeContext.cacheKey,
+          messages:      apiMessages,
+          cacheKey:      activeContext.cacheKey,
           photoCategory: '',
-          model:        selectedModel,
+          model:         selectedModel,
           idToken,
         }),
       })
@@ -574,6 +717,7 @@ export default function AIAnalysis() {
             try {
               const parsed = JSON.parse(payload)
               if (parsed.text) {
+                assistantContent += parsed.text
                 setActiveMsgs(prev => {
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
@@ -595,6 +739,7 @@ export default function AIAnalysis() {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
+        wasAborted = true
         setActiveMsgs(prev => {
           const updated = [...prev]
           const last = updated[updated.length - 1]
@@ -618,10 +763,18 @@ export default function AIAnalysis() {
         return updated
       })
       setStreaming(false)
+
+      // Persist assistant response after stream ends
+      if (!isCompany && assistantContent && !wasAborted) {
+        const assistantMsgOrder = nextMsgOrderRef.current
+        nextMsgOrderRef.current += 1
+        saveMessageToThread({ role: 'assistant', content: assistantContent }, assistantMsgOrder).catch(console.error)
+      }
+
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [input, messages, companyMessages, streaming, contextLoaded, companyContextLoaded,
-      clientContext, companyContext, selectedModel, mode])
+      clientContext, companyContext, selectedModel, mode, saveMessageToThread])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -702,6 +855,7 @@ export default function AIAnalysis() {
                     <div className="aa-list-empty">No clients found</div>
                   ) : filteredClients.map(c => {
                     const [bg, fg] = avatarColor(c.name || c.phone || '')
+                    const thread   = chatThreads[c.docId]
                     return (
                       <button
                         key={c.docId}
@@ -713,9 +867,17 @@ export default function AIAnalysis() {
                         </div>
                         <div className="aa-client-row-info">
                           <div className="aa-client-row-name">{c.name || c.phone || '—'}</div>
-                          {c.address && <div className="aa-client-row-addr">{c.address}</div>}
+                          {thread?.lastMessageAt
+                            ? <div className="aa-client-row-last-chat">{fmtRelTime(thread.lastMessageAt)}</div>
+                            : c.address
+                              ? <div className="aa-client-row-addr">{c.address}</div>
+                              : null
+                          }
                         </div>
-                        {c.claimStatus === 'open' && <span className="aa-client-row-badge">Open</span>}
+                        <div className="aa-client-row-right">
+                          {c.claimStatus === 'open' && <span className="aa-client-row-badge">Open</span>}
+                          {thread && <span className="aa-client-row-chat-dot" />}
+                        </div>
                       </button>
                     )
                   })}
@@ -814,7 +976,7 @@ export default function AIAnalysis() {
                     )}
 
                     {messages.length > 0 && (
-                      <button className="aa-clear-btn" onClick={() => { setMessages([]); setStreamError('') }}>
+                      <button className="aa-clear-btn" onClick={handleClearMessages}>
                         Clear conversation
                       </button>
                     )}
@@ -917,7 +1079,14 @@ export default function AIAnalysis() {
           </div>
         )}
 
-        {mode === 'client' && selectedClient && !contextLoaded && !contextLoading && (
+        {mode === 'client' && threadLoading && (
+          <div className="aa-empty-state aa-empty-state--loading">
+            <div className="aa-loading-ring" />
+            <p className="aa-loading-label">Loading conversation…</p>
+          </div>
+        )}
+
+        {mode === 'client' && selectedClient && !contextLoaded && !contextLoading && !threadLoading && messages.length === 0 && (
           <div className="aa-empty-state">
             <div className="aa-empty-icon">📂</div>
             <h2 className="aa-empty-title">{selectedClient.name || 'Client selected'}</h2>
@@ -932,6 +1101,13 @@ export default function AIAnalysis() {
             <div className="aa-loading-ring" />
             <p className="aa-loading-label">Loading claim context…</p>
             <p className="aa-loading-sublabel">Reading documents — first load may take 15–30 seconds</p>
+          </div>
+        )}
+
+        {/* ── No-context banner when viewing history without active context ── */}
+        {mode === 'client' && messages.length > 0 && !contextLoaded && !contextLoading && !threadLoading && (
+          <div className="aa-no-context-banner">
+            Previous conversation — click <strong>Load Context</strong> in the sidebar to continue
           </div>
         )}
 

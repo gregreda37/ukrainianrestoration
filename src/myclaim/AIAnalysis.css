@@ -163,6 +163,9 @@
 .aa-client-row-info { flex: 1; min-width: 0; }
 .aa-client-row-name { font-size: 13px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .aa-client-row-addr { font-size: 11px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.aa-client-row-last-chat { font-size: 11px; color: #2563eb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; font-weight: 500; }
+
+.aa-client-row-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 
 .aa-client-row-badge {
   font-size: 10px;
@@ -171,6 +174,25 @@
   color: #16a34a;
   padding: 2px 7px;
   border-radius: 99px;
+}
+
+.aa-client-row-chat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2563eb;
+  flex-shrink: 0;
+}
+
+/* ── No-context banner ───────────────────────────────────────────────────── */
+
+.aa-no-context-banner {
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 13px;
+  padding: 8px 20px;
+  text-align: center;
   flex-shrink: 0;
 }
 

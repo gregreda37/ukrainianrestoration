@@ -100,10 +100,21 @@ def notify_client():
 
     try:
         sid, status = _send_sms(e164, message)
-        return jsonify({"sid": sid, "status": status})
     except TwilioRestException as e:
         return jsonify({"error": str(e), "code": e.code}), 400
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+    # Send to secondary phones (best-effort — failures are logged, not fatal)
+    secondary_results = []
+    for sec_phone in (data.get("secondaryPhones") or []):
+        try:
+            sec_e164 = _normalise_phone(str(sec_phone).strip())
+            sec_sid, sec_status = _send_sms(sec_e164, message)
+            secondary_results.append({"phone": sec_e164, "sid": sec_sid, "status": sec_status})
+        except Exception as sec_err:
+            secondary_results.append({"phone": sec_phone, "error": str(sec_err)})
+
+    return jsonify({"sid": sid, "status": status, "secondary": secondary_results})

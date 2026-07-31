@@ -2979,3 +2979,64 @@ span.cd-sel-product { color: #0f172a; }
   .cd-tab { padding: 7px 10px; font-size: 0.75rem; }
   .cd-photo-grid-body { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Secondary / Authorized Contacts ───────────────────────────────────── */
+.cd-sec-contacts-section {
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+  margin-bottom: 4px;
+}
+.cd-sec-contacts-empty {
+  font-size: 12px;
+  color: #94a3b8;
+  font-style: italic;
+  margin: 0 0 4px;
+}
+.cd-sec-contact-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+}
+.cd-sec-contact-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cd-sec-contact-phone {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.cd-sec-contact-label {
+  font-size: 11px;
+  color: #64748b;
+}
+.cd-sec-contact-remove {
+  background: transparent;
+  border: none;
+  font-size: 13px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+.cd-sec-contact-remove:hover { color: #dc2626; background: #fef2f2; }
+.cd-sec-contact-remove:disabled { opacity: 0.4; cursor: default; }
+.cd-sec-contact-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cd-sec-contact-error {
+  font-size: 12px;
+  color: #dc2626;
+  margin: 0;
+}

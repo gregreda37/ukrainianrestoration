@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { db, storage } from "../firebase";
 import {
   doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, setDoc,
-  collection, query, orderBy, serverTimestamp, where,
+  collection, query, orderBy, serverTimestamp, where, arrayUnion, arrayRemove,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "./useAuth";
@@ -300,6 +300,15 @@ export default function ClientDetail() {
   const [confirmDelete,  setConfirmDelete]  = useState(false);
   const [deletingClient, setDeletingClient] = useState(false);
 
+  // Secondary contacts
+  const [secondaryContacts,    setSecondaryContacts]    = useState([]);
+  const [addingSecondary,      setAddingSecondary]      = useState(false);
+  const [newSecPhone,          setNewSecPhone]          = useState("");
+  const [newSecLabel,          setNewSecLabel]          = useState("");
+  const [secondaryError,       setSecondaryError]       = useState("");
+  const [savingSecondary,      setSavingSecondary]      = useState(false);
+  const [removingSecondary,    setRemovingSecondary]    = useState(null);
+
   // ── Load contractor's org id and check access ──────────────────────
   useEffect(() => {
     if (!user) return;
@@ -400,6 +409,7 @@ export default function ClientDetail() {
         setClient(clientData);
         setClientDocId(clientDocSnap.id);
         if (clientData.claimNumbers?.[0]) setClaimNumber(clientData.claimNumbers[0]);
+        setSecondaryContacts(clientData.secondaryContacts || []);
 
         // 2. Resolve client's Firebase Auth uid
         let uid = clientData.uid || null;
@@ -1208,12 +1218,77 @@ export default function ClientDetail() {
     try {
       const body = { phone: client?.phone || "", type };
       if (type === "review_request" && googleReviewUrl) body.googleReviewUrl = googleReviewUrl;
+      if (secondaryContacts.length) body.secondaryPhones = secondaryContacts.map(c => c.phone);
       await api.post("/notify-client", body);
       setNotifySent(true);
       setTimeout(() => setNotifySent(false), 3000);
     } catch (err) {
       setNotifyError(err.message || "Could not send notification.");
     } finally { setNotifySending(false); }
+  };
+
+  // ── Secondary contacts ────────────────────────────────────────────────
+  const addSecondaryContact = async () => {
+    const phone = toE164(newSecPhone.trim());
+    const label = newSecLabel.trim() || "Authorized Contact";
+    setSecondaryError("");
+    if (!/^\+1\d{10}$/.test(phone)) {
+      setSecondaryError("Enter a valid 10-digit US phone number.");
+      return;
+    }
+    if (secondaryContacts.some(c => c.phone === phone)) {
+      setSecondaryError("This number is already an authorized contact.");
+      return;
+    }
+    if (client?.phone === phone) {
+      setSecondaryError("This is already the primary phone number.");
+      return;
+    }
+    setSavingSecondary(true);
+    try {
+      const collision = await getDoc(doc(db, "client_phones", phone));
+      if (collision.exists()) {
+        setSecondaryError("That number is already registered with another account.");
+        return;
+      }
+      const contact = { phone, label };
+      await Promise.all([
+        updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), {
+          secondaryContacts: arrayUnion(contact),
+        }),
+        setDoc(doc(db, "client_phones", phone), {
+          orgId,
+          clientDocId,
+          primaryPhone: client?.phone || "",
+          isSecondary: true,
+          label,
+          name: `${client?.name || "Client"} (${label})`,
+        }),
+      ]);
+      setSecondaryContacts(prev => [...prev, contact]);
+      setNewSecPhone(""); setNewSecLabel(""); setAddingSecondary(false);
+    } catch (err) {
+      setSecondaryError(err.message || "Could not add contact.");
+    } finally {
+      setSavingSecondary(false);
+    }
+  };
+
+  const removeSecondaryContact = async (contact) => {
+    setRemovingSecondary(contact.phone);
+    try {
+      await Promise.all([
+        updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), {
+          secondaryContacts: arrayRemove(contact),
+        }),
+        deleteDoc(doc(db, "client_phones", contact.phone)),
+      ]);
+      setSecondaryContacts(prev => prev.filter(c => c.phone !== contact.phone));
+    } catch (err) {
+      console.error("removeSecondaryContact error:", err);
+    } finally {
+      setRemovingSecondary(null);
+    }
   };
 
   // ── Archive client (replaces delete) ─────────────────────────────────
@@ -1379,6 +1454,55 @@ export default function ClientDetail() {
                     <span className="cd-header-claim-num">{claimNumber}</span>
                   </div>
                 )}
+
+                {/* Authorized Contacts */}
+                <div className="cd-sec-contacts-section">
+                  <div className="cd-header-adj-meta">
+                    <span className="cd-header-adj-label"><PhoneIcon /> Authorized Contacts</span>
+                    {!addingSecondary && (
+                      <button className="cd-header-adj-edit-btn" title="Add authorized contact"
+                        onClick={() => { setAddingSecondary(true); setSecondaryError(""); setNewSecPhone(""); setNewSecLabel(""); }}>
+                        <PlusIcon />
+                      </button>
+                    )}
+                  </div>
+                  {secondaryContacts.length === 0 && !addingSecondary && (
+                    <p className="cd-sec-contacts-empty">No secondary contacts — primary phone only</p>
+                  )}
+                  {secondaryContacts.map(c => (
+                    <div key={c.phone} className="cd-sec-contact-row">
+                      <div className="cd-sec-contact-info">
+                        <span className="cd-sec-contact-phone">{formatPhone(c.phone)}</span>
+                        <span className="cd-sec-contact-label">{c.label}</span>
+                      </div>
+                      <button className="cd-sec-contact-remove"
+                        disabled={removingSecondary === c.phone}
+                        onClick={() => removeSecondaryContact(c)}
+                        title="Remove access">
+                        {removingSecondary === c.phone ? "…" : "✕"}
+                      </button>
+                    </div>
+                  ))}
+                  {addingSecondary && (
+                    <div className="cd-sec-contact-add-form">
+                      <input className="cd-claim-input" placeholder="(555) 000-0000" style={{ flex:1 }}
+                        value={newSecPhone}
+                        onChange={e => setNewSecPhone(e.target.value)} />
+                      <input className="cd-claim-input" placeholder="Label (e.g. Spouse)" style={{ flex:1 }}
+                        value={newSecLabel}
+                        onChange={e => setNewSecLabel(e.target.value)} />
+                      {secondaryError && <p className="cd-sec-contact-error">{secondaryError}</p>}
+                      <div style={{ display:"flex", gap:6 }}>
+                        <button className="cd-btn-secondary" type="button"
+                          onClick={() => { setAddingSecondary(false); setSecondaryError(""); }}>Cancel</button>
+                        <button className="cd-btn-primary" type="button"
+                          disabled={savingSecondary} onClick={addSecondaryContact}>
+                          {savingSecondary ? "Saving…" : "Add"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Adjuster */}
                 <div className="cd-header-adj-section">

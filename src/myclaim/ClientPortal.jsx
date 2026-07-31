@@ -201,12 +201,14 @@ export default function ClientPortal() {
         if (data.selectedPhotoIds != null) setClientPhotoIds(data.selectedPhotoIds);
         let oid = data.organizationId;
         let preloadedClientDocId = data.clientDocId || null;
+        let primaryPhone = phone; // may differ for secondary contacts
         if (!oid && phone) {
           const cpSnap = await getDoc(doc(db,"client_phones",phone));
           if (cpSnap.exists()) {
             const cpData = cpSnap.data();
             oid = cpData.orgId || null;
             if (!preloadedClientDocId) preloadedClientDocId = cpData.clientDocId || null;
+            if (cpData.primaryPhone) primaryPhone = cpData.primaryPhone; // secondary contact
             if (oid) await setDoc(doc(db,"users",user.uid), { organizationId:oid }, { merge:true });
             if (cpData.driveExternalFolderId) setDriveExternalFolderId(cpData.driveExternalFolderId);
           }
@@ -224,12 +226,20 @@ export default function ClientPortal() {
           setOrgInfo(orgSnap.data());
           setDriveConnected(!!orgSnap.data().googleDriveConnected);
           try {
-            const cSnap = await getDocs(query(collection(db,"organization_data",oid,"clients"), where("phone","==",phone)));
+            const cSnap = await getDocs(query(collection(db,"organization_data",oid,"clients"), where("phone","==",primaryPhone)));
+            let cData = null, cDocId = null;
             if (!cSnap.empty) {
-              const cData = cSnap.docs[0].data();
+              cData = cSnap.docs[0].data();
+              cDocId = cSnap.docs[0].id;
+            } else if (preloadedClientDocId) {
+              // Secondary phone: look up client doc directly by ID
+              const directSnap = await getDoc(doc(db,"organization_data",oid,"clients",preloadedClientDocId));
+              if (directSnap.exists()) { cData = directSnap.data(); cDocId = directSnap.id; }
+            }
+            if (cData && cDocId) {
               const n = cData.name || cData.displayName || "";
               if (n) setCustomerName(n);
-              setClientDocId(cSnap.docs[0].id);
+              setClientDocId(cDocId);
               if (cData.driveExternalFolderId) setDriveExternalFolderId(cData.driveExternalFolderId);
               // Org client doc is the single source of truth for all claim data
               setClaimProgress({
@@ -257,11 +267,12 @@ export default function ClientPortal() {
         // Only show contractors relevant to this client:
         // admins (org owner or role=admin) are always visible;
         // project managers appear only if this client is in their assignedClients list.
+        // For secondary phone users, check against the primary phone.
         const ctors = [];
         ctorSnap.forEach(d => {
           const data = { uid: d.id, ...d.data() };
           const isAdminRole = data.role === 'admin' || !data.role || d.id === oid;
-          const isAssigned  = (data.assignedClients || []).includes(phone);
+          const isAssigned  = (data.assignedClients || []).includes(primaryPhone);
           if (isAdminRole || isAssigned) ctors.push(data);
         });
         setContractors(ctors);

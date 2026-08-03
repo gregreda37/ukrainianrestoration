@@ -26,6 +26,7 @@ const UploadIcon     = () => <svg viewBox="0 0 24 24" fill="none" stroke="curren
 const UploadTodoIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="17" height="17"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6M9 15l3 3 3-3"/></svg>;
 const GridIcon       = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="17" height="17"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>;
 const PenIcon        = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="17" height="17"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>;
+const PayIcon        = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="17" height="17"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>;
 const ChevronIcon    = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><polyline points="6 9 12 15 18 9"/></svg>;
 const ExternalLinkIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="11" height="11" style={{marginLeft:3,flexShrink:0}}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>;
 const PersonIcon     = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
@@ -70,6 +71,7 @@ const TODO_TYPE_INFO = {
   add_selection:    { label: "Add a selection",               Icon: GridIcon        },
   sign_forms:       { label: "Sign authorization forms",      Icon: PenIcon         },
   review_selection: { label: "Review a contractor selection", Icon: GridIcon        },
+  pay_invoice:      { label: "Pay your invoice",             Icon: PayIcon         },
 };
 
 const MITIGATION_STEPS    = ["Claim Submitted","Mitigation in Progress","Mitigation Completed","Estimate Submitted","Estimate Approved"];
@@ -613,6 +615,7 @@ export default function ClientPortal() {
           {t.type==="sign_forms" && !t.contractorFirst && t.docusignUrl && !isDone && <span className="cp-todo-hint">Tap Sign to sign the document</span>}
           {t.type==="add_selection"    && t.selectionCategory && !isDone && <span className="cp-todo-hint">Category: {t.selectionCategory}</span>}
           {t.type==="review_selection" && !isDone && <span className="cp-todo-hint">Tap Review to approve or reject</span>}
+          {t.type==="pay_invoice"      && !isDone && <span className="cp-todo-hint">Tap Pay Now to pay with a credit card</span>}
         </div>
         {/* Client-first: client signs original doc */}
         {t.type==="sign_forms" && !t.contractorFirst && t.docusignUrl && !isDone && <button className="cp-todo-cta cp-sign-cta" onClick={e=>{ e.stopPropagation(); setSigningTodo(t); }}>Sign →</button>}
@@ -624,6 +627,17 @@ export default function ClientPortal() {
         {t.type==="upload_file"      && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); openSidebar(); }}>Upload →</button>}
         {t.type==="add_selection"    && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); setSwapTargetId(null); setPickTodoId(t.id); setSelCategory(t.selectionCategory||SELECTION_CATEGORIES[0]); setSelProduct(""); setSelUrl(""); setSelNotes(""); setSelError(""); setShowAddSel(true); }}>Pick →</button>}
         {t.type==="review_selection" && !isDone && <button className="cp-todo-cta" onClick={e=>{ e.stopPropagation(); const sel=selections.find(s=>s.id===t.linkedSelectionId); if (sel) { setReviewingSel(sel); setApproveUrl(sel.url||""); setApproveNotes(sel.notes||""); } }}>Review →</button>}
+        {t.type==="pay_invoice" && !isDone && t.paymentUrl && (
+          <a
+            className="cp-todo-cta cp-sign-cta"
+            href={t.paymentUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={e => e.stopPropagation()}
+          >
+            Pay Now →
+          </a>
+        )}
         {isDone && <span className="cp-todo-done-tag">Done</span>}
       </div>
     );

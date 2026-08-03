@@ -137,6 +137,24 @@ const ACTIVITY_LABELS = {
   info_updated:        "Updated claim information",
 };
 
+function CopyLinkTodoBtn({ url }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <button
+      className="cd-todo-approve-btn"
+      onClick={e => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(url).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      }}
+    >
+      {copied ? "Copied!" : "Copy Link"}
+    </button>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function ClientDetail() {
   const { id }       = useParams();
@@ -2142,13 +2160,27 @@ export default function ClientDetail() {
                         </div>
                         {todo.type && todo.type !== "general" && (
                           <span className={`cd-todo-type-badge cd-todo-type-${
-                            todo.type === "upload_file" ? "upload" :
-                            todo.type === "sign_forms"  ? "sign"   : "selection"
+                            todo.type === "upload_file" ? "upload"  :
+                            todo.type === "sign_forms"  ? "sign"    :
+                            todo.type === "pay_invoice" ? "payment" : "selection"
                           }`}>
                             {todo.type === "upload_file" ? "Upload" :
                              todo.type === "sign_forms"  ? (todo.completed ? "Signed ✓" : "Signature Pending") :
+                             todo.type === "pay_invoice" ? (todo.completed ? "Paid ✓" : "Payment Pending") :
                              `Selection${todo.selectionCategory ? ` · ${todo.selectionCategory}` : ""}`}
                           </span>
+                        )}
+                        {todo.type === "pay_invoice" && !todo.completed && todo.paymentUrl && (
+                          <CopyLinkTodoBtn url={todo.paymentUrl} />
+                        )}
+                        {todo.type === "pay_invoice" && todo.invoiceId && (
+                          <Link
+                            to={`/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${todo.invoiceId}`}
+                            className="cd-todo-signed-link"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            View Invoice
+                          </Link>
                         )}
                         {/* Client-first: contractor counter-signs after client */}
                         {todo.type === "sign_forms" && !todo.contractorFirst && todo.signedDocumentUrl && !todo.contractorSigned && (

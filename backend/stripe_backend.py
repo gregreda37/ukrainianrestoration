@@ -193,8 +193,20 @@ def _on_payment_succeeded(intent):
     }
 
     # Resolve correct primary path (users/ or org/)
-    inv_ref, _ = _resolve_inv(db, org_id, client_doc_id, invoice_id, client_uid)
+    inv_ref, inv_snap = _resolve_inv(db, org_id, client_doc_id, invoice_id, client_uid)
     inv_ref.set(update, merge=True)
+
+    # Auto-complete the pay_invoice todo if one was linked to this invoice
+    inv_data           = inv_snap.to_dict() if inv_snap.exists else {}
+    payment_link_todo  = inv_data.get("paymentLinkTodoId")
+    if payment_link_todo:
+        (db.collection("organization_data")
+           .document(org_id)
+           .collection("clients")
+           .document(client_doc_id)
+           .collection("todos")
+           .document(payment_link_todo)
+           .set({"completed": True, "completedAt": fst}, merge=True))
 
     # invoice_summary mirror
     summary_ref  = (db.collection("organization_data")

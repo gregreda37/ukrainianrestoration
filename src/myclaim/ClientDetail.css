@@ -1502,6 +1502,7 @@
 .cd-todo-type-upload    { background: #eff6ff; color: #2563eb; }
 .cd-todo-type-selection { background: #f5f3ff; color: #7c3aed; }
 .cd-todo-type-sign      { background: #f0fdf4; color: #16a34a; }
+.cd-todo-type-payment   { background: #fefce8; color: #b45309; }
 
 .cd-sign-fields {
   display: flex;

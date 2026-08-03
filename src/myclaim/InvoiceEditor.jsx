@@ -408,12 +408,13 @@ export default function InvoiceEditor() {
   const [secondaryContacts,      setSecondaryContacts]      = useState([])
 
   // ── Pay-link modal state ──
-  const [showPayLink,    setShowPayLink]    = useState(false)
-  const [payLinkData,    setPayLinkData]    = useState(null)
-  const [payLinkLoading, setPayLinkLoading] = useState(false)
-  const [payLinkError,   setPayLinkError]   = useState('')
-  const [payLinkCopied,  setPayLinkCopied]  = useState(false)
-  const [payLinkPhones,  setPayLinkPhones]  = useState([])
+  const [showPayLink,       setShowPayLink]       = useState(false)
+  const [payLinkData,       setPayLinkData]       = useState(null)
+  const [payLinkLoading,    setPayLinkLoading]    = useState(false)
+  const [payLinkError,      setPayLinkError]      = useState('')
+  const [payLinkCopied,     setPayLinkCopied]     = useState(false)
+  const [payLinkPhones,     setPayLinkPhones]     = useState([])
+  const [paymentLinkTodoId, setPaymentLinkTodoId] = useState(null)
 
   // ── Load ─────────────────────────────────────────────────────────────────
 
@@ -527,6 +528,7 @@ export default function InvoiceEditor() {
           setNotes(inv.notes || '')
           setTerms(inv.terms || DEFAULT_TERMS)
           if (inv.stripePaymentIntentId) setStripePaymentIntentId(inv.stripePaymentIntentId)
+          if (inv.paymentLinkTodoId)    setPaymentLinkTodoId(inv.paymentLinkTodoId)
         }
       }
     } finally {
@@ -795,6 +797,32 @@ export default function InvoiceEditor() {
       if (!r.ok || data.error) { setPayLinkError(data.error || 'Could not generate link.'); return }
       setPayLinkData(data)
       setStatus(prev => prev === 'draft' ? 'sent' : prev)
+
+      // Create or refresh the pay_invoice todo under this client
+      const todosColRef = collection(db, 'organization_data', orgId, 'clients', clientDocId, 'todos')
+      if (paymentLinkTodoId) {
+        updateDoc(
+          doc(db, 'organization_data', orgId, 'clients', clientDocId, 'todos', paymentLinkTodoId),
+          { paymentUrl: data.paymentUrl, completed: false }
+        ).catch(() => {})
+      } else {
+        const todoRef = await addDoc(todosColRef, {
+          label:         `Pay ${invNumber || 'Invoice'} — ${fmtMoney(totals.total)}`,
+          type:          'pay_invoice',
+          assignedTo:    'client',
+          completed:     false,
+          invoiceId,
+          paymentUrl:    data.paymentUrl,
+          invoiceNumber: invNumber,
+          amount:        totals.total,
+          createdAt:     serverTimestamp(),
+        })
+        setPaymentLinkTodoId(todoRef.id)
+        const invDocRef = clientUid
+          ? doc(db, 'users', clientUid, 'invoices', invoiceId)
+          : doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', invoiceId)
+        setDoc(invDocRef, { paymentLinkTodoId: todoRef.id }, { merge: true }).catch(() => {})
+      }
     } catch {
       setPayLinkError('Network error. Please try again.')
     } finally {

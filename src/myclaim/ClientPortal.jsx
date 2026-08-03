@@ -105,6 +105,9 @@ export default function ClientPortal() {
   const { user } = useAuth();
   const phone = user?.phoneNumber || "";
 
+  // For secondary phone users this will differ from `phone` (their own number)
+  const [primaryPhone,     setPrimaryPhone]     = useState("");
+
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [documents,        setDocuments]        = useState([]);
   const [uploading,        setUploading]        = useState(false);
@@ -204,18 +207,28 @@ export default function ClientPortal() {
         if (data.selectedPhotoIds != null) setClientPhotoIds(data.selectedPhotoIds);
         let oid = data.organizationId;
         let preloadedClientDocId = data.clientDocId || null;
-        let primaryPhone = phone; // may differ for secondary contacts
-        if (!oid && phone) {
+        // Use cached primaryPhone from previous login, or own phone as default.
+        // Always re-run the client_phones lookup if primaryPhone hasn't been cached yet —
+        // this fixes the second-login bug where oid is set but primaryPhone/clientDocId aren't.
+        let resolvedPrimary = data.primaryPhone || phone;
+        if (phone && (!oid || !data.primaryPhone)) {
           const cpSnap = await getDoc(doc(db,"client_phones",phone));
           if (cpSnap.exists()) {
             const cpData = cpSnap.data();
-            oid = cpData.orgId || null;
+            if (!oid) oid = cpData.orgId || null;
             if (!preloadedClientDocId) preloadedClientDocId = cpData.clientDocId || null;
-            if (cpData.primaryPhone) primaryPhone = cpData.primaryPhone; // secondary contact
-            if (oid) await setDoc(doc(db,"users",user.uid), { organizationId:oid }, { merge:true });
+            if (cpData.primaryPhone) resolvedPrimary = cpData.primaryPhone;
             if (cpData.driveExternalFolderId) setDriveExternalFolderId(cpData.driveExternalFolderId);
+            // Persist all three fields so second+ logins skip this block correctly
+            if (oid) {
+              const userUpdate = { organizationId: oid };
+              if (preloadedClientDocId) userUpdate.clientDocId = preloadedClientDocId;
+              if (cpData.primaryPhone)  userUpdate.primaryPhone = cpData.primaryPhone;
+              setDoc(doc(db,"users",user.uid), userUpdate, { merge:true }).catch(()=>{});
+            }
           }
         }
+        setPrimaryPhone(resolvedPrimary);
         if (!oid) return;
         setOrgId(oid);
         if (preloadedClientDocId) setClientDocId(preloadedClientDocId);
@@ -229,13 +242,14 @@ export default function ClientPortal() {
           setOrgInfo(orgSnap.data());
           setDriveConnected(!!orgSnap.data().googleDriveConnected);
           try {
-            const cSnap = await getDocs(query(collection(db,"organization_data",oid,"clients"), where("phone","==",primaryPhone)));
+            // Primary users: query by phone. Secondary users: query by resolvedPrimary (their
+            // primary account's phone). If the query still misses, fall back to direct doc lookup.
+            const cSnap = await getDocs(query(collection(db,"organization_data",oid,"clients"), where("phone","==",resolvedPrimary)));
             let cData = null, cDocId = null;
             if (!cSnap.empty) {
               cData = cSnap.docs[0].data();
               cDocId = cSnap.docs[0].id;
             } else if (preloadedClientDocId) {
-              // Secondary phone: look up client doc directly by ID
               const directSnap = await getDoc(doc(db,"organization_data",oid,"clients",preloadedClientDocId));
               if (directSnap.exists()) { cData = directSnap.data(); cDocId = directSnap.id; }
             }
@@ -243,8 +257,9 @@ export default function ClientPortal() {
               const n = cData.name || cData.displayName || "";
               if (n) setCustomerName(n);
               setClientDocId(cDocId);
+              // Cache clientDocId in users/{uid} so uploads and syncs always have it
+              setDoc(doc(db,"users",user.uid), { clientDocId: cDocId }, { merge:true }).catch(()=>{});
               if (cData.driveExternalFolderId) setDriveExternalFolderId(cData.driveExternalFolderId);
-              // Org client doc is the single source of truth for all claim data
               setClaimProgress({
                 mitigationStep:   cData.mitigationStep  ?? -1,
                 constructionStep: cData.constructionStep ?? -1,
@@ -267,15 +282,12 @@ export default function ClientPortal() {
             }
           } catch {}
         }
-        // Only show contractors relevant to this client:
-        // admins (org owner or role=admin) are always visible;
-        // project managers appear only if this client is in their assignedClients list.
-        // For secondary phone users, check against the primary phone.
+        // Admins always visible; PMs only if primary phone is in their assignedClients.
         const ctors = [];
         ctorSnap.forEach(d => {
           const data = { uid: d.id, ...d.data() };
           const isAdminRole = data.role === 'admin' || !data.role || d.id === oid;
-          const isAssigned  = (data.assignedClients || []).includes(primaryPhone);
+          const isAssigned  = (data.assignedClients || []).includes(resolvedPrimary);
           if (isAdminRole || isAssigned) ctors.push(data);
         });
         setContractors(ctors);
@@ -507,8 +519,8 @@ export default function ClientPortal() {
             orgId,
             fileUrl:        downloadURL,
             fileName,
-            clientName:     customerName || phone,
-            clientPhone:    phone,
+            clientName:     customerName || primaryPhone,
+            clientPhone:    primaryPhone || phone,
             clientDocId:    clientDocId || '',
             visibleToClient: true,
             targetFolderId: driveExternalFolderId || '',

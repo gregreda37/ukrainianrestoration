@@ -65,6 +65,7 @@ const Partners      = lazy(() => import('./myclaim/Partners'))
 const PartnerDetail = lazy(() => import('./myclaim/PartnerDetail'))
 const OptInPolicy      = lazy(() => import('./myclaim/OptInPolicy'))
 const PendingApproval  = lazy(() => import('./myclaim/PendingApproval'))
+const PublicPayPage    = lazy(() => import('./myclaim/PublicPayPage'))
 
 function PortalFallback() {
   return (
@@ -155,6 +156,11 @@ export default function App() {
         {/* ── Pending approval (no org yet, or removed from org) ── */}
         <Route path="/myclaim/pending" element={
           <Suspense fallback={<PortalFallback />}><PendingApproval /></Suspense>
+        } />
+
+        {/* ── Public payment page (no auth required) ── */}
+        <Route path="/myclaim/pay/:token" element={
+          <Suspense fallback={<PortalFallback />}><PublicPayPage /></Suspense>
         } />
 
         {/* ── Client portal (phone users) ── */}

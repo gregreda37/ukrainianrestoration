@@ -11,6 +11,8 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import './InvoiceEditor.css'
 
+const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '')
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 const uid6 = () => Math.random().toString(36).slice(2, 8)
@@ -403,6 +405,15 @@ export default function InvoiceEditor() {
   const [addingDoc,              setAddingDoc]              = useState(false)
   const [docAdded,               setDocAdded]               = useState(false)
   const [stripePaymentIntentId,  setStripePaymentIntentId]  = useState(null)
+  const [secondaryContacts,      setSecondaryContacts]      = useState([])
+
+  // ── Pay-link modal state ──
+  const [showPayLink,    setShowPayLink]    = useState(false)
+  const [payLinkData,    setPayLinkData]    = useState(null)
+  const [payLinkLoading, setPayLinkLoading] = useState(false)
+  const [payLinkError,   setPayLinkError]   = useState('')
+  const [payLinkCopied,  setPayLinkCopied]  = useState(false)
+  const [payLinkPhones,  setPayLinkPhones]  = useState([])
 
   // ── Load ─────────────────────────────────────────────────────────────────
 
@@ -459,6 +470,7 @@ export default function InvoiceEditor() {
       const uid   = cdata.uid
       setClientUid(uid)
       setClientDocId(docId)
+      setSecondaryContacts(cdata.secondaryContacts || [])
 
       // Enrich from users doc
       if (uid) {
@@ -750,6 +762,46 @@ export default function InvoiceEditor() {
     }
   }
 
+  // ── Payment link ──────────────────────────────────────────────────────────
+
+  function openPayLink() {
+    const phones = []
+    if (clientPhone) phones.push(clientPhone)
+    secondaryContacts.forEach(c => { if (c.phone) phones.push(c.phone) })
+    setPayLinkPhones(phones)
+    setPayLinkData(null)
+    setPayLinkError('')
+    setShowPayLink(true)
+  }
+
+  async function generatePayLink() {
+    if (!orgId || !clientDocId || isNew) return
+    setPayLinkLoading(true)
+    setPayLinkError('')
+    try {
+      const idToken = await user.getIdToken()
+      const r = await fetch(`${BACKEND}/stripe/create-payment-link`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgId:        orgId,
+          clientDocId:  clientDocId,
+          invoiceId:    invoiceId,
+          clientUid:    clientUid || null,
+          phones:       payLinkPhones,
+        }),
+      })
+      const data = await r.json()
+      if (!r.ok || data.error) { setPayLinkError(data.error || 'Could not generate link.'); return }
+      setPayLinkData(data)
+      setStatus(prev => prev === 'draft' ? 'sent' : prev)
+    } catch {
+      setPayLinkError('Network error. Please try again.')
+    } finally {
+      setPayLinkLoading(false)
+    }
+  }
+
   // ── Mark paid modal ───────────────────────────────────────────────────────
 
   const [showPaid, setShowPaid]           = useState(false)
@@ -813,6 +865,11 @@ export default function InvoiceEditor() {
           {isEstimate && status !== 'converted' && (
             <button className="ied-btn ied-btn--outline" onClick={convertToInvoice} disabled={saving}>
               → Convert to Invoice
+            </button>
+          )}
+          {type === 'invoice' && !isNew && status !== 'paid' && (
+            <button className="ied-btn ied-btn--purple" onClick={openPayLink}>
+              Send for Payment
             </button>
           )}
           {(type === 'invoice') && status !== 'paid' && !stripePaymentIntentId && (
@@ -1056,6 +1113,11 @@ export default function InvoiceEditor() {
                 → Convert to Invoice
               </button>
             )}
+            {type === 'invoice' && !isNew && status !== 'paid' && (
+              <button className="ied-btn ied-btn--purple ied-btn--block" onClick={openPayLink}>
+                Send for Payment
+              </button>
+            )}
             {type === 'invoice' && status !== 'paid' && (
               <button className="ied-btn ied-btn--green ied-btn--block" onClick={() => setShowPaid(true)}>
                 ✓ Mark as Paid
@@ -1067,6 +1129,96 @@ export default function InvoiceEditor() {
           </div>
         </div>
       </div>
+
+      {/* ── Send for Payment modal ── */}
+      {showPayLink && (
+        <div className="ied-overlay" onClick={() => setShowPayLink(false)}>
+          <div className="ied-modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+            <h3 className="ied-modal-title">Send for Payment</h3>
+            <p style={{ fontSize: 13.5, color: '#64748b', margin: '0 0 18px' }}>
+              Generate a secure payment link for <strong>{invNumber || 'this invoice'}</strong> ({fmtMoney(totals.total)}).
+              A 2.9% + $0.30 processing fee is shown to the client at checkout.
+            </p>
+
+            {/* Phone checkboxes */}
+            {(clientPhone || secondaryContacts.length > 0) ? (
+              <div style={{ marginBottom: 18 }}>
+                <div className="ied-label" style={{ marginBottom: 8 }}>Send SMS to:</div>
+                {[
+                  clientPhone ? { phone: clientPhone, label: 'Primary' } : null,
+                  ...secondaryContacts.map(c => ({ phone: c.phone, label: c.label || 'Authorized contact' })),
+                ].filter(Boolean).map(c => (
+                  <label key={c.phone} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 13.5, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={payLinkPhones.includes(c.phone)}
+                      onChange={e => {
+                        if (e.target.checked) setPayLinkPhones(p => [...p, c.phone])
+                        else setPayLinkPhones(p => p.filter(x => x !== c.phone))
+                      }}
+                    />
+                    <span>{c.phone}</span>
+                    <span style={{ color: '#94a3b8', fontSize: 12 }}>({c.label})</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 18px' }}>
+                No phone on file — link will be generated but no SMS sent.
+              </p>
+            )}
+
+            {/* Success result */}
+            {payLinkData && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Link Ready
+                </div>
+                <div style={{ fontSize: 12.5, color: '#065f46', wordBreak: 'break-all', marginBottom: 10, lineHeight: 1.5 }}>
+                  {payLinkData.paymentUrl}
+                </div>
+                <button
+                  className="ied-btn ied-btn--outline"
+                  style={{ fontSize: 12.5, padding: '5px 14px' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(payLinkData.paymentUrl)
+                    setPayLinkCopied(true)
+                    setTimeout(() => setPayLinkCopied(false), 2000)
+                  }}
+                >
+                  {payLinkCopied ? '✓ Copied!' : 'Copy Link'}
+                </button>
+                {payLinkData.sms?.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#15803d', marginTop: 10 }}>
+                    SMS sent to {payLinkData.sms.filter(s => !s.error).length} of {payLinkData.sms.length} number{payLinkData.sms.length !== 1 ? 's' : ''}.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {payLinkError && (
+              <div style={{ background: '#fef2f2', color: '#dc2626', padding: '10px 12px', borderRadius: 8, fontSize: 13.5, marginBottom: 14 }}>
+                {payLinkError}
+              </div>
+            )}
+
+            <div className="ied-modal-actions">
+              <button className="ied-btn ied-btn--outline" onClick={() => setShowPayLink(false)}>
+                Close
+              </button>
+              {!payLinkData ? (
+                <button className="ied-btn ied-btn--primary" onClick={generatePayLink} disabled={payLinkLoading}>
+                  {payLinkLoading ? 'Generating…' : payLinkPhones.length > 0 ? 'Generate & Send SMS' : 'Generate Link'}
+                </button>
+              ) : (
+                <button className="ied-btn ied-btn--outline" onClick={generatePayLink} disabled={payLinkLoading}>
+                  {payLinkLoading ? 'Sending…' : 'Resend SMS'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Mark Paid modal ── */}
       {showPaid && (

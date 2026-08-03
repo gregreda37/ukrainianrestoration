@@ -456,6 +456,9 @@
 .ied-btn--teal { background: #0891b2; color: #fff; }
 .ied-btn--teal:hover:not(:disabled) { background: #0e7490; }
 
+.ied-btn--purple { background: #7c3aed; color: #fff; }
+.ied-btn--purple:hover:not(:disabled) { background: #6d28d9; }
+
 .ied-btn--block { width: 100%; }
 
 .ied-paid-stamp {

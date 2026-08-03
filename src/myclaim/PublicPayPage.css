@@ -1,0 +1,383 @@
+/* ── Shell ── */
+.ppp-shell {
+  min-height: 100vh;
+  background: #f1f5f9;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px 64px;
+  box-sizing: border-box;
+}
+
+/* ── Main card ── */
+.ppp-card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 4px 32px rgba(15,23,42,.1);
+  max-width: 540px;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.ppp-header {
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  padding: 28px 32px;
+  color: #fff;
+}
+
+.ppp-company-name {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 2px;
+}
+
+.ppp-company-phone {
+  font-size: 13.5px;
+  opacity: 0.75;
+}
+
+/* ── Body ── */
+.ppp-body {
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Meta rows ── */
+.ppp-meta-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ppp-meta-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13.5px;
+}
+
+.ppp-meta-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.ppp-meta-value {
+  color: #0f172a;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ── Line items ── */
+.ppp-lines {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ppp-lines-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.ppp-line-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.ppp-line-row:last-child { border-bottom: none; }
+
+.ppp-line-left { flex: 1; }
+
+.ppp-line-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ppp-line-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.ppp-line-total {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  padding-left: 12px;
+}
+
+/* ── Totals ── */
+.ppp-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ppp-total-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13.5px;
+  color: #475569;
+}
+
+.ppp-total-row--discount { color: #16a34a; }
+
+.ppp-total-row--grand {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.ppp-totals-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 6px 0;
+}
+
+/* ── Notes ── */
+.ppp-notes {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.ppp-notes-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.ppp-notes-body {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ── Pay section ── */
+.ppp-pay-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.ppp-fee-hint {
+  font-size: 12.5px;
+  color: #64748b;
+  text-align: center;
+}
+
+/* ── Fee breakdown (inside checkout form) ── */
+.ppp-fee-breakdown {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ppp-fee-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #475569;
+}
+
+.ppp-fee-row--fee { color: #64748b; font-size: 12px; }
+
+.ppp-fee-row--total {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.ppp-fee-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 4px 0;
+}
+
+/* ── Elements wrapper ── */
+.ppp-elements-wrap {
+  margin-bottom: 12px;
+}
+
+/* ── Pay button ── */
+.ppp-pay-btn {
+  width: 100%;
+  padding: 13px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.14s, transform 0.1s;
+}
+.ppp-pay-btn:hover:not(:disabled) { background: #1d4ed8; }
+.ppp-pay-btn:active:not(:disabled) { transform: scale(0.98); }
+.ppp-pay-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Checkout form ── */
+.ppp-checkout-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Errors ── */
+.ppp-form-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  margin-bottom: 12px;
+}
+
+/* ── Secure note ── */
+.ppp-secure-note {
+  font-size: 11.5px;
+  color: #94a3b8;
+  text-align: center;
+  margin: 10px 0 0;
+}
+
+/* ── Footer ── */
+.ppp-footer {
+  padding: 14px 32px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+  background: #fafafa;
+}
+
+/* ── Status pages ── */
+.ppp-status-card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 4px 32px rgba(15,23,42,.1);
+  max-width: 420px;
+  width: 100%;
+  padding: 48px 40px;
+  text-align: center;
+}
+
+.ppp-status-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0 auto 20px;
+}
+
+.ppp-status-icon--ok   { background: #dcfce7; color: #15803d; }
+.ppp-status-icon--warn { background: #fef3c7; color: #d97706; }
+
+.ppp-status-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 10px;
+}
+
+.ppp-status-body {
+  font-size: 15px;
+  color: #334155;
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.ppp-status-sub {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+/* ── Loading ── */
+.ppp-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 80px 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.ppp-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: ppp-spin 0.8s linear infinite;
+}
+
+@keyframes ppp-spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ── */
+@media (max-width: 560px) {
+  .ppp-shell { padding: 0; align-items: stretch; }
+  .ppp-card { border-radius: 0; min-height: 100vh; }
+  .ppp-header { padding: 24px 20px; }
+  .ppp-body { padding: 20px; }
+  .ppp-footer { padding: 14px 20px; }
+  .ppp-status-card { border-radius: 0; min-height: 100vh; padding: 64px 24px; }
+}
+
+/* ── Dark mode ── */
+@media (prefers-color-scheme: dark) {
+  .ppp-shell { background: #0f172a; }
+  .ppp-card { background: #1e293b; box-shadow: 0 4px 32px rgba(0,0,0,.4); }
+  .ppp-company-name { color: #fff; }
+  .ppp-meta-label { color: #94a3b8; }
+  .ppp-meta-value { color: #f1f5f9; }
+  .ppp-lines { border-color: #334155; }
+  .ppp-lines-header { background: #1e293b; color: #64748b; border-color: #334155; }
+  .ppp-line-row { border-color: #1e293b; }
+  .ppp-line-label { color: #f1f5f9; }
+  .ppp-line-desc { color: #64748b; }
+  .ppp-line-total { color: #f1f5f9; }
+  .ppp-total-row { color: #94a3b8; }
+  .ppp-total-row--grand { color: #f1f5f9; }
+  .ppp-totals-divider { background: #334155; }
+  .ppp-notes { background: #0f172a; }
+  .ppp-notes-body { color: #94a3b8; }
+  .ppp-fee-breakdown { background: #0f172a; }
+  .ppp-fee-row { color: #94a3b8; }
+  .ppp-fee-row--total { color: #f1f5f9; }
+  .ppp-fee-divider { background: #334155; }
+  .ppp-fee-hint { color: #64748b; }
+  .ppp-footer { background: #1e293b; border-color: #334155; color: #64748b; }
+  .ppp-status-card { background: #1e293b; }
+  .ppp-status-title { color: #f1f5f9; }
+  .ppp-status-body { color: #94a3b8; }
+}

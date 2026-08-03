@@ -21,6 +21,7 @@ from opensign_backend import opensign_app
 from google_drive_backend import drive_app
 from signing_backend import signing_app
 from ai_analysis_backend import ai_analysis_app
+from stripe_backend import stripe_app
 import requests as http_requests
 import json as json_lib
 from bs4 import BeautifulSoup
@@ -109,6 +110,7 @@ app.register_blueprint(opensign_app)
 app.register_blueprint(drive_app)
 app.register_blueprint(signing_app)
 app.register_blueprint(ai_analysis_app, url_prefix="/ai")
+app.register_blueprint(stripe_app)
 
 HEADERS = {
     "User-Agent": (

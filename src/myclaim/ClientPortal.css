@@ -1139,3 +1139,68 @@
   .cp-modal-actions { flex-direction: column-reverse; }
   .cp-modal-actions .cp-btn { width: 100%; justify-content: center; }
 }
+
+/* ── Invoices & Payments ─────────────────────────────────────────────────── */
+.cp-invoice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+  gap: 12px;
+}
+.cp-invoice-row:last-child { border-bottom: none; }
+.cp-invoice-row--paid { opacity: 0.65; }
+.cp-invoice-row--overdue .cp-invoice-num { color: #dc2626; }
+
+.cp-invoice-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cp-invoice-num {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.cp-invoice-date {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.cp-invoice-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.cp-invoice-amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.cp-invoice-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.cp-invoice-badge--paid    { background: #dcfce7; color: #16a34a; }
+.cp-invoice-badge--overdue { background: #fee2e2; color: #dc2626; }
+
+.cp-invoice-pay-btn {
+  padding: 7px 14px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.cp-invoice-pay-btn:hover { background: #1d4ed8; }

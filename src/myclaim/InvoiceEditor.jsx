@@ -396,12 +396,13 @@ export default function InvoiceEditor() {
   const [logoBase64,     setLogoBase64]     = useState(null)
   const [orgId,          setOrgId]          = useState('')
 
-  const [loading,   setLoading]   = useState(true)
-  const [saving,    setSaving]    = useState(false)
-  const [saveMsg,   setSaveMsg]   = useState('')
-  const [exporting, setExporting] = useState(false)
-  const [addingDoc, setAddingDoc] = useState(false)
-  const [docAdded,  setDocAdded]  = useState(false)
+  const [loading,                setLoading]                = useState(true)
+  const [saving,                 setSaving]                 = useState(false)
+  const [saveMsg,                setSaveMsg]                = useState('')
+  const [exporting,              setExporting]              = useState(false)
+  const [addingDoc,              setAddingDoc]              = useState(false)
+  const [docAdded,               setDocAdded]               = useState(false)
+  const [stripePaymentIntentId,  setStripePaymentIntentId]  = useState(null)
 
   // ── Load ─────────────────────────────────────────────────────────────────
 
@@ -513,6 +514,7 @@ export default function InvoiceEditor() {
           setDiscount(inv.discount != null ? String(inv.discount) : '')
           setNotes(inv.notes || '')
           setTerms(inv.terms || DEFAULT_TERMS)
+          if (inv.stripePaymentIntentId) setStripePaymentIntentId(inv.stripePaymentIntentId)
         }
       }
     } finally {
@@ -801,6 +803,11 @@ export default function InvoiceEditor() {
           <span className="ied-topbar-label">{isEstimate ? 'Estimate' : isReceipt ? 'Receipt' : 'Invoice'}</span>
           {invNumber && <span className="ied-topbar-num">{invNumber}</span>}
           <span className="ied-status-badge ied-status-badge--small" data-status={status}>{status}</span>
+          {stripePaymentIntentId && status === 'paid' && (
+            <span className="ied-stripe-badge" title={`Stripe payment: ${stripePaymentIntentId}`}>
+              ⚡ Paid via Stripe
+            </span>
+          )}
         </div>
         <div className="ied-topbar-actions">
           {isEstimate && status !== 'converted' && (
@@ -808,7 +815,7 @@ export default function InvoiceEditor() {
               → Convert to Invoice
             </button>
           )}
-          {(type === 'invoice') && status !== 'paid' && (
+          {(type === 'invoice') && status !== 'paid' && !stripePaymentIntentId && (
             <button className="ied-btn ied-btn--green" onClick={() => setShowPaid(true)}>
               Mark Paid
             </button>

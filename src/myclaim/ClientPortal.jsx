@@ -15,6 +15,7 @@ import { useAuth } from "./useAuth";
 import InsurerCombobox from "./InsurerCombobox";
 import "./ClientPortal.css";
 import SigningModal from "./SigningModal";
+import StripePayModal from "./StripePayModal";
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 const CheckIcon      = ({size=14}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width={size} height={size}><polyline points="20 6 9 17 4 12"/></svg>;
@@ -73,7 +74,7 @@ const TODO_TYPE_INFO = {
 
 const MITIGATION_STEPS    = ["Claim Submitted","Mitigation in Progress","Mitigation Completed","Estimate Submitted","Estimate Approved"];
 const CONSTRUCTION_STEPS  = ["Construction Estimate Received","Construction Estimate Approved","Construction Beginning","Construction Completes"];
-const PORTAL_DEFAULTS     = { todos:true, mitigationProgress:true, constructionProgress:true, budget:true, selections:true, photos:true };
+const PORTAL_DEFAULTS     = { todos:true, mitigationProgress:true, constructionProgress:true, budget:true, selections:true, photos:true, invoices:true };
 
 // ── Progress tracker component ──────────────────────────────────────────────
 function ProgressTracker({ steps, currentStep = -1 }) {
@@ -140,6 +141,8 @@ export default function ClientPortal() {
   const photoTouchX = useRef(null);
   const [portalSections, setPortalSections] = useState(PORTAL_DEFAULTS);
   const [budgetItems,    setBudgetItems]    = useState([]);
+  const [invoices,       setInvoices]       = useState([]);
+  const [payingInvoice,  setPayingInvoice]  = useState(null);
   const [showDoneTodos,  setShowDoneTodos]  = useState(false);
   const [driveConnected,        setDriveConnected]        = useState(false);
   const [driveExternalFolderId, setDriveExternalFolderId] = useState('');
@@ -288,11 +291,17 @@ export default function ClientPortal() {
       getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"),      orderBy("createdAt",  "asc"))).catch(() => null),
       getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "selections"), orderBy("addedAt",    "asc"))).catch(() => null),
       getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "budget"),     orderBy("addedAt",    "asc"))).catch(() => null),
-    ]).then(([docsSnap, todosSnap, selectionsSnap, budgetSnap]) => {
+      getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocId, "invoices"),   orderBy("issueDate",  "desc"))).catch(() => null),
+    ]).then(([docsSnap, todosSnap, selectionsSnap, budgetSnap, invoicesSnap]) => {
       if (docsSnap) setDocuments(docsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       if (todosSnap) setTodos(todosSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.assignedTo !== "contractor"));
       if (selectionsSnap) setSelections(selectionsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       if (budgetSnap) setBudgetItems(budgetSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      if (invoicesSnap) setInvoices(
+        invoicesSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(inv => inv.type === "invoice")
+      );
     }).catch(console.error);
   }, [clientDocId, orgId]);
 
@@ -951,6 +960,47 @@ export default function ClientPortal() {
               </div>
             )}
 
+            {/* Invoices & Payments */}
+            {portalSections.invoices && invoices.length > 0 && (
+              <div className="cp-card">
+                <div className="cp-card-head">
+                  <h2 className="cp-card-title">Invoices &amp; Payments</h2>
+                </div>
+                {invoices.map(inv => {
+                  const isPaid     = inv.status === "paid";
+                  const isOverdue  = inv.status === "overdue";
+                  const isPending  = ["sent","overdue","draft"].includes(inv.status) && !isPaid;
+                  const fmtAmt     = (n) => (n??0).toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2});
+                  return (
+                    <div key={inv.id} className={`cp-invoice-row${isPaid?" cp-invoice-row--paid":""}${isOverdue?" cp-invoice-row--overdue":""}`}>
+                      <div className="cp-invoice-info">
+                        <span className="cp-invoice-num">{inv.invoiceNumber || "Invoice"}</span>
+                        <span className="cp-invoice-date">
+                          {inv.dueDate ? `Due ${inv.dueDate}` : inv.issueDate || ""}
+                        </span>
+                      </div>
+                      <div className="cp-invoice-right">
+                        <span className="cp-invoice-amount">{fmtAmt(inv.total)}</span>
+                        {isPaid ? (
+                          <span className="cp-invoice-badge cp-invoice-badge--paid">Paid</span>
+                        ) : isOverdue ? (
+                          <span className="cp-invoice-badge cp-invoice-badge--overdue">Overdue</span>
+                        ) : null}
+                        {isPending && (
+                          <button
+                            className="cp-invoice-pay-btn"
+                            onClick={() => setPayingInvoice(inv)}
+                          >
+                            Pay Now
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Photos */}
             {companyCamProjectId && portalSections.photos && (
               <div className="cp-card">
@@ -1324,6 +1374,24 @@ export default function ClientPortal() {
           user={user}
           onSigned={markSigned}
           onClose={() => setSigningTodo(null)}
+        />
+      )}
+
+      {/* ── Stripe payment modal ────────────────────────────────────────────── */}
+      {payingInvoice && (
+        <StripePayModal
+          invoice={payingInvoice}
+          orgId={orgId}
+          clientDocId={clientDocId}
+          user={user}
+          onSuccess={() => {
+            setInvoices(prev =>
+              prev.map(inv =>
+                inv.id === payingInvoice.id ? { ...inv, status: "paid", stripeStatus: "succeeded" } : inv
+              )
+            );
+          }}
+          onClose={() => setPayingInvoice(null)}
         />
       )}
     </div>

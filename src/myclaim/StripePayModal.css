@@ -1,0 +1,236 @@
+/* ── Stripe Pay Modal ──────────────────────────────────────────────────────── */
+.spm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  padding: 16px;
+}
+
+.spm-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+  animation: spm-in 0.22s ease;
+}
+
+@keyframes spm-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* Header */
+.spm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.spm-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px;
+}
+.spm-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+.spm-close {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+  margin-left: 8px;
+}
+.spm-close:hover { color: #0f172a; background: #f1f5f9; }
+
+/* Fee breakdown */
+.spm-breakdown {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 20px 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.spm-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #475569;
+}
+.spm-breakdown-fee {
+  color: #64748b;
+  font-size: 12px;
+}
+.spm-breakdown-total {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 2px;
+}
+
+/* Payment element */
+.spm-form { padding: 0 24px 24px; }
+.spm-element-wrap {
+  margin: 20px 0 16px;
+  min-height: 140px;
+}
+
+/* Error */
+.spm-error {
+  font-size: 13px;
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0 0 14px;
+}
+
+/* Actions */
+.spm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.spm-btn-cancel {
+  padding: 10px 18px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.spm-btn-cancel:hover:not(:disabled) { background: #f8fafc; border-color: #cbd5e1; }
+.spm-btn-cancel:disabled { opacity: 0.5; cursor: default; }
+
+.spm-btn-pay {
+  padding: 10px 22px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s, opacity 0.15s;
+}
+.spm-btn-pay:hover:not(:disabled) { background: #1d4ed8; }
+.spm-btn-pay:disabled { opacity: 0.6; cursor: default; }
+
+/* Spinner */
+.spm-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spm-spin 0.7s linear infinite;
+}
+.spm-spinner--lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+  border-color: #e2e8f0;
+  border-top-color: #2563eb;
+}
+@keyframes spm-spin { to { transform: rotate(360deg); } }
+
+/* Loading state */
+.spm-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 24px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* Init error */
+.spm-init-error {
+  padding: 24px;
+  text-align: center;
+  color: #dc2626;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+/* Success state */
+.spm-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 24px 32px;
+  text-align: center;
+}
+.spm-success-icon {
+  width: 52px;
+  height: 52px;
+  background: #dcfce7;
+  color: #16a34a;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+}
+.spm-success h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+.spm-success p {
+  font-size: 14px;
+  color: #475569;
+  margin: 0;
+  max-width: 340px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  .spm-modal { background: #1e293b; }
+  .spm-header { border-color: #334155; }
+  .spm-title { color: #f1f5f9; }
+  .spm-subtitle { color: #94a3b8; }
+  .spm-close:hover { background: #334155; color: #f1f5f9; }
+  .spm-breakdown { background: #0f172a; }
+  .spm-breakdown-row { color: #94a3b8; }
+  .spm-breakdown-total { color: #f1f5f9; border-color: #334155; }
+  .spm-btn-cancel { background: #1e293b; border-color: #334155; color: #94a3b8; }
+  .spm-btn-cancel:hover:not(:disabled) { background: #334155; }
+  .spm-success h3 { color: #f1f5f9; }
+  .spm-success p { color: #94a3b8; }
+}

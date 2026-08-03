@@ -644,6 +644,27 @@ export default function InvoiceEditor() {
         inv.createdBy = user.uid
         const newRef = await addDoc(invColRef, inv)
         await writeSummary(newRef.id, inv.status, 0)
+
+        // Auto-create a pay_invoice todo so the contractor doesn't have to
+        if (type === 'invoice' && clientDocId) {
+          const todoRef = await addDoc(
+            collection(db, 'organization_data', orgId, 'clients', clientDocId, 'todos'),
+            {
+              label:         `Pay ${num} — ${fmtMoney(totals.total)}`,
+              type:          'pay_invoice',
+              assignedTo:    'client',
+              completed:     false,
+              invoiceId:     newRef.id,
+              invoiceNumber: num,
+              amount:        totals.total,
+              createdAt:     serverTimestamp(),
+            }
+          )
+          setPaymentLinkTodoId(todoRef.id)
+          // Store the todo ID on the invoice so generatePayLink and the webhook can find it
+          updateDoc(newRef, { paymentLinkTodoId: todoRef.id }).catch(() => {})
+        }
+
         navigate(`/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${newRef.id}`, { replace: true })
       } else {
         const invDocRef = clientUid

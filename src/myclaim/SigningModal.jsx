@@ -190,6 +190,10 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
       userAgent:   navigator.userAgent.slice(0, 200),
     };
 
+    // When contractor signed first, the client is counter-signing — backend must use
+    // the combined two-party certificate instead of the client-only cert page.
+    const isCounterSign = !!(todo.contractorFirst && todo.contractorSigned);
+
     let payload;
     if (hasFields) {
       payload = {
@@ -204,6 +208,7 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
           value: fieldValues[f.id] || "",
         })),
         ...auditMeta,
+        ...(isCounterSign ? { contractorFirst: true } : {}),
       };
     } else {
       payload = {
@@ -214,6 +219,7 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
         userId:           user.uid,
         docName:          todo.label || "document",
         ...auditMeta,
+        ...(isCounterSign ? { contractorFirst: true } : {}),
       };
     }
 

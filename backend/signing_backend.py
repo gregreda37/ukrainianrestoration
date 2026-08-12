@@ -357,18 +357,19 @@ def sign_document():
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
-    data         = request.json or {}
-    pdf_url      = data.get("pdfUrl",          "").strip()
-    signer_name  = data.get("signerName",      "").strip()
-    todo_id      = data.get("todoId",          "unknown")
-    user_id      = data.get("userId",          user["uid"])
-    doc_name     = data.get("docName",         "document").strip()
-    fields       = data.get("fields")          # list of field objects, or None
-    sig_data_url = data.get("signatureDataUrl","").strip()   # legacy
-    signer_email = data.get("signerEmail",     "").strip()
-    signer_ip    = data.get("signerIp",        "").strip()
-    signer_phone = data.get("signerPhone",     "").strip()
-    user_agent   = data.get("userAgent",       "").strip()
+    data             = request.json or {}
+    pdf_url          = data.get("pdfUrl",          "").strip()
+    signer_name      = data.get("signerName",      "").strip()
+    todo_id          = data.get("todoId",          "unknown")
+    user_id          = data.get("userId",          user["uid"])
+    doc_name         = data.get("docName",         "document").strip()
+    fields           = data.get("fields")          # list of field objects, or None
+    sig_data_url     = data.get("signatureDataUrl","").strip()   # legacy
+    signer_email     = data.get("signerEmail",     "").strip()
+    signer_ip        = data.get("signerIp",        "").strip()
+    signer_phone     = data.get("signerPhone",     "").strip()
+    user_agent       = data.get("userAgent",       "").strip()
+    contractor_first = data.get("contractorFirst", False)  # client counter-signing after contractor
 
     if not pdf_url:
         return jsonify({"error": "pdfUrl required"}), 400
@@ -396,7 +397,7 @@ def sign_document():
             return jsonify({"error": "fields or signatureDataUrl required"}), 400
 
         signed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        _add_certificate_page(doc, {
+        cert_data = {
             "docName":     doc_name,
             "todoId":      todo_id,
             "signerName":  signer_name,
@@ -406,7 +407,22 @@ def sign_document():
             "userAgent":   user_agent,
             "signedAt":    signed_at,
             "fields":      fields or [],
-        })
+        }
+        if contractor_first:
+            # Client is counter-signing after contractor — read persisted contractor audit
+            # and produce the final combined two-party certificate.
+            contractor_audit = {}
+            if todo_id and todo_id != "unknown":
+                try:
+                    _db = admin_firestore.client()
+                    _snap = _db.collection("signing_audits").document(todo_id).get()
+                    if _snap.exists:
+                        contractor_audit = _snap.get("contractorAudit") or {}
+                except Exception as exc:
+                    print(f"[sign] Could not read contractorAudit: {exc}")
+            _add_combined_certificate(doc, client_audit=cert_data, contractor_audit=contractor_audit)
+        else:
+            _add_certificate_page(doc, cert_data)
         signed_bytes = doc.tobytes(garbage=4, deflate=True)
         doc.close()
     except Exception as exc:
@@ -469,6 +485,7 @@ def contractor_sign():
     contractor_email   = data.get("contractorEmail",  "").strip()
     contractor_ip      = data.get("contractorIp",     "").strip()
     contractor_fields  = data.get("contractorFields") # list of positioned fields, or None
+    contractor_first   = data.get("contractorFirst",  False)  # True when contractor signs before client
 
     if not signed_pdf_url or not sig_data_url or not contractor_name:
         return jsonify({"error": "signedPdfUrl, signatureDataUrl, and contractorName required"}), 400
@@ -481,37 +498,27 @@ def contractor_sign():
     except Exception as exc:
         return jsonify({"error": f"Could not download signed PDF: {exc}"}), 502
 
-    # ── Read client audit metadata from Firestore ────────────────────────────
-    client_audit = {}
-    if client_uid and todo_id and todo_id != "unknown":
-        try:
-            db          = admin_firestore.client()
-            todo_snap   = db.collection("users").document(client_uid).collection("todos").document(todo_id).get()
-            if todo_snap.exists:
-                client_audit = todo_snap.get("clientAudit") or {}
-        except Exception as exc:
-            print(f"[contractor-sign] Could not read clientAudit from Firestore: {exc}")
-
-    # ── Apply contractor signatures ──────────────────────────────────────────
+    # ── Apply contractor signatures & finalize PDF ───────────────────────────
+    ctr_signed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     try:
         sig_bytes = base64.b64decode(sig_data_url.split(",", 1)[-1])
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-        # Log what we received so positioning issues are visible in Cloud Run logs
-        print(f"[contractor-sign] todo={todo_id} contractor_fields={contractor_fields!r} "
-              f"doc_pages={len(doc)}")
+        print(f"[contractor-sign] todo={todo_id} contractorFirst={contractor_first} "
+              f"contractor_fields={contractor_fields!r} doc_pages={len(doc)}")
 
         if contractor_fields is not None and len(contractor_fields) > 0:
-            # Template-positioned or ad-hoc fields — use exact coordinates
             print(f"[contractor-sign] template/adhoc mode: {len(contractor_fields)} field(s)")
             _composite_fields(doc, contractor_fields)
         elif contractor_fields is not None and len(contractor_fields) == 0:
-            # Explicitly empty list — no contractor sig placement needed
             print("[contractor-sign] empty field list — no placement")
         else:
-            # Legacy fallback: fixed block on last content page (page before client cert)
-            print("[contractor-sign] legacy fallback mode")
-            page = doc[max(0, len(doc) - 2)]
+            # Legacy fallback: fixed block on a content page.
+            # contractor_first=True  → last page IS content (no cert page yet)
+            # contractor_first=False → last page is the client cert; target page before it
+            target_page_idx = max(0, len(doc) - 1) if contractor_first else max(0, len(doc) - 2)
+            print(f"[contractor-sign] legacy fallback mode, page={target_page_idx}")
+            page = doc[target_page_idx]
             pw, ph = page.rect.width, page.rect.height
             margin  = 30
             block_h = 85
@@ -535,30 +542,41 @@ def contractor_sign():
                              datetime.utcnow().strftime("%B %d, %Y"),
                              fontsize=7, color=(0.35, 0.45, 0.35))
 
-        ctr_signed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        if contractor_first:
+            # Contractor is signing first — no cert page yet.
+            # Save the contractor-signed PDF and persist audit data so /sign can
+            # create the combined certificate when the client counter-signs.
+            signed_bytes = doc.tobytes(garbage=4, deflate=True)
+            doc.close()
+        else:
+            # Client has already signed — read their audit, remove the client-only
+            # cert page, and replace it with a comprehensive combined certificate.
+            client_audit = {}
+            if client_uid and todo_id and todo_id != "unknown":
+                try:
+                    db = admin_firestore.client()
+                    todo_snap = db.collection("users").document(client_uid).collection("todos").document(todo_id).get()
+                    if todo_snap.exists:
+                        client_audit = todo_snap.get("clientAudit") or {}
+                except Exception as exc:
+                    print(f"[contractor-sign] Could not read clientAudit: {exc}")
 
-        # Remove the client-only certificate page (always the last page added by /sign)
-        # and replace it with a single comprehensive combined certificate.
-        if len(doc) > 1:
-            doc.delete_page(-1)
+            if len(doc) > 1:
+                doc.delete_page(-1)
 
-        _add_combined_certificate(doc,
-            client_audit={
-                **client_audit,
-                "docName": doc_name,
-                "todoId":  todo_id,
-            },
-            contractor_audit={
-                "name":     contractor_name,
-                "email":    contractor_email,
-                "ip":       contractor_ip,
-                "signedAt": ctr_signed_at,
-                "fields":   contractor_fields or [],
-            },
-        )
+            _add_combined_certificate(doc,
+                client_audit={**client_audit, "docName": doc_name, "todoId": todo_id},
+                contractor_audit={
+                    "name":     contractor_name,
+                    "email":    contractor_email,
+                    "ip":       contractor_ip,
+                    "signedAt": ctr_signed_at,
+                    "fields":   contractor_fields or [],
+                },
+            )
+            signed_bytes = doc.tobytes(garbage=4, deflate=True)
+            doc.close()
 
-        signed_bytes = doc.tobytes(garbage=4, deflate=True)
-        doc.close()
     except Exception as exc:
         return jsonify({"error": f"Could not process PDF: {exc}"}), 500
 
@@ -589,6 +607,24 @@ def contractor_sign():
 
     except Exception as exc:
         return jsonify({"error": f"Could not save countersigned PDF: {exc}"}), 500
+
+    # ── Persist contractor audit for later combined cert (contractor-first flow) ──
+    if contractor_first and todo_id and todo_id != "unknown":
+        try:
+            db = admin_firestore.client()
+            db.collection("signing_audits").document(todo_id).set({
+                "contractorAudit": {
+                    "name":     contractor_name,
+                    "email":    contractor_email,
+                    "ip":       contractor_ip,
+                    "signedAt": ctr_signed_at,
+                    "docName":  doc_name,
+                    "todoId":   todo_id,
+                    "fields":   contractor_fields or [],
+                }
+            }, merge=True)
+        except Exception as exc:
+            print(f"[contractor-sign] Could not persist contractorAudit: {exc}")
 
     return jsonify({
         "contractorSignedDocUrl": countersigned_url,

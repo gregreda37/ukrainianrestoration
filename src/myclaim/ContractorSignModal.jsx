@@ -37,7 +37,7 @@ const todayStr = () => new Date().toLocaleDateString("en-US", {
   month: "long", day: "numeric", year: "numeric",
 });
 
-export default function ContractorSignModal({ todo, clientUid, user, onCounterSigned, onClose, sourcePdfUrl }) {
+export default function ContractorSignModal({ todo, clientUid, user, onCounterSigned, onClose, sourcePdfUrl, contractorFirst = false }) {
   const contractorFields = (todo?.templateFields || []).filter(f => f.signer === "contractor");
   const hasTemplateFields = contractorFields.length > 0;
 
@@ -253,6 +253,7 @@ export default function ContractorSignModal({ todo, clientUid, user, onCounterSi
           todoId:           todo.id,
           clientUid,
           docName:          todo.label || "document",
+          contractorFirst,
         }),
       });
       const result = await resp.json();

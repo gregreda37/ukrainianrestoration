@@ -75,6 +75,7 @@ export default function InvoiceReport() {
   const [summaries,       setSummaries]       = useState([])
   const [settlements,     setSettlements]     = useState([])
   const [partners,        setPartners]        = useState([])
+  const [addrByPhone,     setAddrByPhone]     = useState({})
   const [loading,         setLoading]         = useState(true)
   const [orgName,         setOrgName]         = useState('')
   const [selectedYear,    setSelectedYear]    = useState(new Date().getFullYear())
@@ -98,14 +99,21 @@ export default function InvoiceReport() {
       const orgSnap = await getDoc(doc(db, 'organization_data', oid))
       if (orgSnap.exists()) setOrgName(orgSnap.data().companyName || '')
 
-      const [invSnap, settSnap, partnerSnap] = await Promise.all([
+      const [invSnap, settSnap, partnerSnap, clientsSnap] = await Promise.all([
         getDocs(collection(db, 'organization_data', oid, 'invoice_summary')),
         getDocs(collection(db, 'organization_data', oid, 'settlement_summary')),
         getDocs(collection(db, 'organization_data', oid, 'partners')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'organization_data', oid, 'clients')).catch(() => ({ docs: [] })),
       ])
       setSummaries(invSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       setSettlements(settSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       setPartners(partnerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const map = {}
+      clientsSnap.docs.forEach(d => {
+        const { phone, address } = d.data()
+        if (phone && address) map[phone] = address
+      })
+      setAddrByPhone(map)
     } finally {
       setLoading(false)
     }
@@ -325,9 +333,10 @@ const sn = v => parseFloat(v) || 0
       const avgDays   = paidInvs.length
         ? Math.round(paidInvs.reduce((s, i) => s + (i.paidAt.toDate() - new Date(i.issueDate + 'T12:00:00')) / 86400000, 0) / paidInvs.length)
         : null
-      return { ...c, billed, collected, outstanding: billed - collected, avgDays, status: clientStatus(c.invoices), count: c.invoices.length }
+      const address = c.phone ? (addrByPhone[c.phone] || '') : ''
+      return { ...c, address, billed, collected, outstanding: billed - collected, avgDays, status: clientStatus(c.invoices), count: c.invoices.length }
     }).sort((a, b) => b.outstanding - a.outstanding)
-  }, [allInvoices])
+  }, [allInvoices, addrByPhone])
 
   // ── Estimate conversion (lifetime) ──
   const estTotal     = allEstimatesLifetime.length
@@ -1190,6 +1199,7 @@ const sn = v => parseFloat(v) || 0
                     style={{ cursor: c.phone ? 'pointer' : 'default' }}>
                     <td>
                       <div className="ir-client-name">{c.name || '—'}</div>
+                      {c.address && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{c.address}</div>}
                       {c.phone && <div className="ir-client-phone">{c.phone}</div>}
                     </td>
                     <td className="ir-num">{c.count}</td>

@@ -2212,7 +2212,15 @@ export default function ClientDetail() {
                           <span className="cd-todo-countersigned-badge">Fully Signed ✓</span>
                         )}
                         {todo.type === "sign_forms" && (todo.signedDocumentUrl || todo.contractorSignedDocUrl) && (
-                          <a href={todo.contractorSignedDocUrl || todo.signedDocumentUrl} target="_blank" rel="noreferrer"
+                          <a
+                            href={
+                              // contractor-first: client signs last so signedDocumentUrl is the final combined PDF
+                              // client-first: contractor signs last so contractorSignedDocUrl is the final combined PDF
+                              (todo.contractorFirst && todo.completed && todo.signedDocumentUrl)
+                                ? todo.signedDocumentUrl
+                                : (todo.contractorSignedDocUrl || todo.signedDocumentUrl)
+                            }
+                            target="_blank" rel="noreferrer"
                             className="cd-todo-signed-link" onClick={e => e.stopPropagation()}>
                             Download
                           </a>

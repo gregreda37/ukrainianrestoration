@@ -475,11 +475,12 @@ export default function ClientPortal() {
       ));
       setSigningTodo(null);
 
-      // Save a copy to the client's Documents section so it's always findable
-      if (signedDocumentUrl && orgId && clientDocId) {
-        const isFullySigned = !!(todo.contractorFirst && todo.contractorSigned);
+      // Save to client files only once all signatures are collected.
+      // Contractor-first: client signs last, so this IS the final combined doc.
+      // Client-first: contractor signs last via onCounterSigned in ClientDetail, which handles saving.
+      if (signedDocumentUrl && orgId && clientDocId && todo.contractorFirst && todo.contractorSigned) {
         addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "documents"), {
-          name:        `${todo.label || "Signed Document"}${isFullySigned ? " (Fully Signed)" : " (Client Signed)"}`,
+          name:        `${todo.label || "Signed Document"} (Fully Signed)`,
           downloadURL: signedDocumentUrl,
           folder:      "client",
           uploadedAt:  serverTimestamp(),

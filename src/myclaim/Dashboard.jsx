@@ -304,7 +304,10 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                   : null
                 return (
                   <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
-                    <td className="oil-td oil-td--client">{s.clientName || '—'}</td>
+                    <td className="oil-td oil-td--client">
+                      <div>{s.clientName || '—'}</div>
+                      {s.clientAddress && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{s.clientAddress}</div>}
+                    </td>
                     <td className="oil-td oil-td--num">{s.claimNumber || '—'}</td>
                     <td className="oil-td">{s.insuranceCompany || '—'}</td>
                     <td className="oil-td oil-td--amount">{fmtMoney(settled)}</td>
@@ -361,6 +364,7 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                   <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
                     <td className="oil-td oil-td--client">
                       <div>{s.clientName || '—'}</div>
+                      {s.clientAddress && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{s.clientAddress}</div>}
                       {fee > 0 && (
                         <span className="oil-fee-basis-chip">
                           fee {s.partnerFeeOnNet ? 'on net' : 'on gross'}

@@ -474,6 +474,18 @@ export default function ClientPortal() {
         t.id === todo.id ? { ...t, completed: true, ...(signedDocumentUrl ? { signedDocumentUrl } : {}) } : t
       ));
       setSigningTodo(null);
+
+      // Save a copy to the client's Documents section so it's always findable
+      if (signedDocumentUrl && orgId && clientDocId) {
+        const isFullySigned = !!(todo.contractorFirst && todo.contractorSigned);
+        addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "documents"), {
+          name:        `${todo.label || "Signed Document"}${isFullySigned ? " (Fully Signed)" : " (Client Signed)"}`,
+          downloadURL: signedDocumentUrl,
+          folder:      "client",
+          uploadedAt:  serverTimestamp(),
+          type:        "signed_contract",
+        }).catch(() => {});
+      }
     } catch (err) { console.error("markSigned error:", err); }
   };
 

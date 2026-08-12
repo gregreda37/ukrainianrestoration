@@ -622,7 +622,8 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
     setPaidAmounts(prev => ({ ...prev, [catKey]: newPaidAmt }))
     setTogglingCat(catKey)
     try {
-      const allPaid = CATEGORIES.every(c => {
+      const totalSettledAmt = CATEGORIES.reduce((sum, c) => sum + n(s[`${c.key}Settled`]), 0)
+      const allPaid = totalSettledAmt > 0 && CATEGORIES.every(c => {
         const s2 = n(s[`${c.key}Settled`])
         return s2 <= 0 || newCatPaid[c.key]
       })
@@ -666,7 +667,8 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
     setCatPaid(newCatPaid)
     setSavingPaidAmt(catKey)
     try {
-      const allPaid = CATEGORIES.every(c => {
+      const totalSettledAmt = CATEGORIES.reduce((sum, c) => sum + n(s[`${c.key}Settled`]), 0)
+      const allPaid = totalSettledAmt > 0 && CATEGORIES.every(c => {
         const s2 = n(s[`${c.key}Settled`])
         return s2 <= 0 || newCatPaid[c.key]
       })

@@ -259,7 +259,7 @@ export default function ContractorSignModal({ todo, clientUid, user, onCounterSi
       const result = await resp.json();
       if (!resp.ok) throw new Error(result.error || "Counter-signing failed");
 
-      await onCounterSigned(todo, result.contractorSignedDocUrl, result.clientDocUrl);
+      await onCounterSigned(todo, result.contractorSignedDocUrl, result.clientDocUrl, result.contractorAudit || null);
       setDone(true);
     } catch (err) {
       setSignError(err.message || "Something went wrong.");

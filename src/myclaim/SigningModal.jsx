@@ -208,7 +208,7 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
           value: fieldValues[f.id] || "",
         })),
         ...auditMeta,
-        ...(isCounterSign ? { contractorFirst: true } : {}),
+        ...(isCounterSign ? { contractorFirst: true, contractorAudit: todo.contractorAudit || null } : {}),
       };
     } else {
       payload = {
@@ -219,7 +219,7 @@ export default function SigningModal({ todo, user, onSigned, onClose }) {
         userId:           user.uid,
         docName:          todo.label || "document",
         ...auditMeta,
-        ...(isCounterSign ? { contractorFirst: true } : {}),
+        ...(isCounterSign ? { contractorFirst: true, contractorAudit: todo.contractorAudit || null } : {}),
       };
     }
 

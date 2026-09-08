@@ -409,17 +409,19 @@ def sign_document():
             "fields":      fields or [],
         }
         if contractor_first:
-            # Client is counter-signing after contractor — read persisted contractor audit
-            # and produce the final combined two-party certificate.
-            contractor_audit = {}
-            if todo_id and todo_id != "unknown":
+            # Client is counter-signing after contractor — obtain contractor audit data.
+            # Primary: passed directly in the request payload (saved on the todo doc by
+            # the frontend after the contractor signed, so no cross-request lookup needed).
+            # Fallback: signing_audits/{todoId} collection (legacy / backup path).
+            contractor_audit = data.get("contractorAudit") or {}
+            if not contractor_audit and todo_id and todo_id != "unknown":
                 try:
                     _db = admin_firestore.client()
                     _snap = _db.collection("signing_audits").document(todo_id).get()
                     if _snap.exists:
                         contractor_audit = _snap.get("contractorAudit") or {}
                 except Exception as exc:
-                    print(f"[sign] Could not read contractorAudit: {exc}")
+                    print(f"[sign] Could not read contractorAudit from signing_audits: {exc}")
             _add_combined_certificate(doc, client_audit=cert_data, contractor_audit=contractor_audit)
         else:
             _add_certificate_page(doc, cert_data)
@@ -608,25 +610,42 @@ def contractor_sign():
     except Exception as exc:
         return jsonify({"error": f"Could not save countersigned PDF: {exc}"}), 500
 
-    # ── Persist contractor audit for later combined cert (contractor-first flow) ──
+    # ── Build contractor audit record (strip image data to keep size small) ──────
+    # Image data is already composited into the PDF; only metadata is needed for
+    # the combined certificate page and downstream Firestore storage.
+    stripped_fields = []
+    for f in (contractor_fields or []):
+        ftype = f.get("type", "")
+        stripped_fields.append({
+            "type":      ftype,
+            "pageIndex": f.get("pageIndex", 0),
+            "value":     "[signed]" if ftype in ("signature", "initials") else str(f.get("value", ""))[:200],
+        })
+    contractor_audit_record = {
+        "name":     contractor_name,
+        "email":    contractor_email,
+        "ip":       contractor_ip,
+        "signedAt": ctr_signed_at,
+        "docName":  doc_name,
+        "todoId":   todo_id,
+        "fields":   stripped_fields,
+    }
+
+    # Persist to signing_audits as a backup (frontend is the primary path now).
     if contractor_first and todo_id and todo_id != "unknown":
         try:
             db = admin_firestore.client()
             db.collection("signing_audits").document(todo_id).set({
-                "contractorAudit": {
-                    "name":     contractor_name,
-                    "email":    contractor_email,
-                    "ip":       contractor_ip,
-                    "signedAt": ctr_signed_at,
-                    "docName":  doc_name,
-                    "todoId":   todo_id,
-                    "fields":   contractor_fields or [],
-                }
+                "contractorAudit": contractor_audit_record,
             }, merge=True)
         except Exception as exc:
-            print(f"[contractor-sign] Could not persist contractorAudit: {exc}")
+            print(f"[contractor-sign] Could not persist contractorAudit to signing_audits: {exc}")
 
-    return jsonify({
+    resp_body = {
         "contractorSignedDocUrl": countersigned_url,
         "clientDocUrl":           client_doc_url,
-    })
+    }
+    if contractor_first:
+        resp_body["contractorAudit"] = contractor_audit_record
+
+    return jsonify(resp_body)

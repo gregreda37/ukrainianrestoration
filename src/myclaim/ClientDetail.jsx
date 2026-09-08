@@ -2685,7 +2685,7 @@ export default function ClientDetail() {
           clientUid={clientUid}
           user={user}
           contractorFirst={true}
-          onCounterSigned={async (todo, contractorSignedDocUrl) => {
+          onCounterSigned={async (todo, contractorSignedDocUrl, _clientDocUrl, contractorAudit) => {
             const { updateDoc, doc: firestoreDoc, serverTimestamp: st } = await import("firebase/firestore");
             const todoRef = firestoreDoc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id);
             await updateDoc(todoRef, {
@@ -2693,6 +2693,7 @@ export default function ClientDetail() {
               contractorSignedAt: st(),
               contractorSignedDocUrl,
               assignedTo: "client",
+              ...(contractorAudit ? { contractorAudit } : {}),
             });
             setTodos(prev => prev.map(t => t.id === todo.id
               ? { ...t, contractorSigned: true, contractorSignedDocUrl, assignedTo: "client" }

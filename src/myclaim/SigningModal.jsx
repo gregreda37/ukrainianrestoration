@@ -34,7 +34,7 @@ function initPad(canvas, opts = {}) {
   });
 }
 
-export default function SigningModal({ todo, user, orgId, onSigned, onClose }) {
+export default function SigningModal({ todo, user, onSigned, onClose }) {
   const templateFields = (todo?.templateFields || []).filter(
     f => !f.signer || f.signer === "client"
   );
@@ -201,7 +201,6 @@ export default function SigningModal({ todo, user, orgId, onSigned, onClose }) {
         signerName: signerName.trim(),
         todoId:     todo.id,
         userId:     user.uid,
-        orgId:      orgId || "",
         docName:    todo.label || "document",
         fields:     templateFields.map(f => ({
           type: f.type, pageIndex: f.pageIndex,
@@ -218,7 +217,6 @@ export default function SigningModal({ todo, user, orgId, onSigned, onClose }) {
         signerName:       signerName.trim(),
         todoId:           todo.id,
         userId:           user.uid,
-        orgId:            orgId || "",
         docName:          todo.label || "document",
         ...auditMeta,
         ...(isCounterSign ? { contractorFirst: true, contractorAudit: todo.contractorAudit || null } : {}),

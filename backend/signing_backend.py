@@ -362,7 +362,6 @@ def sign_document():
     signer_name      = data.get("signerName",      "").strip()
     todo_id          = data.get("todoId",          "unknown")
     user_id          = data.get("userId",          user["uid"])
-    org_id           = data.get("orgId",           "").strip()
     doc_name         = data.get("docName",         "document").strip()
     fields           = data.get("fields")          # list of field objects, or None
     sig_data_url     = data.get("signatureDataUrl","").strip()   # legacy
@@ -435,8 +434,7 @@ def sign_document():
     try:
         bucket    = admin_storage.bucket(BUCKET_NAME)
         safe_name = doc_name.replace(" ", "_").replace("/", "_")
-        storage_uid = org_id or user_id
-        blob_path = f"users/{storage_uid}/documents/signed/{todo_id}/{safe_name}_signed.pdf"
+        blob_path = f"users/{user_id}/documents/signed/{todo_id}/{safe_name}_signed.pdf"
         blob      = bucket.blob(blob_path)
 
         token = str(uuid.uuid4())
@@ -485,7 +483,6 @@ def contractor_sign():
     sig_data_url       = data.get("signatureDataUrl", "").strip()
     todo_id            = data.get("todoId",           "unknown")
     client_uid         = data.get("clientUid",        "")
-    org_id             = data.get("orgId",            "").strip()
     doc_name           = data.get("docName",          "document").strip()
     contractor_email   = data.get("contractorEmail",  "").strip()
     contractor_ip      = data.get("contractorIp",     "").strip()
@@ -590,8 +587,7 @@ def contractor_sign():
         bucket = admin_storage.bucket(BUCKET_NAME)
         safe_name = doc_name.replace(" ", "_").replace("/", "_")
 
-        storage_uid = org_id or client_uid
-        blob_path = f"users/{storage_uid}/documents/signed/{todo_id}/{safe_name}_countersigned.pdf"
+        blob_path = f"users/{client_uid}/documents/signed/{todo_id}/{safe_name}_countersigned.pdf"
         blob = bucket.blob(blob_path)
         token = str(uuid.uuid4())
         blob.upload_from_string(signed_bytes, content_type="application/pdf")

@@ -37,7 +37,7 @@ const todayStr = () => new Date().toLocaleDateString("en-US", {
   month: "long", day: "numeric", year: "numeric",
 });
 
-export default function ContractorSignModal({ todo, clientUid, orgId, user, onCounterSigned, onClose, sourcePdfUrl, contractorFirst = false }) {
+export default function ContractorSignModal({ todo, clientUid, user, onCounterSigned, onClose, sourcePdfUrl, contractorFirst = false }) {
   const contractorFields = (todo?.templateFields || []).filter(f => f.signer === "contractor");
   const hasTemplateFields = contractorFields.length > 0;
 
@@ -252,7 +252,6 @@ export default function ContractorSignModal({ todo, clientUid, orgId, user, onCo
           contractorFields: hasEffectiveFields ? ctrFieldsWithValues : null,
           todoId:           todo.id,
           clientUid,
-          orgId:            orgId || "",
           docName:          todo.label || "document",
           contractorFirst,
         }),
@@ -477,7 +476,7 @@ export default function ContractorSignModal({ todo, clientUid, orgId, user, onCo
           }
           oneTime={true}
           user={user}
-          orgId={orgId || null}
+          orgId={null}
           onSave={({ fields }) => {
             // All fields placed here are contractor fields, regardless of signer toggle
             setAdHocFields(fields.map(f => ({ ...f, signer: "contractor" })));

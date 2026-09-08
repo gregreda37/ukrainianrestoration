@@ -486,7 +486,9 @@ export default function ClientPortal() {
           folder:      "client",
           uploadedAt:  serverTimestamp(),
           type:        "signed_contract",
-        }).catch(() => {});
+        }).catch(e => console.error("markSigned: addDoc documents failed:", e));
+      } else {
+        console.warn("markSigned: skipped addDoc — orgId:", orgId, "clientDocId:", clientDocId, "url:", signedDocumentUrl);
       }
     } catch (err) { console.error("markSigned error:", err); }
   };

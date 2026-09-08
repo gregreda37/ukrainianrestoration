@@ -516,8 +516,9 @@ def contractor_sign():
         sig_bytes = base64.b64decode(sig_data_url.split(",", 1)[-1])
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
+        _cf_summary = [{"type": f.get("type"), "page": f.get("pageIndex")} for f in (contractor_fields or [])]
         print(f"[contractor-sign] todo={todo_id} contractorFirst={contractor_first} "
-              f"contractor_fields={contractor_fields!r} doc_pages={len(doc)}")
+              f"fields={_cf_summary} doc_pages={len(doc)}")
 
         if contractor_fields is not None and len(contractor_fields) > 0:
             print(f"[contractor-sign] template/adhoc mode: {len(contractor_fields)} field(s)")

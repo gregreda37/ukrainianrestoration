@@ -465,14 +465,7 @@ def sign_document():
         "todoId":    todo_id,
         "fields":    fields or [],
     }
-    if todo_id and todo_id != "unknown" and user_id and user_id != "unknown":
-        try:
-            db = admin_firestore.client()
-            db.collection("users").document(user_id).collection("todos").document(todo_id).update({
-                "clientAudit": client_audit_data,
-            })
-        except Exception as exc:
-            print(f"[sign] Could not persist clientAudit to Firestore: {exc}")
+    # clientAudit is passed back in the response and saved by the frontend to the org path todo
 
     return jsonify({"signedDocumentUrl": download_url})
 

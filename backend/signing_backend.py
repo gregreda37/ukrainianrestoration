@@ -362,6 +362,7 @@ def sign_document():
     signer_name      = data.get("signerName",      "").strip()
     todo_id          = data.get("todoId",          "unknown")
     user_id          = data.get("userId",          user["uid"])
+    org_id           = data.get("orgId",           "").strip()
     doc_name         = data.get("docName",         "document").strip()
     fields           = data.get("fields")          # list of field objects, or None
     sig_data_url     = data.get("signatureDataUrl","").strip()   # legacy
@@ -434,7 +435,8 @@ def sign_document():
     try:
         bucket    = admin_storage.bucket(BUCKET_NAME)
         safe_name = doc_name.replace(" ", "_").replace("/", "_")
-        blob_path = f"signed-documents/{user_id}/{todo_id}/{safe_name}_signed.pdf"
+        storage_uid = org_id or user_id
+        blob_path = f"users/{storage_uid}/documents/signed/{todo_id}/{safe_name}_signed.pdf"
         blob      = bucket.blob(blob_path)
 
         token = str(uuid.uuid4())
@@ -483,6 +485,7 @@ def contractor_sign():
     sig_data_url       = data.get("signatureDataUrl", "").strip()
     todo_id            = data.get("todoId",           "unknown")
     client_uid         = data.get("clientUid",        "")
+    org_id             = data.get("orgId",            "").strip()
     doc_name           = data.get("docName",          "document").strip()
     contractor_email   = data.get("contractorEmail",  "").strip()
     contractor_ip      = data.get("contractorIp",     "").strip()
@@ -587,8 +590,8 @@ def contractor_sign():
         bucket = admin_storage.bucket(BUCKET_NAME)
         safe_name = doc_name.replace(" ", "_").replace("/", "_")
 
-        # Primary path
-        blob_path = f"signed-documents/{client_uid}/{todo_id}/countersigned.pdf"
+        storage_uid = org_id or client_uid
+        blob_path = f"users/{storage_uid}/documents/signed/{todo_id}/{safe_name}_countersigned.pdf"
         blob = bucket.blob(blob_path)
         token = str(uuid.uuid4())
         blob.upload_from_string(signed_bytes, content_type="application/pdf")
@@ -596,16 +599,7 @@ def contractor_sign():
         blob.metadata = {"firebaseStorageDownloadTokens": token}
         blob.patch()
         countersigned_url = _firebase_download_url(BUCKET_NAME, blob_path, token)
-
-        # Copy into client document files
-        client_blob_path = f"users/{client_uid}/documents/{safe_name}_countersigned.pdf"
-        client_blob = bucket.blob(client_blob_path)
-        client_token = str(uuid.uuid4())
-        client_blob.upload_from_string(signed_bytes, content_type="application/pdf")
-        client_blob.reload()
-        client_blob.metadata = {"firebaseStorageDownloadTokens": client_token}
-        client_blob.patch()
-        client_doc_url = _firebase_download_url(BUCKET_NAME, client_blob_path, client_token)
+        client_doc_url = countersigned_url
 
     except Exception as exc:
         return jsonify({"error": f"Could not save countersigned PDF: {exc}"}), 500

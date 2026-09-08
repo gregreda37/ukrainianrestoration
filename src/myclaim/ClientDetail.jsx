@@ -211,6 +211,8 @@ export default function ClientDetail() {
   const [adHocFields,       setAdHocFields]       = useState(null);
   const [showAdHocPlacer,   setShowAdHocPlacer]   = useState(false);
 
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
+
   // Contractor counter-signing (client signs first)
   const [counterSigningTodo, setCounterSigningTodo] = useState(null);
   // Contractor signs first flow
@@ -1593,6 +1595,31 @@ export default function ClientDetail() {
           {/* Header right-side actions */}
           <div className="cd-header-actions">
             {hasPortal && <span className="cd-active-badge"><ActiveDotIcon /> Portal Active</span>}
+            <div className="cd-debug-wrap">
+              <button
+                className="cd-debug-btn"
+                title="Debug info"
+                onClick={() => setShowDebugInfo(v => !v)}
+              >
+                ⚙
+              </button>
+              {showDebugInfo && (
+                <div className="cd-debug-popover">
+                  <button className="cd-debug-close" onClick={() => setShowDebugInfo(false)}>✕</button>
+                  <p className="cd-debug-title">Debug Info</p>
+                  <table className="cd-debug-table">
+                    <tbody>
+                      <tr><td>orgId</td><td>{orgId || <em>—</em>}</td></tr>
+                      <tr><td>clientDocId</td><td>{clientDocId || <em>—</em>}</td></tr>
+                      <tr><td>clientUid</td><td>{clientUid || <em>not activated</em>}</td></tr>
+                      <tr><td>contractor uid</td><td>{user?.uid || <em>—</em>}</td></tr>
+                      <tr><td>phone</td><td>{client?.phone || <em>—</em>}</td></tr>
+                      <tr><td>portal active</td><td>{hasPortal ? "yes" : "no"}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
             <button
               className={`cd-status-toggle cd-status-toggle--${(client?.claimStatus || "open") === "open" ? "open" : "closed"}`}
               onClick={toggleClaimStatus}

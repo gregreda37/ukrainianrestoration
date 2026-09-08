@@ -436,10 +436,13 @@ def sign_document():
     try:
         bucket    = admin_storage.bucket(BUCKET_NAME)
         safe_name = doc_name.replace(" ", "_").replace("/", "_")
+        # Primary: org-scoped path matching frontend upload convention
+        # Fallback: uid-scoped path when org context not provided
         if org_id and client_doc_id:
             blob_path = f"users/{org_id}/documents/clients/{client_doc_id}/signed/{todo_id}/{safe_name}_signed.pdf"
         else:
             blob_path = f"users/{user_id}/documents/signed/{todo_id}/{safe_name}_signed.pdf"
+        print(f"[sign] org_id={repr(org_id)} client_doc_id={repr(client_doc_id)} user_id={repr(user_id)} -> blob_path={blob_path}")
         blob      = bucket.blob(blob_path)
 
         token = str(uuid.uuid4())
@@ -596,8 +599,11 @@ def contractor_sign():
 
         if org_id and client_doc_id:
             blob_path = f"users/{org_id}/documents/clients/{client_doc_id}/signed/{todo_id}/{safe_name}_countersigned.pdf"
-        else:
+        elif client_uid:
             blob_path = f"users/{client_uid}/documents/signed/{todo_id}/{safe_name}_countersigned.pdf"
+        else:
+            blob_path = f"signed/{todo_id}/{safe_name}_countersigned.pdf"
+        print(f"[contractor-sign] org_id={repr(org_id)} client_doc_id={repr(client_doc_id)} client_uid={repr(client_uid)} -> blob_path={blob_path}")
         blob = bucket.blob(blob_path)
         token = str(uuid.uuid4())
         blob.upload_from_string(signed_bytes, content_type="application/pdf")

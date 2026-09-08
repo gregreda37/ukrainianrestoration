@@ -2646,6 +2646,8 @@ export default function ClientDetail() {
         <ContractorSignModal
           todo={counterSigningTodo}
           clientUid={clientUid}
+          orgId={orgId}
+          clientDocId={clientDocId}
           user={user}
           onCounterSigned={async (todo, contractorSignedDocUrl, clientDocUrl) => {
             const { updateDoc, doc: firestoreDoc, serverTimestamp: st, addDoc, collection: col } = await import("firebase/firestore");
@@ -2683,6 +2685,8 @@ export default function ClientDetail() {
           todo={contractorFirstSigningTodo}
           sourcePdfUrl={contractorFirstSigningTodo.docusignUrl}
           clientUid={clientUid}
+          orgId={orgId}
+          clientDocId={clientDocId}
           user={user}
           contractorFirst={true}
           onCounterSigned={async (todo, contractorSignedDocUrl, _clientDocUrl, contractorAudit) => {

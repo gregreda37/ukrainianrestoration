@@ -37,7 +37,7 @@ const todayStr = () => new Date().toLocaleDateString("en-US", {
   month: "long", day: "numeric", year: "numeric",
 });
 
-export default function ContractorSignModal({ todo, clientUid, user, onCounterSigned, onClose, sourcePdfUrl, contractorFirst = false }) {
+export default function ContractorSignModal({ todo, clientUid, orgId, clientDocId, user, onCounterSigned, onClose, sourcePdfUrl, contractorFirst = false }) {
   const contractorFields = (todo?.templateFields || []).filter(f => f.signer === "contractor");
   const hasTemplateFields = contractorFields.length > 0;
 
@@ -252,6 +252,8 @@ export default function ContractorSignModal({ todo, clientUid, user, onCounterSi
           contractorFields: hasEffectiveFields ? ctrFieldsWithValues : null,
           todoId:           todo.id,
           clientUid,
+          orgId:            orgId || "",
+          clientDocId:      clientDocId || "",
           docName:          todo.label || "document",
           contractorFirst,
         }),

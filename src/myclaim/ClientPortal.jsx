@@ -1412,6 +1412,8 @@ export default function ClientPortal() {
         <SigningModal
           todo={signingTodo}
           user={user}
+          orgId={orgId}
+          clientDocId={clientDocId}
           onSigned={markSigned}
           onClose={() => setSigningTodo(null)}
         />

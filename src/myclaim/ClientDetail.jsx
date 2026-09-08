@@ -2686,7 +2686,7 @@ export default function ClientDetail() {
           user={user}
           contractorFirst={true}
           onCounterSigned={async (todo, contractorSignedDocUrl, _clientDocUrl, contractorAudit) => {
-            const { updateDoc, doc: firestoreDoc, serverTimestamp: st } = await import("firebase/firestore");
+            const { updateDoc, addDoc, doc: firestoreDoc, collection: col, serverTimestamp: st } = await import("firebase/firestore");
             const todoRef = firestoreDoc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id);
             await updateDoc(todoRef, {
               contractorSigned: true,
@@ -2695,6 +2695,16 @@ export default function ClientDetail() {
               assignedTo: "client",
               ...(contractorAudit ? { contractorAudit } : {}),
             });
+            // Save contractor-signed copy so all signature versions are accessible in the files section
+            try {
+              await addDoc(col(db, "organization_data", orgId, "clients", clientDocId, "documents"), {
+                name:        `${todo.label || "Document"} (Contractor Signed)`,
+                downloadURL: contractorSignedDocUrl,
+                folder:      "client",
+                uploadedAt:  st(),
+                type:        "signed_contract",
+              });
+            } catch {}
             setTodos(prev => prev.map(t => t.id === todo.id
               ? { ...t, contractorSigned: true, contractorSignedDocUrl, assignedTo: "client" }
               : t

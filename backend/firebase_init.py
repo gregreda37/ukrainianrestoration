@@ -10,7 +10,7 @@ def init():
     project_id   = os.getenv('FIREBASE_PROJECT_ID') or os.getenv('GOOGLE_CLOUD_PROJECT')
     storage_bucket = os.getenv(
         'FIREBASE_STORAGE_BUCKET',
-        f"{project_id}.appspot.com" if project_id else "",
+        f"{project_id}.firebasestorage.app" if project_id else "",
     )
     options = {}
     if project_id:

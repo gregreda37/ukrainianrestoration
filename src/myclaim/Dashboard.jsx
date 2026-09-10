@@ -45,6 +45,7 @@ const PIPELINE_STATUS_META = {
   negotiating:   { label: 'Negotiating',   color: '#d97706', bg: '#fffbeb' },
   supplementing: { label: 'Supplementing', color: '#ea580c', bg: '#fff7ed' },
   estimating:    { label: 'Estimating',    color: '#7c3aed', bg: '#f5f3ff' },
+  settled:       { label: 'Settled',       color: '#16a34a', bg: '#f0fdf4' },
 }
 
 const MITIGATION_STEPS = [
@@ -686,13 +687,12 @@ export default function Dashboard() {
   const firstName = userDetails?.displayName?.split(" ")[0] || userDetails?.email?.split("@")[0] || "there";
 
   const openClaims = useMemo(() => {
-    const OPEN = new Set(['estimating', 'submitted', 'negotiating', 'supplementing'])
-    const priority = { submitted: 0, negotiating: 1, supplementing: 2, estimating: 3 }
+    const priority = { submitted: 0, negotiating: 1, supplementing: 2, estimating: 3, settled: 4 }
     return settRows
-      .filter(s => OPEN.has(s.status || 'estimating') && s.claimStatus !== 'closed')
+      .filter(s => s.claimStatus !== 'closed')
       .sort((a, b) => {
-        const pa = priority[a.status] ?? 4
-        const pb = priority[b.status] ?? 4
+        const pa = priority[a.status ?? 'estimating'] ?? 3
+        const pb = priority[b.status ?? 'estimating'] ?? 3
         return pa !== pb ? pa - pb : (parseFloat(b.totalEstimate) || 0) - (parseFloat(a.totalEstimate) || 0)
       })
   }, [settRows])

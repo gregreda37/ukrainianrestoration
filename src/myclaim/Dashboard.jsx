@@ -942,7 +942,7 @@ export default function Dashboard() {
                     </div>
                     <div className="cw-recent-info">
                       <p className="cw-recent-name">{client.name || <span className="cw-muted">No name</span>}</p>
-                      {client.address && <p className="cw-recent-addr">{client.address}</p>}
+                      {client.address && <p className="cw-recent-addr">{client.address.split(',')[0]}</p>}
                       {recentActivities[client.id] ? (
                         <p className="cw-recent-activity">
                           {recentActivities[client.id].details}

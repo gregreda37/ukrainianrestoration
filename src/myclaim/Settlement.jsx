@@ -27,11 +27,11 @@ const COL_FIELDS = [
 ]
 
 const STATUS_META = {
-  estimating:    { label: 'Estimating',    color: '#64748b', bg: '#f1f5f9' },
-  submitted:     { label: 'Submitted',     color: '#2563eb', bg: '#eff6ff' },
-  negotiating:   { label: 'Negotiating',   color: '#d97706', bg: '#fffbeb' },
-  supplementing: { label: 'Supplementing', color: '#7c3aed', bg: '#f5f3ff' },
-  settled:       { label: 'Settled ✓',     color: '#15803d', bg: '#dcfce7' },
+  estimating:     { label: 'Estimating',     color: '#64748b', bg: '#f1f5f9' },
+  submitted:      { label: 'Submitted',      color: '#2563eb', bg: '#eff6ff' },
+  negotiating:    { label: 'Negotiating',    color: '#d97706', bg: '#fffbeb' },
+  reconstruction: { label: 'Reconstruction', color: '#0891b2', bg: '#ecfeff' },
+  settled:        { label: 'Settled ✓',      color: '#15803d', bg: '#dcfce7' },
 }
 
 const LOG_TYPES = [

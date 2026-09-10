@@ -551,27 +551,38 @@ export default function Dashboard() {
         const all = clientsSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
-        all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
-        setTotalClients(all.length);
-        const top4 = all.slice(0, 4)
-        setRecentClients(top4)
+        setTotalClients(all.length)
 
-        // Fetch latest activity for each recent client
+        // Fetch latest activity for all portal-connected clients (cap at 60) to find truly most-active
+        const withUid = all.filter(c => c.uid).slice(0, 60)
         const actResults = await Promise.all(
-          top4.filter(c => c.uid).map(c =>
+          withUid.map(c =>
             getDocs(query(collection(db, 'users', c.uid, 'activity'), orderBy('timestamp', 'desc'), limit(1)))
               .then(snap => ({ docId: c.id, snap }))
               .catch(() => null)
           )
         )
-        const acts = {}
+        const activityMap = {}
         actResults.forEach(r => {
           if (r && !r.snap.empty) {
             const d = r.snap.docs[0].data()
-            acts[r.docId] = { details: d.details, timestamp: d.timestamp }
+            activityMap[r.docId] = { details: d.details, timestamp: d.timestamp }
           }
         })
-        if (!cancelled) setRecentActivities(acts)
+
+        // Sort by most recent activity timestamp, fall back to updatedAt then addedAt
+        all.sort((a, b) => {
+          const aAct = activityMap[a.id]?.timestamp?.toMillis?.() ?? 0
+          const bAct = activityMap[b.id]?.timestamp?.toMillis?.() ?? 0
+          if (aAct !== bAct) return bAct - aAct
+          const at = Math.max(a.updatedAt?.toMillis?.() ?? 0, a.addedAt?.toMillis?.() ?? 0)
+          const bt = Math.max(b.updatedAt?.toMillis?.() ?? 0, b.addedAt?.toMillis?.() ?? 0)
+          return bt - at
+        })
+
+        const top4 = all.slice(0, 4)
+        setRecentClients(top4)
+        if (!cancelled) setRecentActivities(activityMap)
 
         // Build address, phone, uid→docId, name→docId, and step lookups from already-loaded clients
         const addrByDocId = {}, addrByPhone = {}, uidToDocId = {}, nameToDocId = {}, stepByDocId = {}

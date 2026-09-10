@@ -956,9 +956,9 @@ export default function Dashboard() {
                       {client.address && <p className="cw-recent-addr">{client.address.split(',')[0]}</p>}
                       {recentActivities[client.id] ? (
                         <p className="cw-recent-activity">
-                          {recentActivities[client.id].details}
+                          <span className="cw-recent-activity-text">{recentActivities[client.id].details}</span>
                           {recentActivities[client.id].timestamp && (
-                            <span className="cw-recent-activity-time"> · {timeAgo(recentActivities[client.id].timestamp)}</span>
+                            <span className="cw-recent-activity-time">· {timeAgo(recentActivities[client.id].timestamp)}</span>
                           )}
                         </p>
                       ) : (

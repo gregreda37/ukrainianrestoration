@@ -425,15 +425,27 @@
 
 .cw-recent-activity {
   margin: 3px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.cw-recent-activity-text {
   font-size: 11px;
   color: #475569;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .cw-recent-activity-time {
+  font-size: 11px;
   color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .cw-muted {

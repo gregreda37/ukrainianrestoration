@@ -1901,7 +1901,7 @@ export default function ClientDetail() {
         {/* ══════════════ OVERVIEW ══════════════ */}
         <>
             {/* Insurance Settlement + CompanyCam — side by side collapsible */}
-            <div className="cd-twin-row" style={{ gridTemplateColumns: portalSections.photos ? '1fr 1fr' : '1fr' }}>
+            <div className={`cd-twin-row${portalSections.photos ? '' : ' cd-twin-row--single'}`}>
 
               {/* Insurance Settlement */}
               <div className="cd-twin-card">
@@ -2565,15 +2565,19 @@ export default function ClientDetail() {
             overflow: 'hidden',
           }}>
             {/* Header */}
-            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 16px', borderBottom:'1px solid #e2e8f0', flexShrink:0 }}>
-              <CameraIcon />
-              <span style={{ fontWeight:700, fontSize:15, color:'#1e293b', flex:1 }}>{ccProjectName || "CompanyCam Photos"}</span>
-              <span style={{ fontSize:12, color:'#64748b', background:'#f1f5f9', padding:'3px 10px', borderRadius:20 }}>
-                {ccSharedCount === 0 ? "None shared" : ccSharedCount === ccPhotos.length ? `All ${ccPhotos.length} shared` : `${ccSharedCount} / ${ccPhotos.length} shared`}
-              </span>
-              <button className="cd-btn-secondary cd-photo-grid-ctrl-btn" onClick={clearAllPhotos}>Hide All</button>
-              <button className="cd-btn-primary cd-photo-grid-ctrl-btn" onClick={shareAllPhotos}>Share All</button>
-              <button className="cd-modal-close" onClick={() => setShowPhotoGrid(false)}>✕</button>
+            <div className="cd-photo-grid-header">
+              <div className="cd-photo-grid-header-top">
+                <CameraIcon />
+                <span className="cd-photo-grid-title">{ccProjectName || "CompanyCam Photos"}</span>
+                <span className="cd-photo-grid-count">
+                  {ccSharedCount === 0 ? "None shared" : ccSharedCount === ccPhotos.length ? `All ${ccPhotos.length} shared` : `${ccSharedCount} / ${ccPhotos.length} shared`}
+                </span>
+                <button className="cd-modal-close" onClick={() => setShowPhotoGrid(false)}>✕</button>
+              </div>
+              <div className="cd-photo-grid-header-actions">
+                <button className="cd-btn-secondary cd-photo-grid-ctrl-btn" onClick={clearAllPhotos}>Hide All</button>
+                <button className="cd-btn-primary cd-photo-grid-ctrl-btn" onClick={shareAllPhotos}>Share All</button>
+              </div>
             </div>
 
             {/* Photo grid */}

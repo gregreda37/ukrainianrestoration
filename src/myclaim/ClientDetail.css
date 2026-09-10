@@ -3505,6 +3505,7 @@ span.cd-sel-product { color: #0f172a; }
   gap: 16px;
   align-items: stretch;
 }
+.cd-twin-row--single { grid-template-columns: 1fr; }
 @media (max-width: 900px) {
   .cd-twin-row { grid-template-columns: 1fr; }
 }
@@ -3609,4 +3610,66 @@ span.cd-sel-product { color: #0f172a; }
   font-size: 13px;
   font-weight: 600;
   color: #0f172a;
+}
+
+/* ── Photo Grid Modal header ─────────────────────── */
+.cd-photo-grid-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.cd-photo-grid-header-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cd-photo-grid-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1e293b;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-photo-grid-count {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cd-photo-grid-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Mobile overrides (≤640px) ───────────────────── */
+@media (max-width: 640px) {
+  /* Section cards: reduce horizontal padding */
+  .cd-section-card { padding: 16px; }
+
+  /* Client info edit modal: single-column form */
+  .cd-edit-modal-overlay { padding: 12px; }
+  .cd-header-edit-grid { grid-template-columns: 1fr; }
+
+  /* Adjuster inline edit: single-column, taller inputs */
+  .cd-header-adj-fields { grid-template-columns: 1fr; }
+  .cd-header-adj-input { height: 36px; }
+
+  /* Contact bubble popup: pin to right edge when near right */
+  .cd-sec-bubble-wrap:last-child .cd-sec-bubble-popup,
+  .cd-sec-bubble-wrap:last-child .cd-sec-add-popup {
+    left: auto;
+    right: 0;
+  }
+
+  /* Photo grid modal header: hide count badge to save space */
+  .cd-photo-grid-count { display: none; }
 }

@@ -581,8 +581,8 @@ export default function Dashboard() {
           return bt - at
         })
 
-        const top4 = all.slice(0, 4)
-        setRecentClients(top4)
+        const top8 = all.slice(0, 8)
+        setRecentClients(top8)
         if (!cancelled) setRecentActivities(activityMap)
 
         // Build address, phone, uid→docId, name→docId, and step lookups from already-loaded clients
@@ -860,8 +860,8 @@ export default function Dashboard() {
       const snap = await getDocs(collection(db, "organization_data", organizationName, "clients"));
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
-      const top4 = all.slice(0, 4)
-      setRecentClients(top4)
+      const top8 = all.slice(0, 8)
+      setRecentClients(top8)
       setTimeout(closeModal, 1400);
     } catch (err) {
       console.error("Add client error:", err);
@@ -1185,10 +1185,18 @@ function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, 
   )
 }
 
+const JOBS_PAGE_SIZE = 6
+
 function OpenJobsSection({ items, loading, navigate, onStatusChange, savingStatus, onStepChange, savingStep, onCloseClaim }) {
   const [filter, setFilter] = React.useState('all')
+  const [page, setPage] = React.useState(0)
 
   const filtered = filter === 'all' ? items : items.filter(s => (s.status || 'estimating') === filter)
+
+  React.useEffect(() => { setPage(0) }, [filter])
+
+  const totalPages = Math.ceil(filtered.length / JOBS_PAGE_SIZE)
+  const paged = filtered.slice(page * JOBS_PAGE_SIZE, (page + 1) * JOBS_PAGE_SIZE)
 
   return (
     <div className="dash-jobs-section">
@@ -1223,13 +1231,24 @@ function OpenJobsSection({ items, loading, navigate, onStatusChange, savingStatu
       ) : (
         <>
           <div className="dash-jobs-grid">
-            {filtered.map(s => (
+            {paged.map(s => (
               <OpenJobCard key={s.id} s={s} navigate={navigate}
                 onStatusChange={onStatusChange} savingStatus={savingStatus}
                 onStepChange={onStepChange} savingStep={savingStep}
                 onCloseClaim={onCloseClaim} />
             ))}
           </div>
+          {totalPages > 1 && (
+            <div className="dash-jobs-pagination">
+              <button className="dash-page-btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                ← Prev
+              </button>
+              <span className="dash-page-info">Page {page + 1} of {totalPages}</span>
+              <button className="dash-page-btn" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+                Next →
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

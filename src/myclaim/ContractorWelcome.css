@@ -358,12 +358,15 @@
 .cw-recent-grid--1 { grid-template-columns: 1fr; }
 .cw-recent-grid--2 { grid-template-columns: repeat(2, 1fr); }
 .cw-recent-grid--3 { grid-template-columns: repeat(3, 1fr); }
+.cw-recent-grid--4 { grid-template-columns: repeat(4, 1fr); }
 
 .cw-recent-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 0 16px;
+  height: 88px;
+  overflow: hidden;
   background: white;
   border: 1px solid rgba(148,163,184,0.2);
   border-radius: 16px;
@@ -1047,6 +1050,13 @@
 .dash-page-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+.dash-page-info {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+  min-width: 80px;
+  text-align: center;
 }
 .dash-page-dots {
   display: flex;

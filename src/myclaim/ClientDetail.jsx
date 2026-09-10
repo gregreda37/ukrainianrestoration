@@ -113,6 +113,18 @@ const ACTIVITY_ICONS = {
   document_uploaded:   "📄",
   document_deleted:    "🗑",
   info_updated:        "✏️",
+  photo_viewed:        "📷",
+  document_viewed:     "👁",
+  document_downloaded: "⬇️",
+  invoice_viewed:      "🧾",
+  payment_initiated:   "💳",
+  todo_added:          "➕",
+  todo_deleted:        "🗑",
+  claim_closed:        "🔒",
+  claim_opened:        "🔓",
+  progress_advanced:   "⏩",
+  progress_regressed:  "⏪",
+  notification_sent:   "📲",
 };
 const ACTIVITY_COLORS = {
   login:               { bg: "#eff6ff" },
@@ -124,6 +136,18 @@ const ACTIVITY_COLORS = {
   document_uploaded:   { bg: "#f0fdf4" },
   document_deleted:    { bg: "#fef2f2" },
   info_updated:        { bg: "#eff6ff" },
+  photo_viewed:        { bg: "#f0f9ff" },
+  document_viewed:     { bg: "#f0f9ff" },
+  document_downloaded: { bg: "#f0fdf4" },
+  invoice_viewed:      { bg: "#fefce8" },
+  payment_initiated:   { bg: "#fdf4ff" },
+  todo_added:          { bg: "#f0fdf4" },
+  todo_deleted:        { bg: "#fef2f2" },
+  claim_closed:        { bg: "#fef2f2" },
+  claim_opened:        { bg: "#f0fdf4" },
+  progress_advanced:   { bg: "#f0fdf4" },
+  progress_regressed:  { bg: "#fefce8" },
+  notification_sent:   { bg: "#eff6ff" },
 };
 const ACTIVITY_LABELS = {
   login:               "Client accessed the portal",
@@ -135,6 +159,18 @@ const ACTIVITY_LABELS = {
   document_uploaded:   "Uploaded a document",
   document_deleted:    "Deleted a document",
   info_updated:        "Updated claim information",
+  photo_viewed:        "Viewed a photo",
+  document_viewed:     "Opened a document",
+  document_downloaded: "Downloaded a document",
+  invoice_viewed:      "Viewed an invoice",
+  payment_initiated:   "Initiated payment",
+  todo_added:          "Task added",
+  todo_deleted:        "Task removed",
+  claim_closed:        "Claim marked closed",
+  claim_opened:        "Claim marked open",
+  progress_advanced:   "Progress step advanced",
+  progress_regressed:  "Progress step moved back",
+  notification_sent:   "Notification sent to client",
 };
 
 function CopyLinkTodoBtn({ url }) {
@@ -163,6 +199,16 @@ export default function ClientDetail() {
   const isPhoneParam = routeParam.startsWith('+');
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
+
+  const logActivity = async (type, details) => {
+    if (!clientUid) return;
+    try {
+      await addDoc(collection(db, "users", clientUid, "activity"), {
+        type, details, timestamp: serverTimestamp(),
+        actor: user?.displayName || user?.email || "contractor",
+      });
+    } catch {}
+  };
 
   // Org / client identity
   const [orgId,       setOrgId]       = useState(null);
@@ -244,6 +290,8 @@ export default function ClientDetail() {
   const [driveError,          setDriveError]          = useState('');
   const [driveSyncing,        setDriveSyncing]        = useState(false);
   const [driveSyncMessage,    setDriveSyncMessage]    = useState('');
+  const [showDrivePopup,      setShowDrivePopup]      = useState(false);
+  const drivePopupRef         = useRef(null);
 
   // Selections
   const [selections,   setSelections]   = useState([]);
@@ -303,7 +351,8 @@ export default function ClientDetail() {
   const [ccError,          setCcError]           = useState("");
 
   // Activity log
-  const [activityLog, setActivityLog] = useState([]);
+  const [activityLog,       setActivityLog]       = useState([]);
+  const [showActivityLog,   setShowActivityLog]   = useState(false);
 
   // Tabs
   const [activeTab, setActiveTab] = useState("overview");
@@ -313,6 +362,8 @@ export default function ClientDetail() {
   const [notifySent,      setNotifySent]      = useState(false);
   const [notifyError,     setNotifyError]     = useState("");
   const [notifySending,   setNotifySending]   = useState(false);
+  const [customMsg,       setCustomMsg]       = useState("");
+  const [showCustomInput, setShowCustomInput] = useState(false);
   const [googleReviewUrl, setGoogleReviewUrl] = useState("");
   const notifyRef = useRef(null);
 
@@ -323,6 +374,7 @@ export default function ClientDetail() {
   // Secondary contacts
   const [secondaryContacts,    setSecondaryContacts]    = useState([]);
   const [addingSecondary,      setAddingSecondary]      = useState(false);
+  const [secondaryPopup,       setSecondaryPopup]       = useState(null);
   const [newSecPhone,          setNewSecPhone]          = useState("");
   const [newSecLabel,          setNewSecLabel]          = useState("");
   const [secondaryError,       setSecondaryError]       = useState("");
@@ -543,7 +595,28 @@ export default function ClientDetail() {
   // Close notify dropdown on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (notifyRef.current && !notifyRef.current.contains(e.target)) setNotifyOpen(false);
+      if (notifyRef.current && !notifyRef.current.contains(e.target)) { setNotifyOpen(false); setShowCustomInput(false); }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Close Drive popup on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (drivePopupRef.current && !drivePopupRef.current.contains(e.target)) setShowDrivePopup(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Close secondary contact popups on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (!e.target.closest(".cd-sec-bubble-wrap")) {
+        setSecondaryPopup(null);
+        setAddingSecondary(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -586,10 +659,12 @@ export default function ClientDetail() {
         const next = Math.min(mitStep + 1, MITIGATION_STEPS.length - 1);
         await updateDoc(_stepDocRef(), { mitigationStep: next, updatedAt: serverTimestamp() });
         setMitStep(next);
+        logActivity("progress_advanced", `Mitigation step advanced to: ${MITIGATION_STEPS[next]}`);
       } else {
         const next = Math.min(conStep + 1, CONSTRUCTION_STEPS.length - 1);
         await updateDoc(_stepDocRef(), { constructionStep: next, updatedAt: serverTimestamp() });
         setConStep(next);
+        logActivity("progress_advanced", `Construction step advanced to: ${CONSTRUCTION_STEPS[next]}`);
       }
     } catch (err) { console.error("advanceStep error:", err); }
     finally { setSavingProg(false); }
@@ -603,10 +678,12 @@ export default function ClientDetail() {
         const next = Math.max(mitStep - 1, -1);
         await updateDoc(_stepDocRef(), { mitigationStep: next, updatedAt: serverTimestamp() });
         setMitStep(next);
+        logActivity("progress_regressed", `Mitigation step moved back${next >= 0 ? ` to: ${MITIGATION_STEPS[next]}` : " (reset)"}`);
       } else {
         const next = Math.max(conStep - 1, -1);
         await updateDoc(_stepDocRef(), { constructionStep: next, updatedAt: serverTimestamp() });
         setConStep(next);
+        logActivity("progress_regressed", `Construction step moved back${next >= 0 ? ` to: ${CONSTRUCTION_STEPS[next]}` : " (reset)"}`);
       }
     } catch (err) { console.error("regressStep error:", err); }
     finally { setSavingProg(false); }
@@ -697,6 +774,7 @@ export default function ClientDetail() {
 
         const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"), payload);
         setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
+        logActivity("todo_added", `Signing task added: "${payload.label}"`);
         resetTodoForm();
       } catch (err) {
         console.error("addTodo sign error:", err);
@@ -718,12 +796,14 @@ export default function ClientDetail() {
       if (todoType === "add_selection") payload.selectionCategory = todoCategory;
       const docRef = await addDoc(collection(db, "organization_data", orgId, "clients", clientDocId, "todos"), payload);
       setTodos(prev => [...prev, { id: docRef.id, ...payload }]);
+      logActivity("todo_added", `Task added: "${payload.label}"`);
       resetTodoForm();
     } catch (err) { console.error("addTodo error:", err); setTodoError(err.message || "Could not add todo."); }
     finally { setAddingTodo(false); }
   };
 
   const toggleTodo = async (todo) => {
+    if (todo.type === "sign_forms") return;
     const upd = { completed: !todo.completed };
     setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, ...upd } : t));
     await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "todos", todo.id), upd).catch(console.error);
@@ -735,6 +815,7 @@ export default function ClientDetail() {
     setClient(prev => ({ ...prev, claimStatus: next }));
     try {
       await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId), { claimStatus: next });
+      logActivity(next === "closed" ? "claim_closed" : "claim_opened", `Claim marked as ${next}`);
     } catch (err) {
       setClient(prev => ({ ...prev, claimStatus: client?.claimStatus }));
       console.error(err);
@@ -742,8 +823,10 @@ export default function ClientDetail() {
   };
 
   const deleteTodo = async (id) => {
+    const todo = todos.find(t => t.id === id);
     setTodos(prev => prev.filter(t => t.id !== id));
     await deleteDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "todos", id)).catch(console.error);
+    if (todo) logActivity("todo_deleted", `Task removed: "${todo.label}"`);
   };
 
   // ── Google Drive helpers ───────────────────────────────────────────────
@@ -884,6 +967,12 @@ export default function ClientDetail() {
     if (!clientDocId) return;
     setDocs(prev => prev.filter(d => d.id !== document.id));
     await deleteDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "documents", document.id)).catch(console.error);
+  };
+
+  const moveDocument = async (document, targetFolder) => {
+    if (!clientDocId) return;
+    setDocs(prev => prev.map(d => d.id === document.id ? { ...d, folder: targetFolder } : d));
+    await updateDoc(doc(db, "organization_data", orgId, "clients", clientDocId, "documents", document.id), { folder: targetFolder }).catch(console.error);
   };
 
   // ── Selections ────────────────────────────────────────────────────────
@@ -1233,14 +1322,17 @@ export default function ClientDetail() {
   };
 
   // ── Notify client ─────────────────────────────────────────────────────
-  const sendNotification = async (type) => {
-    setNotifyOpen(false); setNotifySending(true); setNotifyError("");
+  const sendNotification = async (type, messageOverride) => {
+    setNotifyOpen(false); setShowCustomInput(false); setNotifySending(true); setNotifyError("");
     try {
       const body = { phone: client?.phone || "", type };
       if (type === "review_request" && googleReviewUrl) body.googleReviewUrl = googleReviewUrl;
+      if (type === "custom" && messageOverride) body.message = `Ukrainian Restoration has a new message for you: "${messageOverride}"`;
       if (secondaryContacts.length) body.secondaryPhones = secondaryContacts.map(c => c.phone);
       await api.post("/notify-client", body);
       setNotifySent(true);
+      setCustomMsg("");
+      logActivity("notification_sent", `Notification sent (${type})${type === "custom" && messageOverride ? `: "${messageOverride}"` : ""}`);
       setTimeout(() => setNotifySent(false), 3000);
     } catch (err) {
       setNotifyError(err.message || "Could not send notification.");
@@ -1380,11 +1472,36 @@ export default function ClientDetail() {
 
         {/* ── Header card ────────────────────────────────────────────── */}
         <div className="cd-header-card">
-          <div className="cd-header-avatar">{initials}</div>
+          <div className="cd-debug-wrap">
+            <div className="cd-header-avatar cd-header-avatar--clickable" title="Debug info" onClick={() => setShowDebugInfo(v => !v)}>
+              {initials}
+            </div>
+            {showDebugInfo && (
+              <div className="cd-debug-popover">
+                <button className="cd-debug-close" onClick={() => setShowDebugInfo(false)}>✕</button>
+                <p className="cd-debug-title">Debug Info</p>
+                <table className="cd-debug-table">
+                  <tbody>
+                    <tr><td>orgId</td><td>{orgId || <em>—</em>}</td></tr>
+                    <tr><td>clientDocId</td><td>{clientDocId || <em>—</em>}</td></tr>
+                    <tr><td>clientUid</td><td>{clientUid || <em>not activated</em>}</td></tr>
+                    <tr><td>contractor uid</td><td>{user?.uid || <em>—</em>}</td></tr>
+                    <tr><td>phone</td><td>{client?.phone || <em>—</em>}</td></tr>
+                    <tr><td>portal active</td><td>{hasPortal ? "yes" : "no"}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
-          <div className="cd-header-info">
-            {editingClientFields ? (
-              <form onSubmit={saveClientFields} className="cd-header-edit-form">
+          {/* Client info edit modal */}
+          {editingClientFields && (
+            <div className="cd-edit-modal-overlay" onClick={() => { setEditingClientFields(false); setClientFieldsError(""); }}>
+              <form className="cd-edit-modal" onSubmit={saveClientFields} onClick={e => e.stopPropagation()}>
+                <div className="cd-edit-modal-header">
+                  <h3 className="cd-edit-modal-title">Edit Client Info</h3>
+                  <button type="button" className="cd-edit-modal-close" onClick={() => { setEditingClientFields(false); setClientFieldsError(""); }}>✕</button>
+                </div>
                 <div className="cd-header-edit-grid">
                   <div style={{ gridColumn:"1 / -1" }}>
                     <p className="cd-field-label">Client Name</p>
@@ -1434,12 +1551,12 @@ export default function ClientDetail() {
                   </div>
                 </div>
                 {!hasPortal && (
-                  <p style={{ margin:"4px 0 0", fontSize:12, color:"#0369a1", background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:6, padding:"8px 12px" }}>
+                  <p style={{ margin:"12px 0 0", fontSize:12, color:"#0369a1", background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:6, padding:"8px 12px" }}>
                     ⚠ Changing the phone number will update the client's login across all records. Only allowed before portal activation.
                   </p>
                 )}
-                {clientFieldsError && <p style={{ margin:"4px 0 0", fontSize:13, color:"#dc2626" }}>{clientFieldsError}</p>}
-                <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:4 }}>
+                {clientFieldsError && <p style={{ margin:"8px 0 0", fontSize:13, color:"#dc2626" }}>{clientFieldsError}</p>}
+                <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:16 }}>
                   <button type="button" className="cd-btn-secondary"
                     onClick={() => { setEditingClientFields(false); setClientFieldsError(""); }}>Cancel</button>
                   <button type="submit" className="cd-btn-primary" disabled={savingClientFields}>
@@ -1447,8 +1564,11 @@ export default function ClientDetail() {
                   </button>
                 </div>
               </form>
-            ) : (
-              <>
+            </div>
+          )}
+
+          <div className="cd-header-info">
+            <>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   <h1 className="cd-header-name">
                     {client.name || <span className="cd-muted">No name</span>}
@@ -1464,9 +1584,6 @@ export default function ClientDetail() {
                 }
                 {clientFields.email && <p className="cd-header-phone"><EmailIcon /> {clientFields.email}</p>}
                 {client.address && <p className="cd-header-address"><PinIcon /> {client.address}</p>}
-                {userDoc?.lastLogin && (
-                  <p className="cd-header-login"><ClockIcon /> Last login {formatDate(userDoc.lastLogin)}</p>
-                )}
 
                 {claimNumber && (
                   <div className="cd-header-claim-info">
@@ -1477,51 +1594,65 @@ export default function ClientDetail() {
 
                 {/* Authorized Contacts */}
                 <div className="cd-sec-contacts-section">
-                  <div className="cd-header-adj-meta">
-                    <span className="cd-header-adj-label"><PhoneIcon /> Authorized Contacts</span>
-                    {!addingSecondary && (
-                      <button className="cd-header-adj-edit-btn" title="Add authorized contact"
-                        onClick={() => { setAddingSecondary(true); setSecondaryError(""); setNewSecPhone(""); setNewSecLabel(""); }}>
-                        <PlusIcon />
-                      </button>
-                    )}
-                  </div>
-                  {secondaryContacts.length === 0 && !addingSecondary && (
-                    <p className="cd-sec-contacts-empty">No secondary contacts — primary phone only</p>
-                  )}
-                  {secondaryContacts.map(c => (
-                    <div key={c.phone} className="cd-sec-contact-row">
-                      <div className="cd-sec-contact-info">
-                        <span className="cd-sec-contact-phone">{formatPhone(c.phone)}</span>
-                        <span className="cd-sec-contact-label">{c.label}</span>
-                      </div>
-                      <button className="cd-sec-contact-remove"
-                        disabled={removingSecondary === c.phone}
-                        onClick={() => removeSecondaryContact(c)}
-                        title="Remove access">
-                        {removingSecondary === c.phone ? "…" : "✕"}
-                      </button>
-                    </div>
-                  ))}
-                  {addingSecondary && (
-                    <div className="cd-sec-contact-add-form">
-                      <input className="cd-claim-input" placeholder="(555) 000-0000" style={{ flex:1 }}
-                        value={newSecPhone}
-                        onChange={e => setNewSecPhone(e.target.value)} />
-                      <input className="cd-claim-input" placeholder="Label (e.g. Spouse)" style={{ flex:1 }}
-                        value={newSecLabel}
-                        onChange={e => setNewSecLabel(e.target.value)} />
-                      {secondaryError && <p className="cd-sec-contact-error">{secondaryError}</p>}
-                      <div style={{ display:"flex", gap:6 }}>
-                        <button className="cd-btn-secondary" type="button"
-                          onClick={() => { setAddingSecondary(false); setSecondaryError(""); }}>Cancel</button>
-                        <button className="cd-btn-primary" type="button"
-                          disabled={savingSecondary} onClick={addSecondaryContact}>
-                          {savingSecondary ? "Saving…" : "Add"}
+                  <span className="cd-header-adj-label"><PhoneIcon /> Authorized Contacts</span>
+                  <div className="cd-sec-bubbles" style={{ marginTop: 6 }}>
+                    {secondaryContacts.map(c => (
+                      <div key={c.phone} className="cd-sec-bubble-wrap">
+                        <button
+                          className="cd-sec-bubble"
+                          onClick={() => { setSecondaryPopup(p => p === c.phone ? null : c.phone); setAddingSecondary(false); }}
+                        >
+                          <span className="cd-sec-bubble-initial">
+                            {(c.label || c.phone).trim()[0].toUpperCase()}
+                          </span>
+                          {formatPhone(c.phone)}
                         </button>
+                        {secondaryPopup === c.phone && (
+                          <div className="cd-sec-bubble-popup">
+                            <p className="cd-sec-bubble-popup-name">{c.label || "Contact"}</p>
+                            <p className="cd-sec-bubble-popup-phone">{formatPhone(c.phone)}</p>
+                            <button className="cd-sec-bubble-popup-remove"
+                              disabled={removingSecondary === c.phone}
+                              onClick={() => { removeSecondaryContact(c); setSecondaryPopup(null); }}>
+                              {removingSecondary === c.phone ? "Removing…" : "Remove Contact"}
+                            </button>
+                          </div>
+                        )}
                       </div>
+                    ))}
+
+                    {/* Add bubble */}
+                    <div className="cd-sec-bubble-wrap">
+                      <button
+                        className="cd-sec-bubble-add"
+                        onClick={() => { setAddingSecondary(v => !v); setSecondaryPopup(null); setSecondaryError(""); setNewSecPhone(""); setNewSecLabel(""); }}
+                        title="Add authorized contact"
+                      >
+                        + Add
+                      </button>
+                      {addingSecondary && (
+                        <div className="cd-sec-bubble-popup cd-sec-add-popup">
+                          <p className="cd-sec-bubble-popup-name">New Contact</p>
+                          <input className="cd-sec-add-input" placeholder="(555) 000-0000"
+                            value={newSecPhone} onChange={e => setNewSecPhone(e.target.value)}
+                            autoFocus />
+                          <input className="cd-sec-add-input" placeholder="Label (e.g. Spouse)"
+                            value={newSecLabel} onChange={e => setNewSecLabel(e.target.value)} />
+                          {secondaryError && <p className="cd-sec-contact-error">{secondaryError}</p>}
+                          <div style={{ display:"flex", gap:6, marginTop:4 }}>
+                            <button className="cd-sec-bubble-popup-cancel" type="button"
+                              onClick={() => { setAddingSecondary(false); setSecondaryError(""); }}>
+                              Cancel
+                            </button>
+                            <button className="cd-sec-bubble-popup-save" type="button"
+                              disabled={savingSecondary} onClick={addSecondaryContact}>
+                              {savingSecondary ? "Saving…" : "Add"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 {/* Adjuster */}
@@ -1588,38 +1719,90 @@ export default function ClientDetail() {
                     </button>
                   )}
                 </div>
-              </>
-            )}
+
+                {/* Quick stats */}
+                <div className="cd-header-stats">
+                  {[
+                    { label: "Open To-Dos",  value: `${todos.filter(t => !t.completed).length} of ${todos.length}` },
+                    { label: "Selections",   value: `${selections.length} item${selections.length !== 1 ? "s" : ""}` },
+                    { label: "Documents",    value: `${docs.length} file${docs.length !== 1 ? "s" : ""}` },
+                    { label: "Budget Est.",  value: budgetItems.length ? `$${budgetTotal.toFixed(2)}` : "—" },
+                  ].map(row => (
+                    <div key={row.label} className="cd-header-stat">
+                      <span className="cd-header-stat-label">{row.label}</span>
+                      <span className="cd-header-stat-value">{row.value}</span>
+                    </div>
+                  ))}
+                  <div className="cd-header-stat">
+                    <span className="cd-header-stat-label">
+                      <span className={`cd-header-portal-dot${hasPortal ? " active" : " inactive"}`} />
+                      Client Portal
+                    </span>
+                    <span className="cd-header-stat-value">
+                      {hasPortal
+                        ? (userDoc?.lastLogin ? formatDateTime(userDoc.lastLogin) : "Active")
+                        : "—"}
+                    </span>
+                  </div>
+
+                  {activityLog.length > 0 && (
+                    <button
+                      className={`cd-header-stat cd-header-stat--log${showActivityLog ? " open" : ""}`}
+                      onClick={() => setShowActivityLog(v => !v)}
+                      title="View activity log">
+                      <span className="cd-header-stat-label">
+                        <span className="cd-activity-pulse" />
+                        Activity Log
+                        <svg className="cd-activity-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="10" height="10"><polyline points="6 9 12 15 18 9"/></svg>
+                      </span>
+                      <span className="cd-header-stat-value">{activityLog.length} event{activityLog.length !== 1 ? "s" : ""}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Activity log panel */}
+                {showActivityLog && activityLog.length > 0 && (
+                  <div className="cd-activity-panel">
+                    <ul className="cd-activity-list">
+                      {activityLog.map((event, idx) => (
+                        <li key={event.id} className={`cd-activity-item${idx < activityLog.length - 1 ? " bordered" : ""}`}>
+                          <span className="cd-activity-icon" style={{ background: ACTIVITY_COLORS[event.type]?.bg || "#f1f5f9" }}>
+                            {ACTIVITY_ICONS[event.type] || "•"}
+                          </span>
+                          <div className="cd-activity-body">
+                            <p className="cd-activity-detail">{event.details || ACTIVITY_LABELS[event.type] || event.type}</p>
+                            <p className="cd-activity-meta">
+                              {event.timestamp ? formatDateTime(event.timestamp) : "—"}
+                              {event.actor && <span className="cd-activity-actor">{event.actor}</span>}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Portal Visibility */}
+                <div className="cd-portal-visibility">
+                  <div className="cd-portal-visibility-item cd-portal-visibility-heading">
+                    <span className="cd-portal-visibility-text">Portal Visibility</span>
+                    <span className="cd-portal-visibility-sub">{savingPortal ? "saving…" : <EyeIcon />}</span>
+                  </div>
+                  {Object.entries(PORTAL_SECTION_LABELS).map(([key, label]) => (
+                    <label key={key} className="cd-portal-visibility-item">
+                      <span className="cd-portal-visibility-text">{label}</span>
+                      <span className="cd-portal-visibility-sub">
+                        <input type="checkbox" checked={!!portalSections[key]} onChange={() => toggleSection(key)}
+                          style={{ width:13, height:13, accentColor:"#2563eb", cursor:"pointer" }} />
+                      </span>
+                    </label>
+                  ))}
+                </div>
+            </>
           </div>
 
           {/* Header right-side actions */}
           <div className="cd-header-actions">
-            {hasPortal && <span className="cd-active-badge"><ActiveDotIcon /> Portal Active</span>}
-            <div className="cd-debug-wrap">
-              <button
-                className="cd-debug-btn"
-                title="Debug info"
-                onClick={() => setShowDebugInfo(v => !v)}
-              >
-                ⚙
-              </button>
-              {showDebugInfo && (
-                <div className="cd-debug-popover">
-                  <button className="cd-debug-close" onClick={() => setShowDebugInfo(false)}>✕</button>
-                  <p className="cd-debug-title">Debug Info</p>
-                  <table className="cd-debug-table">
-                    <tbody>
-                      <tr><td>orgId</td><td>{orgId || <em>—</em>}</td></tr>
-                      <tr><td>clientDocId</td><td>{clientDocId || <em>—</em>}</td></tr>
-                      <tr><td>clientUid</td><td>{clientUid || <em>not activated</em>}</td></tr>
-                      <tr><td>contractor uid</td><td>{user?.uid || <em>—</em>}</td></tr>
-                      <tr><td>phone</td><td>{client?.phone || <em>—</em>}</td></tr>
-                      <tr><td>portal active</td><td>{hasPortal ? "yes" : "no"}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
             <button
               className={`cd-status-toggle cd-status-toggle--${(client?.claimStatus || "open") === "open" ? "open" : "closed"}`}
               onClick={toggleClaimStatus}
@@ -1635,15 +1818,6 @@ export default function ClientDetail() {
                 <DocIcon /> Documents
                 {docs.length > 0 && <span className="cd-docs-nav-count">{docs.length}</span>}
               </button>
-            )}
-            {client.phone && (
-              <Link
-                to={`/myclaim/opt-in-policy?phone=${encodeURIComponent(client.phone)}`}
-                target="_blank"
-                className="cd-notify-btn"
-                title="View SMS opt-in proof for this client">
-                Opt-in Proof
-              </Link>
             )}
             <div className="cd-notify-wrap" ref={notifyRef}>
               <button
@@ -1672,6 +1846,43 @@ export default function ClientDetail() {
                       </span>
                     </button>
                   ))}
+                  <button
+                    className="cd-notify-option"
+                    onClick={() => setShowCustomInput(v => !v)}>
+                    <BellIcon />
+                    <span>
+                      <span className="cd-notify-option-title">Custom message</span>
+                      <span className="cd-notify-option-desc">Type your own SMS to the client.</span>
+                    </span>
+                  </button>
+                  {showCustomInput && (
+                    <div className="cd-notify-custom">
+                      <textarea
+                        className="cd-notify-custom-input"
+                        placeholder="Type your message…"
+                        value={customMsg}
+                        onChange={e => setCustomMsg(e.target.value)}
+                        rows={3}
+                        maxLength={320}
+                        autoFocus
+                      />
+                      {customMsg.trim() && (
+                        <p className="cd-notify-custom-preview">
+                          <span className="cd-notify-custom-preview-label">Preview:</span>{' '}
+                          Ukrainian Restoration has a new message for you: &ldquo;{customMsg.trim()}&rdquo;
+                        </p>
+                      )}
+                      <div className="cd-notify-custom-footer">
+                        <span className="cd-notify-custom-count">{customMsg.length}/320</span>
+                        <button
+                          className="cd-notify-custom-send"
+                          disabled={!customMsg.trim()}
+                          onClick={() => sendNotification("custom", customMsg.trim())}>
+                          Send
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1689,334 +1900,136 @@ export default function ClientDetail() {
 
         {/* ══════════════ OVERVIEW ══════════════ */}
         <>
-            {/* Insurance Settlement */}
-            <SettlementOverviewCard
-              clientUid={clientUid}
-              clientDocId={clientDocId}
-              clientName={client?.name || ''}
-              orgId={orgId}
-              phone={client?.phone || ""}
-              insurers={insurers}
-              onAddInsurer={addInsurer}
-              onRemoveInsurer={removeInsurer}
-              prefill={{
-                claimNumber:      clientFields.claimNumber,
-                policyNumber:     clientFields.policyNumber,
-                insuranceCompany: adjuster.company,
-                adjusterName:     adjuster.name,
-                adjusterPhone:    adjuster.phone,
-                adjusterEmail:    adjuster.email,
-              }}
-            />
+            {/* Insurance Settlement + CompanyCam — side by side collapsible */}
+            <div className="cd-twin-row" style={{ gridTemplateColumns: portalSections.photos ? '1fr 1fr' : '1fr' }}>
 
-            {/* Quick stats */}
-            <div className="cd-section-card">
-              <div className="cd-section-header"><InfoIcon /><h2>Summary</h2></div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:20 }}>
-                {[
-                  { label:"Open To-Dos",  value: `${todos.filter(t=>!t.completed).length} of ${todos.length}` },
-                  { label:"Selections",   value: `${selections.length} item${selections.length !== 1 ? "s" : ""}` },
-                  { label:"Documents",    value: `${docs.length} file${docs.length !== 1 ? "s" : ""}` },
-                  { label:"Budget Est.",  value: budgetItems.length ? `$${budgetTotal.toFixed(2)}` : "—" },
-                  { label:"Last Login",   value: userDoc?.lastLogin ? formatDate(userDoc.lastLogin) : "Never" },
-                  { label:"Activity Log", value: `${activityLog.length} event${activityLog.length !== 1 ? "s" : ""}` },
-                ].map(row => (
-                  <div key={row.label}>
-                    <p style={{ margin:"0 0 3px", fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".06em" }}>{row.label}</p>
-                    <p style={{ margin:0, fontSize:14, color:"#0f172a", fontWeight:500 }}>{row.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* CompanyCam */}
-            <div className="cd-section-card">
-              <div className="cd-section-header">
-                <CameraIcon />
-                <h2>CompanyCam</h2>
-                {isAdmin && ccProjectId ? (
-                  <button className="cd-cc-unlink" onClick={unlinkCcProject}>Unlink</button>
-                ) : isAdmin && !ccProjectId ? (
-                  <>
-                    <button className="cd-upload-btn" onClick={openCCPicker}>Link Project</button>
-                    <button
-                      className="cd-upload-btn"
-                      onClick={handleCreateCCProject}
-                      disabled={ccCreating || !clientFields.address && !client?.address}
-                      style={{ marginLeft: 4 }}
-                      title={clientFields.address || client?.address ? "Create a new CompanyCam project for this address" : "Add a client address first"}
-                    >
-                      {ccCreating ? "Creating…" : <><PlusIcon /> New</>}
-                    </button>
-                  </>
-                ) : null}
+              {/* Insurance Settlement */}
+              <div className="cd-twin-card">
+                <SettlementOverviewCard
+                  clientUid={clientUid}
+                  clientDocId={clientDocId}
+                  clientName={client?.name || ''}
+                  orgId={orgId}
+                  phone={client?.phone || ""}
+                  insurers={insurers}
+                  onAddInsurer={addInsurer}
+                  onRemoveInsurer={removeInsurer}
+                  prefill={{
+                    claimNumber:      clientFields.claimNumber,
+                    policyNumber:     clientFields.policyNumber,
+                    insuranceCompany: adjuster.company,
+                    adjusterName:     adjuster.name,
+                    adjusterPhone:    adjuster.phone,
+                    adjusterEmail:    adjuster.email,
+                  }}
+                />
               </div>
 
-              {ccError && <p className="cd-cc-error">{ccError}</p>}
-
-              {!ccProjectId ? (
-                <p className="cd-empty-msg">No project linked. Link an existing project or create a new one using this client's address.</p>
-              ) : (
-                <>
-                  <div className="cd-cc-project-info">
-                    <span className="cd-cc-project-name">{ccProjectName || ccProjectId}</span>
-                    <a
-                      href={`https://app.companycam.com/projects/${ccProjectId}`}
-                      target="_blank" rel="noreferrer"
-                      className="cd-cc-open-link"
-                    >
-                      Open in CompanyCam ↗
-                    </a>
-                  </div>
-
-                  {ccPhotoLoad ? (
-                    <div className="cd-cc-photo-loading"><div className="cd-spinner" /></div>
-                  ) : ccPhotos.length === 0 ? (
-                    <p className="cd-empty-msg">No photos in this project yet.</p>
-                  ) : (
-                    <>
-                      <div className="cd-cc-share-bar">
-                        <span className="cd-cc-share-count">
-                          <ClientVisibleIcon />
-                          {ccSharedCount === 0
-                            ? "No photos shared with client"
-                            : ccSharedCount === ccPhotos.length
-                            ? `All ${ccPhotos.length} photos shared with client`
-                            : `${ccSharedCount} of ${ccPhotos.length} photos shared with client`}
-                        </span>
-                        <button className="cd-cc-manage-btn" onClick={() => setShowPhotoGrid(true)}>
-                          <GridIcon /> Manage Photos
-                        </button>
-                      </div>
-                      {ccSharedCount > 0 && (
-                        <div className="cd-cc-photo-strip">
-                          {ccPhotos.filter(p => isCCPhotoShared(p.id)).slice(0, 12).map(photo => {
-                            const thumb = getThumb(photo);
-                            return thumb ? (
-                              <img key={photo.id} src={thumb} alt="" className="cd-cc-photo-thumb" />
-                            ) : null;
-                          })}
-                          {ccSharedCount > 12 && (
-                            <button className="cd-cc-more-tile" onClick={() => setShowPhotoGrid(true)}>
-                              +{ccSharedCount - 12}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  <div className="cd-cc-classify-bar">
-                    <button
-                      className="cd-cc-classify-btn"
-                      onClick={handleClassify}
-                      disabled={classifying || ccPhotos.length === 0}
-                    >
-                      {classifying
-                        ? <><span className="cd-cc-btn-spin" /> Classifying…</>
-                        : <><SparkleIcon /> Classify Photos</>
-                      }
-                    </button>
-                    {classifyError && <p className="cd-cc-error" style={{ margin: 0 }}>{classifyError}</p>}
-                  </div>
-
-                  {classifyResults && !classifying && (
-                    <div className="cd-cc-results">
-                      {Object.entries(
-                        classifyResults
-                          .filter(r => r.best_match)
-                          .reduce((acc, r) => { (acc[r.best_match] = acc[r.best_match] || []).push(r); return acc; }, {})
-                      )
-                        .sort(([, a], [, b]) => b.length - a.length)
-                        .map(([label, items]) => (
-                          <div key={label} className="cd-cc-result-group">
-                            <div className="cd-cc-result-header">
-                              <span className="cd-cc-result-count">{items.length}</span>
-                              <span className="cd-cc-result-label-text">{label}</span>
-                              <span className="cd-cc-result-avg">
-                                avg {Math.round(items.reduce((s, r) => s + (r.similarity_score || 0), 0) / items.length * 100)}%
-                              </span>
-                            </div>
-                            <div className="cd-cc-result-strip">
-                              {items.slice(0, 8).map((r, i) => (
-                                <a key={i} href={r.image_url} target="_blank" rel="noreferrer">
-                                  <img src={r.image_url} alt={label} className="cd-cc-result-thumb" />
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Activity log */}
-            {activityLog.length > 0 && (
-              <div className="cd-section-card">
-                <div className="cd-section-header">
-                  <ClockIcon2 /><h2>Activity Log</h2>
-                  <span style={{ marginLeft:"auto", fontSize:12, color:"#94a3b8" }}>
-                    {activityLog.length} event{activityLog.length !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div style={{ maxHeight: 116, overflowY:"auto", marginRight:-4, paddingRight:4 }}>
-                  <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:0 }}>
-                    {activityLog.map((event, idx) => (
-                      <li key={event.id} style={{
-                        display:"flex", alignItems:"flex-start", gap:12,
-                        padding:"10px 0",
-                        borderBottom: idx < activityLog.length - 1 ? "1px solid #f1f5f9" : "none",
-                      }}>
-                        <span style={{
-                          flexShrink:0, marginTop:2, width:28, height:28,
-                          borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
-                          background: ACTIVITY_COLORS[event.type]?.bg || "#f1f5f9",
-                          fontSize:13,
-                        }}>
-                          {ACTIVITY_ICONS[event.type] || "•"}
-                        </span>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <p style={{ margin:"0 0 2px", fontSize:13, color:"#334155", fontWeight:500 }}>
-                            {event.details || ACTIVITY_LABELS[event.type] || event.type}
-                          </p>
-                          <p style={{ margin:0, fontSize:11, color:"#94a3b8" }}>
-                            {event.timestamp ? formatDateTime(event.timestamp) : "—"}
-                            {event.actor && <span style={{ marginLeft:6, fontWeight:600, color:"#cbd5e1" }}>{event.actor}</span>}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-            {/* Claim Progress */}
-            <div className="cd-section-card">
-              <div className="cd-section-header">
-                <ProgressIcon />
-                <h2>Claim Progress {savingProg && <span className="cd-saving">saving…</span>}</h2>
-              </div>
-              <div className="cd-progress-block">
-                <p className="cd-progress-label">Mitigation</p>
-                <StepTracker steps={MITIGATION_STEPS} currentStep={mitStep}
-                  onAdvance={() => advanceStep("mit")} onRegress={() => regressStep("mit")} saving={savingProg} />
-              </div>
-              <div className="cd-progress-block">
-                <p className="cd-progress-label">Construction</p>
-                <StepTracker steps={CONSTRUCTION_STEPS} currentStep={conStep}
-                  onAdvance={() => advanceStep("con")} onRegress={() => regressStep("con")} saving={savingProg} />
-              </div>
-            </div>
-
-            {/* Budget */}
-            <div className="cd-section-card">
-              <div className="cd-section-header">
-                <BudgetIcon />
-                <h2>Budget</h2>
-                <button className="cd-upload-btn" style={{ marginLeft:"auto" }}
-                  onClick={() => setShowBudgetForm(v => !v)}>
-                  <PlusIcon /> Add Item
-                </button>
-              </div>
-
-              {showBudgetForm && (
-                <form className="cd-budget-form" onSubmit={addBudgetItem}>
-                  <div className="cd-budget-search-wrap" style={{ position:"relative" }}>
-                    <input className="cd-budget-search"
-                      placeholder="Search item (e.g. Carpet, Drywall, Labor)…"
-                      value={budgetSearch} autoFocus
-                      onChange={e => { setBudgetSearch(e.target.value); setBudgetDropdown(true); setSelectedBudgetItem(null); }}
-                      onFocus={() => setBudgetDropdown(true)} />
-                    {budgetDropdown && budgetSearch && filteredBudgetItems.length > 0 && (
-                      <div className="cd-budget-dropdown">
-                        {filteredBudgetItems.map(item => (
-                          <button type="button" key={item.label} className="cd-budget-dropdown-item"
-                            onClick={() => { setSelectedBudgetItem(item); setBudgetSearch(item.label); setBudgetDropdown(false); }}>
-                            {item.label}
-                            <span className="cd-budget-dropdown-unit">{item.unit}</span>
+              {/* CompanyCam */}
+              {portalSections.photos && <div className="cd-twin-card">
+                  <div className="cd-section-card" style={{ margin: 0, borderRadius: '12px' }}>
+                    <div className="cd-section-header">
+                      <CameraIcon />
+                      <h2>CompanyCam</h2>
+                      {isAdmin && ccProjectId ? (
+                        <button className="cd-cc-unlink" onClick={unlinkCcProject}>Unlink</button>
+                      ) : isAdmin && !ccProjectId ? (
+                        <>
+                          <button className="cd-upload-btn" onClick={openCCPicker}>Link Project</button>
+                          <button
+                            className="cd-upload-btn"
+                            onClick={handleCreateCCProject}
+                            disabled={ccCreating || !clientFields.address && !client?.address}
+                            style={{ marginLeft: 4 }}
+                            title={clientFields.address || client?.address ? "Create a new CompanyCam project for this address" : "Add a client address first"}
+                          >
+                            {ccCreating ? "Creating…" : <><PlusIcon /> New</>}
                           </button>
-                        ))}
-                      </div>
+                        </>
+                      ) : null}
+                    </div>
+                    {ccError && <p className="cd-cc-error">{ccError}</p>}
+                    {!ccProjectId ? (
+                      <p className="cd-empty-msg">No project linked. Link an existing project or create a new one.</p>
+                    ) : (
+                      <>
+                        <div className="cd-cc-project-info">
+                          <span className="cd-cc-project-name">{client?.address || clientFields.address || ccProjectName || "Project linked"}</span>
+                          <a href={`https://app.companycam.com/projects/${ccProjectId}`} target="_blank" rel="noreferrer" className="cd-cc-open-link">Open in CompanyCam ↗</a>
+                        </div>
+                        {ccPhotoLoad ? (
+                          <div className="cd-cc-photo-loading"><div className="cd-spinner" /></div>
+                        ) : ccPhotos.length === 0 ? (
+                          <p className="cd-empty-msg">No photos in this project yet.</p>
+                        ) : (
+                          <>
+                            <div className="cd-cc-share-bar">
+                              <span className="cd-cc-share-count">
+                                <ClientVisibleIcon />
+                                {ccSharedCount === 0 ? "No photos shared with client" : ccSharedCount === ccPhotos.length ? `All ${ccPhotos.length} photos shared` : `${ccSharedCount} of ${ccPhotos.length} shared`}
+                              </span>
+                              <button className="cd-cc-manage-btn" onClick={() => setShowPhotoGrid(true)}><GridIcon /> Manage</button>
+                            </div>
+                            {ccSharedCount > 0 && (
+                              <div className="cd-cc-photo-strip">
+                                {(() => {
+                                  const sharedPhotos = ccPhotos.filter(p => isCCPhotoShared(p.id));
+                                  const LIMIT = 6;
+                                  const showMore = sharedPhotos.length > LIMIT;
+                                  const visible = showMore ? sharedPhotos.slice(0, LIMIT - 1) : sharedPhotos;
+                                  return <>
+                                    {visible.map(photo => {
+                                      const thumb = getThumb(photo);
+                                      return thumb ? <img key={photo.id} src={thumb} alt="" className="cd-cc-photo-thumb" /> : null;
+                                    })}
+                                    {showMore && (
+                                      <button className="cd-cc-more-tile" onClick={() => setShowPhotoGrid(true)}>
+                                        +{sharedPhotos.length - (LIMIT - 1)}
+                                      </button>
+                                    )}
+                                  </>;
+                                })()}
+                              </div>
+                            )}
+                          </>
+                        )}
+                        <div className="cd-cc-classify-bar">
+                          <button className="cd-cc-classify-btn" onClick={handleClassify} disabled={classifying || ccPhotos.length === 0}>
+                            {classifying ? <><span className="cd-cc-btn-spin" /> Classifying…</> : <><SparkleIcon /> Classify Photos</>}
+                          </button>
+                          {classifyError && <p className="cd-cc-error" style={{ margin: 0 }}>{classifyError}</p>}
+                        </div>
+                        {classifyResults && !classifying && (
+                          <div className="cd-cc-results">
+                            {Object.entries(classifyResults.filter(r => r.best_match).reduce((acc, r) => { (acc[r.best_match] = acc[r.best_match] || []).push(r); return acc; }, {}))
+                              .sort(([, a], [, b]) => b.length - a.length)
+                              .map(([label, items]) => (
+                                <div key={label} className="cd-cc-result-group">
+                                  <div className="cd-cc-result-header">
+                                    <span className="cd-cc-result-count">{items.length}</span>
+                                    <span className="cd-cc-result-label-text">{label}</span>
+                                    <span className="cd-cc-result-avg">avg {Math.round(items.reduce((s, r) => s + (r.similarity_score || 0), 0) / items.length * 100)}%</span>
+                                  </div>
+                                  <div className="cd-cc-result-strip">
+                                    {items.slice(0, 8).map((r, i) => (
+                                      <a key={i} href={r.image_url} target="_blank" rel="noreferrer">
+                                        <img src={r.image_url} alt={label} className="cd-cc-result-thumb" />
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
+              </div>}
 
-                  {selectedBudgetItem && (
-                    <>
-                      <div className="cd-budget-price-row">
-                        <div className="cd-budget-price-wrap">
-                          <span className="cd-budget-dollar">$</span>
-                          <input className="cd-budget-field-input" type="number" min="0" step="0.01"
-                            placeholder="Price" value={budgetPrice} onChange={e => setBudgetPrice(e.target.value)} />
-                        </div>
-                        <select className="cd-budget-type-select" value={budgetPriceType}
-                          onChange={e => setBudgetPriceType(e.target.value)}>
-                          <option value="flat">Flat rate</option>
-                          <option value="per_unit">Per {selectedBudgetItem.unit}</option>
-                        </select>
-                      </div>
-                      {budgetPriceType === "per_unit" && (
-                        <div className="cd-budget-qty-row">
-                          <input className="cd-budget-field-input" style={{ width:90 }} type="number" min="0" step="0.01"
-                            placeholder="Qty" value={budgetQty} onChange={e => setBudgetQty(e.target.value)} />
-                          <span style={{ fontSize:13, color:"#64748b" }}>{selectedBudgetItem.unit}</span>
-                          {budgetPrice && budgetQty && (
-                            <span className="cd-budget-total-preview">
-                              = ${((parseFloat(budgetPrice)||0)*(parseFloat(budgetQty)||1)).toFixed(2)}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <input className="cd-budget-field-input" placeholder="Description (optional)"
-                        value={budgetDesc} onChange={e => setBudgetDesc(e.target.value)} />
-                    </>
-                  )}
-
-                  <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
-                    <button type="button" className="cd-btn-secondary"
-                      onClick={() => { setShowBudgetForm(false); setBudgetSearch(""); setSelectedBudgetItem(null); }}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="cd-btn-primary"
-                      disabled={!selectedBudgetItem || !budgetPrice || addingBudget}>
-                      {addingBudget ? "Adding…" : "Add to Budget"}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {budgetItems.length === 0 ? (
-                <p className="cd-empty-msg">No budget items yet.</p>
-              ) : (
-                <>
-                  <ul className="cd-budget-list">
-                    {budgetItems.map(item => (
-                      <li key={item.id} className="cd-budget-list-item">
-                        <div className="cd-budget-item-main">
-                          <span className="cd-budget-item-name">{item.label}</span>
-                          {item.description && <span className="cd-budget-item-desc">{item.description}</span>}
-                        </div>
-                        <div className="cd-budget-item-metrics">
-                          {item.priceType === "per_unit" && item.qty && (
-                            <span className="cd-budget-item-qty">{item.qty} {item.unit}</span>
-                          )}
-                          <span className="cd-budget-item-amount">${(item.total || 0).toFixed(2)}</span>
-                        </div>
-                        <button className="cd-todo-delete" onClick={() => deleteBudgetItem(item.id)} title="Remove">✕</button>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="cd-budget-total">
-                    <span>Total Estimate</span>
-                    <span className="cd-budget-total-amount">${budgetTotal.toFixed(2)}</span>
-                  </div>
-                </>
-              )}
             </div>
 
             {/* To-Dos */}
-            <div className="cd-section-card">
+            {portalSections.todos && <div className="cd-section-card">
               <div className="cd-section-header">
                 <CheckIcon />
                 <h2>To-Dos</h2>
@@ -2179,7 +2192,13 @@ export default function ClientDetail() {
                   <ul className="cd-todo-list">
                     {items.map(todo => (
                       <li key={todo.id} className={`cd-todo-item${todo.completed ? " completed" : ""}`}>
-                        <button className="cd-todo-check" onClick={() => toggleTodo(todo)}>
+                        <button
+                          className="cd-todo-check"
+                          onClick={() => toggleTodo(todo)}
+                          disabled={todo.type === "sign_forms"}
+                          title={todo.type === "sign_forms" ? "Completed automatically when all parties sign" : undefined}
+                          style={todo.type === "sign_forms" ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                        >
                           {todo.completed ? <CheckCircleFilledIcon /> : <CheckCircleEmptyIcon />}
                         </button>
                         <div className="cd-todo-body">
@@ -2260,10 +2279,133 @@ export default function ClientDetail() {
               ))}
 
               {todos.length === 0 && !showTodoForm && <p className="cd-empty-msg">No tasks yet.</p>}
-            </div>
+            </div>}
+
+            {/* Claim Progress */}
+            {portalSections.progress && <div className="cd-section-card">
+              <div className="cd-section-header">
+                <ProgressIcon />
+                <h2>Claim Progress {savingProg && <span className="cd-saving">saving…</span>}</h2>
+              </div>
+              <div className="cd-progress-block">
+                <p className="cd-progress-label">Mitigation</p>
+                <StepTracker steps={MITIGATION_STEPS} currentStep={mitStep}
+                  onAdvance={() => advanceStep("mit")} onRegress={() => regressStep("mit")} saving={savingProg} />
+              </div>
+              <div className="cd-progress-block">
+                <p className="cd-progress-label">Construction</p>
+                <StepTracker steps={CONSTRUCTION_STEPS} currentStep={conStep}
+                  onAdvance={() => advanceStep("con")} onRegress={() => regressStep("con")} saving={savingProg} />
+              </div>
+            </div>}
+
+            {/* Budget */}
+            {portalSections.budget && <div className="cd-section-card">
+              <div className="cd-section-header">
+                <BudgetIcon />
+                <h2>Budget</h2>
+                <button className="cd-upload-btn" style={{ marginLeft:"auto" }}
+                  onClick={() => setShowBudgetForm(v => !v)}>
+                  <PlusIcon /> Add Item
+                </button>
+              </div>
+
+              {showBudgetForm && (
+                <form className="cd-budget-form" onSubmit={addBudgetItem}>
+                  <div className="cd-budget-search-wrap" style={{ position:"relative" }}>
+                    <input className="cd-budget-search"
+                      placeholder="Search item (e.g. Carpet, Drywall, Labor)…"
+                      value={budgetSearch} autoFocus
+                      onChange={e => { setBudgetSearch(e.target.value); setBudgetDropdown(true); setSelectedBudgetItem(null); }}
+                      onFocus={() => setBudgetDropdown(true)} />
+                    {budgetDropdown && budgetSearch && filteredBudgetItems.length > 0 && (
+                      <div className="cd-budget-dropdown">
+                        {filteredBudgetItems.map(item => (
+                          <button type="button" key={item.label} className="cd-budget-dropdown-item"
+                            onClick={() => { setSelectedBudgetItem(item); setBudgetSearch(item.label); setBudgetDropdown(false); }}>
+                            {item.label}
+                            <span className="cd-budget-dropdown-unit">{item.unit}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedBudgetItem && (
+                    <>
+                      <div className="cd-budget-price-row">
+                        <div className="cd-budget-price-wrap">
+                          <span className="cd-budget-dollar">$</span>
+                          <input className="cd-budget-field-input" type="number" min="0" step="0.01"
+                            placeholder="Price" value={budgetPrice} onChange={e => setBudgetPrice(e.target.value)} />
+                        </div>
+                        <select className="cd-budget-type-select" value={budgetPriceType}
+                          onChange={e => setBudgetPriceType(e.target.value)}>
+                          <option value="flat">Flat rate</option>
+                          <option value="per_unit">Per {selectedBudgetItem.unit}</option>
+                        </select>
+                      </div>
+                      {budgetPriceType === "per_unit" && (
+                        <div className="cd-budget-qty-row">
+                          <input className="cd-budget-field-input" style={{ width:90 }} type="number" min="0" step="0.01"
+                            placeholder="Qty" value={budgetQty} onChange={e => setBudgetQty(e.target.value)} />
+                          <span style={{ fontSize:13, color:"#64748b" }}>{selectedBudgetItem.unit}</span>
+                          {budgetPrice && budgetQty && (
+                            <span className="cd-budget-total-preview">
+                              = ${((parseFloat(budgetPrice)||0)*(parseFloat(budgetQty)||1)).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <input className="cd-budget-field-input" placeholder="Description (optional)"
+                        value={budgetDesc} onChange={e => setBudgetDesc(e.target.value)} />
+                    </>
+                  )}
+
+                  <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+                    <button type="button" className="cd-btn-secondary"
+                      onClick={() => { setShowBudgetForm(false); setBudgetSearch(""); setSelectedBudgetItem(null); }}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="cd-btn-primary"
+                      disabled={!selectedBudgetItem || !budgetPrice || addingBudget}>
+                      {addingBudget ? "Adding…" : "Add to Budget"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {budgetItems.length === 0 ? (
+                <p className="cd-empty-msg">No budget items yet.</p>
+              ) : (
+                <>
+                  <ul className="cd-budget-list">
+                    {budgetItems.map(item => (
+                      <li key={item.id} className="cd-budget-list-item">
+                        <div className="cd-budget-item-main">
+                          <span className="cd-budget-item-name">{item.label}</span>
+                          {item.description && <span className="cd-budget-item-desc">{item.description}</span>}
+                        </div>
+                        <div className="cd-budget-item-metrics">
+                          {item.priceType === "per_unit" && item.qty && (
+                            <span className="cd-budget-item-qty">{item.qty} {item.unit}</span>
+                          )}
+                          <span className="cd-budget-item-amount">${(item.total || 0).toFixed(2)}</span>
+                        </div>
+                        <button className="cd-todo-delete" onClick={() => deleteBudgetItem(item.id)} title="Remove">✕</button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="cd-budget-total">
+                    <span>Total Estimate</span>
+                    <span className="cd-budget-total-amount">${budgetTotal.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+            </div>}
 
             {/* Selections */}
-            <div className="cd-section-card">
+            {portalSections.selections && <div className="cd-section-card">
               <div className="cd-section-header">
                 <SelectionIcon />
                 <h2>Client Selections</h2>
@@ -2327,27 +2469,7 @@ export default function ClientDetail() {
                   </div>
                 ))
               )}
-            </div>
-
-            {/* Portal Visibility */}
-            <div className="cd-section-card">
-              <div className="cd-section-header">
-                <EyeIcon />
-                <h2>Portal Visibility {savingPortal && <span className="cd-saving">saving…</span>}</h2>
-              </div>
-              {!hasPortal && (
-                <p className="cd-empty-msg">Client hasn't activated their portal yet. Sections will be shown once active.</p>
-              )}
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {Object.entries(PORTAL_SECTION_LABELS).map(([key, label]) => (
-                  <label key={key} style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
-                    <input type="checkbox" checked={!!portalSections[key]} onChange={() => toggleSection(key)}
-                      style={{ width:16, height:16, accentColor:"#2563eb" }} />
-                    <span style={{ fontSize:14, color:"#334155" }}>{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
+            </div>}
 
             {/* Delete zone */}
             <div className="cd-danger-zone">
@@ -2435,9 +2557,8 @@ export default function ClientDetail() {
           <div onClick={e => e.stopPropagation()} style={{
             background: '#fff',
             borderRadius: 12,
-            width: 700,
-            maxWidth: '95vw',
-            maxHeight: '88vh',
+            width: 'min(1200px, 92vw)',
+            height: '90vh',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 20px 60px rgba(0,0,0,.25)',
@@ -2457,12 +2578,14 @@ export default function ClientDetail() {
 
             {/* Photo grid */}
             <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
               gap: 8,
               padding: 16,
               overflowY: 'auto',
               alignContent: 'flex-start',
+              flex: 1,
+              minHeight: 0,
             }}>
               {ccPhotos.map(photo => {
                 const thumb = getThumb(photo);
@@ -2473,9 +2596,8 @@ export default function ClientDetail() {
                     key={photo.id}
                     onClick={() => togglePhotoSelection(photo.id)}
                     style={{
-                      width: 150,
-                      height: 150,
-                      flexShrink: 0,
+                      width: '100%',
+                      height: 160,
                       borderRadius: 6,
                       overflow: 'hidden',
                       cursor: 'pointer',
@@ -2515,75 +2637,59 @@ export default function ClientDetail() {
               <DocIcon />
               <h2>Documents</h2>
               <span className="cd-docs-drawer-subtitle">{client.name || client.phone || "this client"}</span>
-              <button className="cd-docs-drawer-close" onClick={() => setShowDocsDrawer(false)}>✕</button>
-            </div>
-
-            {/* Google Drive section */}
-            <div className="cd-docs-drawer-section" style={{ borderBottom:'1px solid #f0f0f0', paddingBottom:12, marginBottom:4 }}>
-              <div className="cd-docs-drawer-section-header" style={{ marginBottom:6 }}>
-                <span className="cd-docs-drawer-section-title" style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <svg width="16" height="16" viewBox="0 0 87.3 78" fill="none" xmlns="http://www.w3.org/2000/svg" style={{flexShrink:0}}>
-                    <path d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
-                    <path d="M43.65 25L29.9 1.2C28.55 2 27.4 3.1 26.6 4.5L1.2 48.5c-.8 1.4-1.2 2.95-1.2 4.5h27.5z" fill="#00ac47"/>
-                    <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 11.2z" fill="#ea4335"/>
-                    <path d="M43.65 25L57.4 1.2C56.05.4 54.5 0 52.9 0H34.4c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
-                    <path d="M59.8 53H27.5L13.75 76.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.4 4.5-1.2z" fill="#2684fc"/>
-                    <path d="M73.4 26.5l-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
-                  </svg>
-                  Google Drive
-                </span>
-                {driveConnected && !driveFolderUrl && isAdmin && (
-                  <button className="cd-upload-btn" onClick={setupDriveFolder} disabled={driveSetupLoading}>
-                    {driveSetupLoading ? 'Creating…' : 'Set up folder'}
+              {isAdmin && (
+                <div className="cd-drive-wrap" ref={drivePopupRef}>
+                  <button
+                    className={`cd-drive-header-btn${showDrivePopup ? " active" : ""}`}
+                    onClick={() => { setShowDrivePopup(v => !v); setDriveSyncMessage(''); }}
+                    title="Google Drive">
+                    <svg width="13" height="13" viewBox="0 0 87.3 78" fill="none" xmlns="http://www.w3.org/2000/svg" style={{flexShrink:0}}>
+                      <path d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+                      <path d="M43.65 25L29.9 1.2C28.55 2 27.4 3.1 26.6 4.5L1.2 48.5c-.8 1.4-1.2 2.95-1.2 4.5h27.5z" fill="#00ac47"/>
+                      <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 11.2z" fill="#ea4335"/>
+                      <path d="M43.65 25L57.4 1.2C56.05.4 54.5 0 52.9 0H34.4c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+                      <path d="M59.8 53H27.5L13.75 76.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.4 4.5-1.2z" fill="#2684fc"/>
+                      <path d="M73.4 26.5l-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+                    </svg>
+                    Drive
                   </button>
-                )}
-              </div>
-              {!driveConnected ? (
-                <p className="cd-docs-drawer-empty" style={{ fontSize:12 }}>
-                  {isAdmin
-                    ? <>Google Drive not connected — go to <strong>Team → Integrations</strong> to connect.</>
-                    : 'Google Drive not connected. Ask your admin to connect it.'}
-                </p>
-              ) : driveFolderUrl ? (
-                <>
-                  <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-                    <a href={driveFolderUrl} target="_blank" rel="noreferrer"
-                      style={{ fontSize:12, color:'#2563eb', textDecoration:'none', display:'flex', alignItems:'center', gap:4 }}>
-                      Open client folder ↗
-                    </a>
-                    {driveExternalId && (
-                      <a href={`https://drive.google.com/drive/folders/${driveExternalId}`} target="_blank" rel="noreferrer"
-                        style={{ fontSize:12, color:'#16a34a', textDecoration:'none' }}>
-                        External ↗
-                      </a>
-                    )}
-                    {driveInternalId && (
-                      <a href={`https://drive.google.com/drive/folders/${driveInternalId}`} target="_blank" rel="noreferrer"
-                        style={{ fontSize:12, color:'#9333ea', textDecoration:'none' }}>
-                        Internal ↗
-                      </a>
-                    )}
-                    <button
-                      className="cd-upload-btn"
-                      onClick={syncFromDrive}
-                      disabled={driveSyncing}
-                      style={{ marginLeft:'auto' }}
-                    >
-                      {driveSyncing ? 'Syncing…' : '↻ Sync from Drive'}
-                    </button>
-                  </div>
-                  {driveSyncMessage && (
-                    <p style={{ fontSize:11, marginTop:4, color: driveSyncMessage.startsWith('Synced') ? '#16a34a' : '#64748b' }}>
-                      {driveSyncMessage}
-                    </p>
+                  {showDrivePopup && (
+                    <div className="cd-drive-popup">
+                      <p className="cd-drive-popup-title">Google Drive</p>
+                      {!driveConnected ? (
+                        <p className="cd-drive-popup-msg">
+                          Not connected — go to <strong>Team → Integrations</strong> to connect.
+                        </p>
+                      ) : !driveFolderUrl ? (
+                        <>
+                          <p className="cd-drive-popup-msg">No folder set up for this client yet.</p>
+                          <button className="cd-drive-popup-btn" onClick={setupDriveFolder} disabled={driveSetupLoading}>
+                            {driveSetupLoading ? 'Creating…' : 'Set up folder'}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="cd-drive-popup-links">
+                            {driveFolderUrl && <a href={driveFolderUrl} target="_blank" rel="noreferrer" className="cd-drive-popup-link">Open folder ↗</a>}
+                            {driveExternalId && <a href={`https://drive.google.com/drive/folders/${driveExternalId}`} target="_blank" rel="noreferrer" className="cd-drive-popup-link">External ↗</a>}
+                            {driveInternalId && <a href={`https://drive.google.com/drive/folders/${driveInternalId}`} target="_blank" rel="noreferrer" className="cd-drive-popup-link">Internal ↗</a>}
+                          </div>
+                          <button className="cd-drive-popup-btn" onClick={syncFromDrive} disabled={driveSyncing}>
+                            {driveSyncing ? 'Syncing…' : '↻ Sync from Drive'}
+                          </button>
+                          {driveSyncMessage && (
+                            <p className={`cd-drive-popup-msg${driveSyncMessage.startsWith('Synced') ? " success" : ""}`}>
+                              {driveSyncMessage}
+                            </p>
+                          )}
+                        </>
+                      )}
+                      {driveError && <p className="cd-drive-popup-msg error">{driveError}</p>}
+                    </div>
                   )}
-                </>
-              ) : (
-                <p className="cd-docs-drawer-empty" style={{ fontSize:12 }}>
-                  {isAdmin ? 'No Drive folder yet — click "Set up folder" above.' : 'Drive folder not set up for this client yet.'}
-                </p>
+                </div>
               )}
-              {driveError && <p style={{ color:'#dc2626', fontSize:12, marginTop:4 }}>{driveError}</p>}
+              <button className="cd-docs-drawer-close" onClick={() => setShowDocsDrawer(false)}>✕</button>
             </div>
 
             {/* Client-visible files */}
@@ -2612,7 +2718,8 @@ export default function ClientDetail() {
                             {d.uploadedAt && <span className="cd-doc-size">{formatDate(d.uploadedAt)}</span>}
                           </div>
                         </div>
-                        <button className="cd-doc-delete" onClick={() => deleteDocument(d)}>✕</button>
+                        {d.type !== "opt_in_proof" && <button className="cd-doc-move" title="Move to Internal Files" onClick={() => moveDocument(d, "internal")}>→ Internal</button>}
+                        {d.type !== "opt_in_proof" && <button className="cd-doc-delete" onClick={() => deleteDocument(d)}>✕</button>}
                       </li>
                     ))}
                   </ul>
@@ -2642,9 +2749,11 @@ export default function ClientDetail() {
                           <a href={d.downloadURL} target="_blank" rel="noreferrer" className="cd-doc-name">{d.name}</a>
                           <div className="cd-doc-meta">
                             {d.size && <span className="cd-doc-size">{formatBytes(d.size)}</span>}
+                            {d.uploadedAt && <span className="cd-doc-size">{formatDate(d.uploadedAt)}</span>}
                           </div>
                         </div>
-                        <button className="cd-doc-delete" onClick={() => deleteDocument(d)}>✕</button>
+                        {d.type !== "opt_in_proof" && <button className="cd-doc-move" title="Move to Client Files" onClick={() => moveDocument(d, "client")}>→ Client</button>}
+                        {d.type !== "opt_in_proof" && <button className="cd-doc-delete" onClick={() => deleteDocument(d)}>✕</button>}
                       </li>
                     ))}
                   </ul>
@@ -2726,12 +2835,12 @@ export default function ClientDetail() {
               assignedTo: "client",
               ...(contractorAudit ? { contractorAudit } : {}),
             });
-            // Save contractor-signed copy so all signature versions are accessible in the files section
+            // Save contractor-signed copy to internal files — not fully signed yet, client still needs to sign
             try {
               await addDoc(col(db, "organization_data", orgId, "clients", clientDocId, "documents"), {
-                name:        `${todo.label || "Document"} (Contractor Signed)`,
+                name:        `${todo.label || "Document"} (Contractor Signed — Awaiting Client)`,
                 downloadURL: contractorSignedDocUrl,
-                folder:      "client",
+                folder:      "internal",
                 uploadedAt:  st(),
                 type:        "signed_contract",
               });

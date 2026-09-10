@@ -1014,7 +1014,7 @@ export default function ClientPortal() {
                   const isPending  = ["sent","overdue","draft"].includes(inv.status) && !isPaid;
                   const fmtAmt     = (n) => (n??0).toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2});
                   return (
-                    <div key={inv.id} className={`cp-invoice-row${isPaid?" cp-invoice-row--paid":""}${isOverdue?" cp-invoice-row--overdue":""}`}>
+                    <div key={inv.id} className={`cp-invoice-row${isPaid?" cp-invoice-row--paid":""}${isOverdue?" cp-invoice-row--overdue":""}`} onClick={() => logActivity("invoice_viewed", `Viewed invoice ${inv.invoiceNumber || inv.id} — $${(inv.total||0).toFixed(2)}`)}>
                       <div className="cp-invoice-info">
                         <span className="cp-invoice-num">{inv.invoiceNumber || "Invoice"}</span>
                         <span className="cp-invoice-date">
@@ -1031,7 +1031,7 @@ export default function ClientPortal() {
                         {isPending && (
                           <button
                             className="cp-invoice-pay-btn"
-                            onClick={() => setPayingInvoice(inv)}
+                            onClick={(e) => { e.stopPropagation(); setPayingInvoice(inv); logActivity("payment_initiated", `Initiated payment for invoice ${inv.invoiceNumber || inv.id} — $${(inv.total||0).toFixed(2)}`); }}
                           >
                             Pay Now
                           </button>
@@ -1062,7 +1062,7 @@ export default function ClientPortal() {
                             {visiblePhotos.slice(0, 8).map((photo, idx) => {
                               const {thumb} = getPhotoUrls(photo); if (!thumb) return null;
                               return (
-                                <div key={photo.id} className="cp-photo-tile" onClick={() => { setShowPhotoPopup(true); setPhotoLightboxIdx(idx); }}>
+                                <div key={photo.id} className="cp-photo-tile" onClick={() => { setShowPhotoPopup(true); setPhotoLightboxIdx(idx); logActivity("photo_viewed", `Viewed photo ${idx + 1} of ${visiblePhotos.length}`); }}>
                                   <img src={thumb} alt="" loading="lazy" />
                                 </div>
                               );
@@ -1331,8 +1331,8 @@ export default function ClientPortal() {
                   <span className="cp-doc-name" title={d.name}>{d.name}</span>
                   {d.size && <span className="cp-doc-size">{formatBytes(d.size)}</span>}
                   <div className="cp-doc-acts">
-                    <button className="cp-doc-act" onClick={() => type==="image" ? setPreview({name:d.name,url:d.downloadURL}) : window.open(d.downloadURL,"_blank")}>{type==="image"?"Preview":"Open"}</button>
-                    <a className="cp-doc-act" href={d.downloadURL} download={d.name} target="_blank" rel="noreferrer">Download</a>
+                    <button className="cp-doc-act" onClick={() => { type==="image" ? setPreview({name:d.name,url:d.downloadURL}) : window.open(d.downloadURL,"_blank"); logActivity("document_viewed", `Opened document: "${d.name}"`); }}>{type==="image"?"Preview":"Open"}</button>
+                    <a className="cp-doc-act" href={d.downloadURL} download={d.name} target="_blank" rel="noreferrer" onClick={() => logActivity("document_downloaded", `Downloaded document: "${d.name}"`)}>Download</a>
                   </div>
                 </div>
               </div>
@@ -1361,7 +1361,7 @@ export default function ClientPortal() {
               {visiblePhotos.map((photo, idx) => {
                 const {thumb} = getPhotoUrls(photo); if (!thumb) return null;
                 return (
-                  <div key={photo.id} onClick={() => setPhotoLightboxIdx(idx)}
+                  <div key={photo.id} onClick={() => { setPhotoLightboxIdx(idx); logActivity("photo_viewed", `Viewed photo ${idx + 1} in full gallery`); }}
                     style={{ width:150, height:150, flexShrink:0, borderRadius:6, overflow:'hidden', cursor:'pointer', position:'relative' }}>
                     <img src={thumb} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
                   </div>

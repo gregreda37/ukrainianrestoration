@@ -611,22 +611,57 @@
 .sovc-qe-edit-btn:hover { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
 .sovc-qe-edit-btn--active { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
 
-/* ── Quick edit panel ── */
-.sovc-qe-panel {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1.5px dashed #e2e8f0;
+/* ── Quick edit modal ── */
+.sovc-qe-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+.sovc-qe-modal {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgba(15, 23, 42, 0.18);
+  padding: 24px;
+  width: 100%;
+  max-width: 680px;
+  max-height: 90vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
-
+.sovc-qe-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sovc-qe-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.sovc-qe-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+.sovc-qe-modal-close:hover { color: #475569; background: #f1f5f9; }
 .sovc-qe-top {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-
 .sovc-qe-actions {
   display: flex;
   justify-content: flex-end;

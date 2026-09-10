@@ -489,74 +489,6 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
                   </div>
                 )}
 
-                {/* ── Quick Edit Panel ── */}
-                {quickEditId === s.id && (
-                  <div className="sovc-qe-panel">
-                    <div className="sovc-qe-top">
-                      <div className="sovc-field">
-                        <label className="sovc-label">Status</label>
-                        <select className="sovc-input" value={quickForm.status}
-                          onChange={e => setQuickForm(p => ({ ...p, status: e.target.value }))}>
-                          {Object.entries(STATUS_META).map(([v, m]) => (
-                            <option key={v} value={v}>{m.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="sovc-field">
-                        <label className="sovc-label">Settlement Date</label>
-                        <input className="sovc-input" type="date" value={quickForm.settlementDate}
-                          onChange={e => setQuickForm(p => ({ ...p, settlementDate: e.target.value }))} />
-                      </div>
-                    </div>
-                    <div className="sovc-table-scroll">
-                      <table className="sovc-table">
-                        <thead>
-                          <tr>
-                            <th className="sovc-th-cat">Category</th>
-                            <th className="sovc-th-num" style={{ color: '#0f172a' }}>Estimate</th>
-                            <th className="sovc-th-num" style={{ color: '#16a34a' }}>Settled</th>
-                            <th className="sovc-th-num" style={{ color: '#0891b2' }}>Supplement</th>
-                            <th className="sovc-th-num" style={{ color: '#dc2626' }}>Expenses</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {CATEGORIES.map(cat => (
-                            <tr key={cat.key}>
-                              <td className="sovc-td-cat">{cat.label}</td>
-                              {['Estimate', 'Settled', 'Supplement', 'Expenses'].map(col => (
-                                <td key={col} className="sovc-td-amt">
-                                  <input className="sovc-amount-input" type="number" min="0" step="0.01" placeholder="—"
-                                    value={quickForm[`${cat.key}${col}`] ?? ''}
-                                    onChange={e => setQuickForm(p => ({ ...p, [`${cat.key}${col}`]: e.target.value }))} />
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          {(() => {
-                            const qt = computeTotals({ ...s, ...quickForm })
-                            return (
-                              <tr className="sovc-tfoot-row">
-                                <td className="sovc-td-cat">Total</td>
-                                <td className="sovc-td-amt" style={{ color: '#0f172a', fontWeight: 700 }}>{qt.Estimate > 0 ? fmtMoney(qt.Estimate) : '—'}</td>
-                                <td className="sovc-td-amt" style={{ color: '#16a34a', fontWeight: 700 }}>{qt.Settled > 0 ? fmtMoney(qt.Settled) : '—'}</td>
-                                <td className="sovc-td-amt" style={{ color: '#0891b2', fontWeight: 700 }}>{qt.Supplement > 0 ? fmtMoney(qt.Supplement) : '—'}</td>
-                                <td className="sovc-td-amt" style={{ color: '#dc2626', fontWeight: 700 }}>{qt.Expenses > 0 ? fmtMoney(qt.Expenses) : '—'}</td>
-                              </tr>
-                            )
-                          })()}
-                        </tfoot>
-                      </table>
-                    </div>
-                    <div className="sovc-qe-actions">
-                      <button className="sovc-btn sovc-btn--outline" onClick={() => setQuickEditId(null)}>Cancel</button>
-                      <button className="sovc-btn sovc-btn--primary" onClick={() => doQuickSave(s)} disabled={quickSaving}>
-                        {quickSaving ? 'Saving…' : 'Save Changes'}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             )
           })}
@@ -810,6 +742,84 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
           </div>
         </div>
       )}
+      {/* ── Quick Edit Modal ── */}
+      {quickEditId && (() => {
+        const s = settlements.find(x => x.id === quickEditId)
+        if (!s) return null
+        return (
+          <div className="sovc-qe-overlay" onClick={() => setQuickEditId(null)}>
+            <div className="sovc-qe-modal" onClick={e => e.stopPropagation()}>
+              <div className="sovc-qe-modal-header">
+                <span className="sovc-qe-modal-title">Quick Edit — {s.claimNumber || 'Settlement'}</span>
+                <button className="sovc-qe-modal-close" onClick={() => setQuickEditId(null)}>✕</button>
+              </div>
+              <div className="sovc-qe-top">
+                <div className="sovc-field">
+                  <label className="sovc-label">Status</label>
+                  <select className="sovc-input" value={quickForm.status}
+                    onChange={e => setQuickForm(p => ({ ...p, status: e.target.value }))}>
+                    {Object.entries(STATUS_META).map(([v, m]) => (
+                      <option key={v} value={v}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sovc-field">
+                  <label className="sovc-label">Settlement Date</label>
+                  <input className="sovc-input" type="date" value={quickForm.settlementDate}
+                    onChange={e => setQuickForm(p => ({ ...p, settlementDate: e.target.value }))} />
+                </div>
+              </div>
+              <div className="sovc-table-scroll">
+                <table className="sovc-table">
+                  <thead>
+                    <tr>
+                      <th className="sovc-th-cat">Category</th>
+                      <th className="sovc-th-num" style={{ color: '#0f172a' }}>Estimate</th>
+                      <th className="sovc-th-num" style={{ color: '#16a34a' }}>Settled</th>
+                      <th className="sovc-th-num" style={{ color: '#0891b2' }}>Supplement</th>
+                      <th className="sovc-th-num" style={{ color: '#dc2626' }}>Expenses</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {CATEGORIES.map(cat => (
+                      <tr key={cat.key}>
+                        <td className="sovc-td-cat">{cat.label}</td>
+                        {['Estimate', 'Settled', 'Supplement', 'Expenses'].map(col => (
+                          <td key={col} className="sovc-td-amt">
+                            <input className="sovc-amount-input" type="number" min="0" step="0.01" placeholder="—"
+                              value={quickForm[`${cat.key}${col}`] ?? ''}
+                              onChange={e => setQuickForm(p => ({ ...p, [`${cat.key}${col}`]: e.target.value }))} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    {(() => {
+                      const qt = computeTotals({ ...s, ...quickForm })
+                      return (
+                        <tr className="sovc-tfoot-row">
+                          <td className="sovc-td-cat">Total</td>
+                          <td className="sovc-td-amt" style={{ color: '#0f172a', fontWeight: 700 }}>{qt.Estimate > 0 ? fmtMoney(qt.Estimate) : '—'}</td>
+                          <td className="sovc-td-amt" style={{ color: '#16a34a', fontWeight: 700 }}>{qt.Settled > 0 ? fmtMoney(qt.Settled) : '—'}</td>
+                          <td className="sovc-td-amt" style={{ color: '#0891b2', fontWeight: 700 }}>{qt.Supplement > 0 ? fmtMoney(qt.Supplement) : '—'}</td>
+                          <td className="sovc-td-amt" style={{ color: '#dc2626', fontWeight: 700 }}>{qt.Expenses > 0 ? fmtMoney(qt.Expenses) : '—'}</td>
+                        </tr>
+                      )
+                    })()}
+                  </tfoot>
+                </table>
+              </div>
+              <div className="sovc-qe-actions">
+                <button className="sovc-btn sovc-btn--outline" onClick={() => setQuickEditId(null)}>Cancel</button>
+                <button className="sovc-btn sovc-btn--primary" onClick={() => doQuickSave(s)} disabled={quickSaving}>
+                  {quickSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

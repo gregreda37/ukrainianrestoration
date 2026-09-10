@@ -31,6 +31,15 @@ const PIPELINE_STATUS_META = {
   estimating:    { label: 'Estimating',    color: '#7c3aed', bg: '#f5f3ff' },
 }
 
+const MITIGATION_STEPS = [
+  "Claim Submitted", "Mitigation in Progress", "Mitigation Complete",
+  "Adjuster Inspection Scheduled", "Adjuster Inspection Complete",
+]
+const CONSTRUCTION_STEPS = [
+  "Estimate Submitted", "Estimate Approved", "Material Ordered",
+  "Rough-In Complete", "Work in Progress", "Final Walkthrough", "Complete",
+]
+
 function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStatus }) {
   const [view, setView] = useState('net')
 
@@ -250,7 +259,14 @@ function SettlementPaymentsSection({ items, total, navigate }) {
     return sum + Math.max(0, coNet - paid)
   }, 0)
 
-  const displayTotal = view === 'net' ? coNetTotal : total
+  const rawSettledTotal = items.reduce((sum, s) => sum + (parseFloat(s.totalSettled) || 0), 0)
+  const fullOutstandingTotal = items.reduce((sum, s) => {
+    const settled = parseFloat(s.totalSettled)    || 0
+    const paid    = parseFloat(s.totalPaidAmount) || 0
+    return sum + Math.max(0, settled - paid)
+  }, 0)
+
+  const displayTotal = view === 'net' ? coNetTotal : rawSettledTotal
 
   return (
     <div className="oil-section">
@@ -262,7 +278,7 @@ function SettlementPaymentsSection({ items, total, navigate }) {
           </div>
           <span className="oil-section-total">
             {fmtMoney(displayTotal)}
-            <span className="oil-sett-total-label">{view === 'net' ? ' co. outstanding' : ' outstanding'}</span>
+            <span className="oil-sett-total-label">{view === 'net' ? ' co. outstanding' : ' total settled'}</span>
           </span>
         </div>
         <div className="oil-pipe-header-bottom">
@@ -330,7 +346,7 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 <td colSpan={3} />
                 <td className="oil-td oil-td--amount"><strong>{fmtMoney(items.reduce((s2, r) => s2 + (parseFloat(r.totalSettled) || 0), 0))}</strong></td>
                 <td className="oil-td oil-td--amount" style={{ color: '#0891b2' }}><strong>{fmtMoney(items.reduce((s2, r) => s2 + (parseFloat(r.totalPaidAmount) || 0), 0))}</strong></td>
-                <td className="oil-td oil-td--amount"><strong className="oil-outstanding-val">{fmtMoney(total)}</strong></td>
+                <td className="oil-td oil-td--amount"><strong className="oil-outstanding-val">{fmtMoney(fullOutstandingTotal)}</strong></td>
                 <td /><td />
               </tr>
             </tfoot>
@@ -470,6 +486,7 @@ export default function Dashboard() {
   const [saved,                 setSaved]                 = useState(false);
   const [saveError,             setSaveError]             = useState("");
   const [savingPipelineStatus,  setSavingPipelineStatus]  = useState(null);
+  const [savingStep,            setSavingStep]            = useState({});
 
   const clientAddressRef       = useRef(null);
   const clientAutocompleteRef  = useRef(null);
@@ -519,17 +536,22 @@ export default function Dashboard() {
           .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
         setTotalClients(all.length);
-        setRecentClients(all.slice(0, 6));
+        setRecentClients(all.slice(0, 4));
 
-        // Build address, phone, uid→docId, and name→docId lookups from already-loaded clients
-        const addrByDocId = {}, addrByPhone = {}, uidToDocId = {}, nameToDocId = {}
+        // Build address, phone, uid→docId, name→docId, and step lookups from already-loaded clients
+        const addrByDocId = {}, addrByPhone = {}, uidToDocId = {}, nameToDocId = {}, stepByDocId = {}
         clientsSnap.docs.forEach(d => {
-          const { address, phone, uid, name } = d.data()
+          const { address, phone, uid, name, mitigationStep, constructionStep, claimStatus } = d.data()
           if (uid)  uidToDocId[uid] = d.id
           if (name) nameToDocId[name.trim().toLowerCase()] = d.id
           if (address) {
             addrByDocId[d.id] = address
             if (phone) addrByPhone[phone] = address
+          }
+          stepByDocId[d.id] = {
+            mitigationStep:   mitigationStep   ?? -1,
+            constructionStep: constructionStep ?? -1,
+            claimStatus:      claimStatus      || 'open',
           }
         })
 
@@ -555,11 +577,13 @@ export default function Dashboard() {
             || (s.clientUid  ? uidToDocId[s.clientUid]  : null)
             || (s.clientName ? nameToDocId[s.clientName.trim().toLowerCase()] : null)
           const address = addrByDocId[docId] || addrByPhone[phone] || null
+          const steps   = docId ? (stepByDocId[docId] || {}) : {}
           return {
             ...s,
             ...(phone   ? { clientPhone:   phone   } : {}),
             ...(docId   ? { clientDocId:   docId   } : {}),
             ...(address ? { clientAddress: address } : {}),
+            ...steps,
           }
         }))
       } catch (err) {
@@ -619,7 +643,7 @@ export default function Dashboard() {
     const OPEN = new Set(['estimating', 'submitted', 'negotiating', 'supplementing'])
     const priority = { submitted: 0, negotiating: 1, supplementing: 2, estimating: 3 }
     return settRows
-      .filter(s => OPEN.has(s.status || 'estimating'))
+      .filter(s => OPEN.has(s.status || 'estimating') && s.claimStatus !== 'closed')
       .sort((a, b) => {
         const pa = priority[a.status] ?? 4
         const pb = priority[b.status] ?? 4
@@ -678,6 +702,35 @@ export default function Dashboard() {
       console.error('handlePipelineStatusChange error:', err)
     } finally {
       setSavingPipelineStatus(null)
+    }
+  }
+
+  async function handleCloseClaim(s) {
+    if (!s.clientDocId || !organizationName) return
+    try {
+      await updateDoc(doc(db, 'organization_data', organizationName, 'clients', s.clientDocId), { claimStatus: 'closed' })
+      setSettRows(prev => prev.map(r => r.clientDocId === s.clientDocId ? { ...r, claimStatus: 'closed' } : r))
+    } catch (err) {
+      console.error('handleCloseClaim error:', err)
+    }
+  }
+
+  async function handleStepChange(clientDocId, type, direction) {
+    const key = `${clientDocId}-${type}`
+    if (savingStep[key] || !organizationName) return
+    setSavingStep(p => ({ ...p, [key]: true }))
+    try {
+      const steps = type === 'mit' ? MITIGATION_STEPS : CONSTRUCTION_STEPS
+      const field = type === 'mit' ? 'mitigationStep' : 'constructionStep'
+      const current = settRows.find(s => s.clientDocId === clientDocId)?.[field] ?? -1
+      const next = Math.max(-1, Math.min(steps.length - 1, current + direction))
+      if (next === current) return
+      await updateDoc(doc(db, 'organization_data', organizationName, 'clients', clientDocId), { [field]: next, updatedAt: serverTimestamp() })
+      setSettRows(prev => prev.map(s => s.clientDocId === clientDocId ? { ...s, [field]: next } : s))
+    } catch (err) {
+      console.error('handleStepChange error:', err)
+    } finally {
+      setSavingStep(p => { const n = { ...p }; delete n[key]; return n })
     }
   }
 
@@ -761,7 +814,7 @@ export default function Dashboard() {
       const snap = await getDocs(collection(db, "organization_data", organizationName, "clients"));
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
-      setRecentClients(all.slice(0, 6));
+      setRecentClients(all.slice(0, 4));
       setTimeout(closeModal, 1400);
     } catch (err) {
       console.error("Add client error:", err);
@@ -792,149 +845,31 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Top cards row: Company Info · My Profile · Financial Recap */}
-        <div className="cw-cards-row">
-
-        {/* Company admin card */}
-        <div className="cw-info-card cw-company-card">
-          <div className="cw-card-header">
-            <div className="cw-card-header-left">
-              <BuildingIcon />
-              <h2>Company Info</h2>
-            </div>
-            {!editingOrg && role === 'admin' && (
-              <button className="cw-edit-btn" onClick={() => { setOrgEdit({ ...orgInfo }); setEditingOrg(true); }}>
-                {orgInfo.companyName ? "Edit" : <><PlusIcon /> Set Up</>}
-              </button>
-            )}
+        {/* Stats strip */}
+        <div className="dash-stats-strip">
+          <div className="dash-stat">
+            <span className="dash-stat-value">{recentLoading ? "—" : totalClients}</span>
+            <span className="dash-stat-label">Total Clients</span>
           </div>
-
-          {recentLoading && !editingOrg ? (
-            <div className="cw-card-loading"><div className="cw-shimmer" /><div className="cw-shimmer cw-shimmer--sm" /></div>
-          ) : editingOrg ? (
-            <form className="cw-org-form" onSubmit={saveOrg}>
-              <input className="cw-field-input" placeholder="Company name" value={orgEdit.companyName}
-                onChange={e => setOrgEdit(o => ({ ...o, companyName: e.target.value }))} />
-              <input ref={companyAddressRef} className="cw-field-input" placeholder="Company address"
-                defaultValue={orgEdit.companyAddress} autoComplete="off" />
-              <input className="cw-field-input" placeholder="Phone number" value={orgEdit.companyPhone}
-                onChange={e => setOrgEdit(o => ({ ...o, companyPhone: e.target.value }))} />
-              <input className="cw-field-input" placeholder="Google Reviews URL" value={orgEdit.googleReviewsUrl}
-                onChange={e => setOrgEdit(o => ({ ...o, googleReviewsUrl: e.target.value }))} />
-              {saveOrgError && <p className="cw-modal-error">{saveOrgError}</p>}
-              <div className="cw-org-actions">
-                <button type="button" className="cw-btn-secondary" onClick={() => { setEditingOrg(false); setSaveOrgError(""); }}>Cancel</button>
-                <button type="submit" className="cw-btn-primary" disabled={savingOrg}>
-                  {savingOrg ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
-          ) : orgInfo.companyName ? (
-            <div className="cw-org-view">
-              <p className="cw-org-name">{orgInfo.companyName}</p>
-              {orgInfo.companyAddress && (
-                <p className="cw-org-row"><PinIcon /> {orgInfo.companyAddress}</p>
-              )}
-              {orgInfo.companyPhone && (
-                <p className="cw-org-row"><PhoneIcon /> {formatPhone(orgInfo.companyPhone)}</p>
-              )}
-              {orgInfo.googleReviewsUrl && (
-                <a href={orgInfo.googleReviewsUrl} target="_blank" rel="noreferrer" className="cw-reviews-link">
-                  <StarIcon /> Google Reviews
-                </a>
-              )}
-            </div>
-          ) : (
-            <p className="cw-org-empty">No company info set up yet.</p>
-          )}
-        </div>
-
-        {/* My Profile card */}
-        <div className="cw-info-card">
-          <div className="cw-card-header">
-            <div className="cw-card-header-left">
-              <ProfileIcon />
-              <h2>My Profile</h2>
-            </div>
-            {!editingProfile && (
-              <button className="cw-edit-btn" onClick={() => {
-                setProfileEdit({ displayName: myProfile?.displayName || '', phone: myProfile?.phone || '', contactEmail: myProfile?.email || '' });
-                setEditingProfile(true);
-              }}>Edit</button>
-            )}
+          <div className="dash-stat-divider" />
+          <div className="dash-stat">
+            <span className="dash-stat-value">{recentLoading ? "—" : openClaims.length}</span>
+            <span className="dash-stat-label">Open Claims</span>
           </div>
-
-          {recentLoading && !editingProfile ? (
-            <div className="cw-card-loading"><div className="cw-shimmer" /><div className="cw-shimmer cw-shimmer--sm" /></div>
-          ) : editingProfile ? (
-            <form className="cw-org-form" onSubmit={saveProfile}>
-              <input className="cw-field-input" placeholder="Display name" value={profileEdit.displayName}
-                onChange={e => setProfileEdit(p => ({ ...p, displayName: e.target.value }))} />
-              <input className="cw-field-input" placeholder="Phone number" value={profileEdit.phone}
-                onChange={e => setProfileEdit(p => ({ ...p, phone: e.target.value }))} />
-              <input className="cw-field-input" placeholder="Contact email" type="email" value={profileEdit.contactEmail}
-                onChange={e => setProfileEdit(p => ({ ...p, contactEmail: e.target.value }))} />
-              {profileError && <p className="cw-modal-error">{profileError}</p>}
-              <div className="cw-org-actions">
-                <button type="button" className="cw-btn-secondary" onClick={() => { setEditingProfile(false); setProfileError(''); }}>Cancel</button>
-                <button type="submit" className="cw-btn-primary" disabled={savingProfile}>
-                  {savingProfile ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="cw-profile-body">
-              {myProfile?.photoURL
-                ? <img src={myProfile.photoURL} alt={myProfile.displayName} className="cw-profile-photo" referrerPolicy="no-referrer" />
-                : <div className="cw-profile-avatar">{(myProfile?.displayName || myProfile?.email || "?")[0].toUpperCase()}</div>
-              }
-              <div className="cw-profile-info">
-                <p className="cw-profile-name">{myProfile?.displayName || <span className="cw-muted">No name set</span>}</p>
-                <p className="cw-profile-email">{myProfile?.email}</p>
-                {myProfile?.phone && <p className="cw-profile-email">{formatPhone(myProfile.phone)}</p>}
-                <span className={`cw-role-badge cw-role-${myProfile?.role}`}>
-                  {myProfile?.role === 'project_manager' ? 'Project Manager' : myProfile?.role === 'public_adjuster' ? 'Public Adjuster' : 'Admin'}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Financial Recap card */}
-        <div className="cw-info-card">
-          <div className="cw-card-header">
-            <div className="cw-card-header-left">
-              <ChartIcon />
-              <h2>At a Glance</h2>
-            </div>
+          <div className="dash-stat">
+            <span className="dash-stat-value dash-stat-value--blue">{recentLoading ? "—" : fmtCurrency(openClaimsPipelineValue)}</span>
+            <span className="dash-stat-label">Co. Receivables</span>
           </div>
-          <div className="cw-recap-list">
-            <div className="cw-recap-row">
-              <span className="cw-recap-label">Total Clients</span>
-              <span className="cw-recap-value">{recentLoading ? "—" : totalClients}</span>
-            </div>
-            <div className="cw-recap-divider" />
-            <div className="cw-recap-row">
-              <span className="cw-recap-label">Open Claims</span>
-              <span className="cw-recap-value">{recentLoading ? "—" : openClaims.length}</span>
-            </div>
-            <div className="cw-recap-row cw-recap-row--sub">
-              <span className="cw-recap-label">Co. Receivables</span>
-              <span className="cw-recap-value cw-recap-value--blue">{recentLoading ? "—" : fmtCurrency(openClaimsPipelineValue)}</span>
-            </div>
-            <div className="cw-recap-divider" />
-            <div className="cw-recap-row">
-              <span className="cw-recap-label">Awaiting Settlement</span>
-              <span className="cw-recap-value">{recentLoading ? "—" : awaitingSettlements.length}</span>
-            </div>
-            <div className="cw-recap-row cw-recap-row--sub">
-              <span className="cw-recap-label">Co. Outstanding</span>
-              <span className="cw-recap-value cw-recap-value--green">{recentLoading ? "—" : fmtCurrency(awaitingSettlementTotal)}</span>
-            </div>
+          <div className="dash-stat-divider" />
+          <div className="dash-stat">
+            <span className="dash-stat-value">{recentLoading ? "—" : awaitingSettlements.length}</span>
+            <span className="dash-stat-label">Awaiting Settlement</span>
+          </div>
+          <div className="dash-stat">
+            <span className="dash-stat-value dash-stat-value--green">{recentLoading ? "—" : fmtCurrency(awaitingSettlementTotal)}</span>
+            <span className="dash-stat-label">Co. Outstanding</span>
           </div>
         </div>
-
-        </div>{/* end cw-cards-row */}
 
         {/* Recent clients */}
         <div className="cw-recent-section">
@@ -984,9 +919,23 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Open Claims Pipeline */}
+        {/* Open Jobs — primary operational view */}
+        {(openClaims.length > 0 || recentLoading) && (
+          <OpenJobsSection
+            items={openClaims}
+            loading={recentLoading}
+            navigate={navigate}
+            onStatusChange={handlePipelineStatusChange}
+            savingStatus={savingPipelineStatus}
+            onStepChange={handleStepChange}
+            savingStep={savingStep}
+            onCloseClaim={handleCloseClaim}
+          />
+        )}
+
+        {/* Open Claims Pipeline — financial view */}
         {openClaims.length > 0 && (
-          <div style={{ marginTop: 28 }}>
+          <div style={{ marginTop: 8 }}>
             <OpenClaimsPipelineSection
               items={openClaims}
               navigate={navigate}
@@ -1060,6 +1009,175 @@ export default function Dashboard() {
       )}
     </div>
   );
+}
+
+// ── Open Jobs components ──────────────────────────────────────────────────
+
+function StepDots({ steps, current }) {
+  return (
+    <span className="dash-step-dots">
+      {steps.map((_, i) => (
+        <span key={i} className={`dash-step-dot${i <= current ? ' dash-step-dot--filled' : ''}`} />
+      ))}
+    </span>
+  )
+}
+
+function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, savingStep, onCloseClaim }) {
+  const [confirmClose, setConfirmClose] = React.useState(false)
+  const statusKey = s.status || 'estimating'
+  const meta      = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
+  const settNav   = s.clientPhone || s.clientDocId
+  const href      = settNav ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement` : null
+  const clientHref = settNav ? `/myclaim/clients/${encodeURIComponent(settNav)}` : null
+
+  const mitStep = typeof s.mitigationStep   === 'number' ? s.mitigationStep   : -1
+  const conStep = typeof s.constructionStep === 'number' ? s.constructionStep : -1
+  const mitLabel = mitStep >= 0 ? MITIGATION_STEPS[mitStep]   : "Not started"
+  const conLabel = conStep >= 0 ? CONSTRUCTION_STEPS[conStep] : "Not started"
+  const mitSaving = !!savingStep[`${s.clientDocId}-mit`]
+  const conSaving = !!savingStep[`${s.clientDocId}-con`]
+  const canStep   = !!s.clientDocId
+
+  const estimate  = parseFloat(s.totalEstimate) || 0
+  const settled   = parseFloat(s.totalSettled)  || 0
+  const amount    = settled > 0 ? settled : estimate
+  const isSettled = settled > 0
+
+  return (
+    <div className="dash-job-card">
+      {/* Header */}
+      <div className="dash-job-card-head">
+        <div className="dash-job-client-info"
+          style={{ cursor: clientHref ? 'pointer' : 'default' }}
+          onClick={clientHref ? () => navigate(clientHref) : undefined}>
+          <span className="dash-job-name">{s.clientName || '—'}</span>
+          {s.clientAddress && <span className="dash-job-addr">{s.clientAddress}</span>}
+        </div>
+        <div className="dash-job-head-right">
+          <select
+            className="dash-status-select"
+            style={{ color: meta.color, background: meta.bg, borderColor: meta.color + '44' }}
+            value={statusKey}
+            disabled={savingStatus === s.id}
+            onChange={e => onStatusChange(s, e.target.value)}
+          >
+            {Object.entries(PIPELINE_STATUS_META).map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
+          </select>
+          {clientHref && (
+            <button className="dash-job-view-btn" onClick={() => navigate(clientHref)}>View →</button>
+          )}
+        </div>
+      </div>
+
+      {/* Progress rows */}
+      <div className="dash-job-progress">
+        <div className="dash-progress-row">
+          <span className="dash-progress-label">Mitigation</span>
+          <div className="dash-progress-controls">
+            <button className="dash-step-btn"
+              disabled={!canStep || mitStep <= -1 || mitSaving}
+              onClick={() => onStepChange(s.clientDocId, 'mit', -1)}>‹</button>
+            <div className="dash-step-info">
+              <StepDots steps={MITIGATION_STEPS} current={mitStep} />
+              <span className="dash-step-name">{mitLabel}</span>
+            </div>
+            <button className="dash-step-btn"
+              disabled={!canStep || mitStep >= MITIGATION_STEPS.length - 1 || mitSaving}
+              onClick={() => onStepChange(s.clientDocId, 'mit', 1)}>›</button>
+          </div>
+        </div>
+
+        <div className="dash-progress-row">
+          <span className="dash-progress-label">Construction</span>
+          <div className="dash-progress-controls">
+            <button className="dash-step-btn"
+              disabled={!canStep || conStep <= -1 || conSaving}
+              onClick={() => onStepChange(s.clientDocId, 'con', -1)}>‹</button>
+            <div className="dash-step-info">
+              <StepDots steps={CONSTRUCTION_STEPS} current={conStep} />
+              <span className="dash-step-name">{conLabel}</span>
+            </div>
+            <button className="dash-step-btn"
+              disabled={!canStep || conStep >= CONSTRUCTION_STEPS.length - 1 || conSaving}
+              onClick={() => onStepChange(s.clientDocId, 'con', 1)}>›</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="dash-job-footer">
+        <span className={`dash-job-amount${isSettled ? ' dash-job-amount--settled' : ''}`}>
+          {isSettled ? 'Settled' : 'Est'} {fmtMoney(amount)}
+        </span>
+        {s.claimNumber && <span className="dash-job-claim-num">Claim #{s.claimNumber}</span>}
+        <div className="dash-job-close-wrap">
+          {confirmClose ? (
+            <>
+              <span className="dash-job-close-confirm-label">Close claim?</span>
+              <button className="dash-job-close-cancel" onClick={() => setConfirmClose(false)}>Cancel</button>
+              <button className="dash-job-close-confirm" onClick={() => { setConfirmClose(false); onCloseClaim(s); }}>Close</button>
+            </>
+          ) : (
+            <button className="dash-job-close-btn" onClick={() => setConfirmClose(true)}>Close Claim</button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OpenJobsSection({ items, loading, navigate, onStatusChange, savingStatus, onStepChange, savingStep, onCloseClaim }) {
+  const [filter, setFilter] = React.useState('all')
+
+  const filtered = filter === 'all' ? items : items.filter(s => (s.status || 'estimating') === filter)
+
+  return (
+    <div className="dash-jobs-section">
+      <div className="dash-jobs-section-header">
+        <h2 className="dash-jobs-title">Open Jobs</h2>
+        {!loading && <span className="dash-jobs-count">{items.length} active</span>}
+      </div>
+      {!loading && items.length > 0 && (
+        <div className="dash-jobs-filters">
+          {[{ key: 'all', label: 'All' }, ...Object.entries(PIPELINE_STATUS_META).map(([k, v]) => ({ key: k, label: v.label }))].map(({ key, label }) => {
+            const count = key === 'all' ? items.length : items.filter(s => (s.status || 'estimating') === key).length
+            if (key !== 'all' && count === 0) return null
+            const meta = PIPELINE_STATUS_META[key]
+            return (
+              <button
+                key={key}
+                className={`dash-filter-btn${filter === key ? ' active' : ''}`}
+                style={filter === key && meta ? { background: meta.bg, color: meta.color, borderColor: meta.color + '55' } : {}}
+                onClick={() => setFilter(key)}
+              >
+                {label}
+                <span className="dash-filter-count">{count}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {loading ? (
+        <div className="cw-recent-loading"><div className="cw-spinner" /></div>
+      ) : filtered.length === 0 ? (
+        <p className="cw-org-empty" style={{ padding: '8px 0' }}>No jobs match this filter.</p>
+      ) : (
+        <>
+          <div className="dash-jobs-grid">
+            {filtered.map(s => (
+              <OpenJobCard key={s.id} s={s} navigate={navigate}
+                onStatusChange={onStatusChange} savingStatus={savingStatus}
+                onStepChange={onStepChange} savingStep={savingStep}
+                onCloseClaim={onCloseClaim} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 const PeopleIcon = () => (

@@ -11,8 +11,8 @@ const ALL_NAV = [
   { to: '/myclaim',               label: 'Dashboard',   icon: '▦',  end: true },
   { to: '/myclaim/clients',       label: 'Clients',     icon: '👥' },
   { to: '/myclaim/open-work',     label: 'Invoices',    icon: '🧾' },
-  { to: '/myclaim/invoices',      label: 'Sales Report', icon: '📊' },
-  { to: '/myclaim/partners',       label: 'Partners',    icon: '🤝' },
+  { to: '/myclaim/invoices',      label: 'Sales Report', icon: '📊', pmBlocked: true },
+  { to: '/myclaim/partners',       label: 'Partners',    icon: '🤝', pmBlocked: true },
   { to: '/myclaim/ai',            label: 'AI Analysis', icon: '🤖', pmBlocked: true },
   { to: '/myclaim/settings',      label: 'Settings',    icon: '⚙️' },
 ]

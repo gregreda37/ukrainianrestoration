@@ -2,16 +2,17 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, lazy, Suspense } from 'react'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
-import Home from './pages/Home'
-import About from './pages/About'
-import Projects from './pages/Projects'
-import WaterDamage from './pages/WaterDamage'
-import Services from './pages/Services'
-import Handyman from './pages/Handyman'
-import JunkRemoval from './pages/JunkRemoval'
-import Contact from './pages/Contact'
-import TermsAndConditions from './pages/TermsAndConditions'
-import PrivacyPolicy from './pages/PrivacyPolicy'
+
+const Home               = lazy(() => import('./pages/Home'))
+const About              = lazy(() => import('./pages/About'))
+const Projects           = lazy(() => import('./pages/Projects'))
+const WaterDamage        = lazy(() => import('./pages/WaterDamage'))
+const Services           = lazy(() => import('./pages/Services'))
+const Handyman           = lazy(() => import('./pages/Handyman'))
+const JunkRemoval        = lazy(() => import('./pages/JunkRemoval'))
+const Contact            = lazy(() => import('./pages/Contact'))
+const TermsAndConditions = lazy(() => import('./pages/TermsAndConditions'))
+const PrivacyPolicy      = lazy(() => import('./pages/PrivacyPolicy'))
 
 function NotFound() {
   return (
@@ -115,19 +116,21 @@ function PublicSite() {
       <Navbar />
       <main>
         <PageTransition>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/projects" element={<Projects />} />
-            <Route path="/water-damage" element={<WaterDamage />} />
-            <Route path="/services" element={<Services />} />
-            <Route path="/handyman" element={<Handyman />} />
-            <Route path="/junk-removal" element={<JunkRemoval />} />
-            <Route path="/contact" element={<Contact />} />
-            <Route path="/terms" element={<TermsAndConditions />} />
-            <Route path="/privacy" element={<PrivacyPolicy />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <Suspense fallback={null}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/projects" element={<Projects />} />
+              <Route path="/water-damage" element={<WaterDamage />} />
+              <Route path="/services" element={<Services />} />
+              <Route path="/handyman" element={<Handyman />} />
+              <Route path="/junk-removal" element={<JunkRemoval />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/terms" element={<TermsAndConditions />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </PageTransition>
       </main>
       <Footer />
@@ -188,11 +191,11 @@ export default function App() {
           <Route path="clients/:id" element={<Suspense fallback={<PortalFallback />}><ClientDetail /></Suspense>} />
           <Route path="clients/:id/invoices" element={<Suspense fallback={<PortalFallback />}><Invoices /></Suspense>} />
           <Route path="clients/:id/invoices/:invoiceId" element={<Suspense fallback={<PortalFallback />}><InvoiceEditor /></Suspense>} />
-          <Route path="clients/:id/settlement" element={<Suspense fallback={<PortalFallback />}><Settlement /></Suspense>} />
-          <Route path="invoices" element={<Suspense fallback={<PortalFallback />}><OrgInvoices /></Suspense>} />
+          <Route path="clients/:id/settlement" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Settlement /></Suspense></AdminRoute>} />
+          <Route path="invoices" element={<AdminRoute><Suspense fallback={<PortalFallback />}><OrgInvoices /></Suspense></AdminRoute>} />
           <Route path="open-work" element={<Suspense fallback={<PortalFallback />}><OpenWork /></Suspense>} />
-          <Route path="partners" element={<Suspense fallback={<PortalFallback />}><Partners /></Suspense>} />
-          <Route path="partners/:partnerId" element={<Suspense fallback={<PortalFallback />}><PartnerDetail /></Suspense>} />
+          <Route path="partners" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Partners /></Suspense></AdminRoute>} />
+          <Route path="partners/:partnerId" element={<AdminRoute><Suspense fallback={<PortalFallback />}><PartnerDetail /></Suspense></AdminRoute>} />
           <Route path="chatbot" element={<AdminRoute><Suspense fallback={<PortalFallback />}><Chatbot /></Suspense></AdminRoute>} />
           <Route path="ai" element={<AdminRoute><Suspense fallback={<PortalFallback />}><AIAnalysis /></Suspense></AdminRoute>} />
           <Route path="settings" element={<Suspense fallback={<PortalFallback />}><Settings /></Suspense>} />

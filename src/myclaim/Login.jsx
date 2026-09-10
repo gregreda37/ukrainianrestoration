@@ -10,8 +10,83 @@ import {
 } from 'firebase/auth'
 import { useNavigate, Navigate, Link } from 'react-router-dom'
 import { auth, db } from '../firebase'
-import { doc, getDoc, setDoc, deleteDoc, getDocs, collection, query, where, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, addDoc, deleteDoc, getDocs, collection, query, where, serverTimestamp } from 'firebase/firestore'
 import { useAuth } from './useAuth'
+
+async function saveOptInProofPdf({ phone, orgId, clientDocId, consentLanguage, consentedAt, userAgent, timezone }) {
+  try {
+    const [{ jsPDF }, { getStorage, ref, uploadBytes, getDownloadURL }] = await Promise.all([
+      import('jspdf'),
+      import('firebase/storage'),
+    ])
+    const storage = getStorage()
+    const pdf = new jsPDF({ unit: 'pt', format: 'letter' })
+    const margin = 50
+    const lineH = 18
+    let y = margin
+
+    const line = (text, opts = {}) => {
+      if (opts.bold) pdf.setFont('helvetica', 'bold')
+      else pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(opts.size || 11)
+      const lines = pdf.splitTextToSize(text, 612 - margin * 2)
+      pdf.text(lines, margin, y)
+      y += lineH * lines.length + (opts.gap || 4)
+    }
+
+    pdf.setFontSize(16)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('SMS Opt-In Consent Record', margin, y)
+    y += 28
+    pdf.setDrawColor(200, 200, 200)
+    pdf.line(margin, y, 612 - margin, y)
+    y += 16
+
+    line('Ukrainian Restoration LLC', { bold: true, size: 12 })
+    line('90 Mt Kemble Ave, Morristown, NJ 07960', { size: 10, gap: 12 })
+
+    line('Phone Number', { bold: true })
+    line(phone, { gap: 10 })
+
+    line('Consented At', { bold: true })
+    line(consentedAt, { gap: 10 })
+
+    line('Timezone', { bold: true })
+    line(timezone || '—', { gap: 10 })
+
+    line('Method', { bold: true })
+    line('portal-sms-login', { gap: 10 })
+
+    line('Consent Language Presented', { bold: true })
+    line(consentLanguage, { gap: 10 })
+
+    line('User Agent', { bold: true, size: 10 })
+    line(userAgent || '—', { size: 9, gap: 10 })
+
+    pdf.setFontSize(9)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(120, 120, 120)
+    pdf.text('This record was generated automatically at the time of opt-in and is stored for compliance purposes.', margin, y)
+
+    const pdfBlob = pdf.output('blob')
+    const safeName = `opt_in_proof_${phone.replace(/\+/g, '').replace(/\D/g, '')}_${Date.now()}.pdf`
+    const storagePath = `users/${orgId}/documents/clients/${clientDocId}/${safeName}`
+    const storageRef = ref(storage, storagePath)
+    await uploadBytes(storageRef, pdfBlob, { contentType: 'application/pdf' })
+    const downloadURL = await getDownloadURL(storageRef)
+
+    await addDoc(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'documents'), {
+      name:        'SMS Opt-In Consent Proof',
+      downloadURL,
+      storagePath,
+      folder:      'internal',
+      type:        'opt_in_proof',
+      uploadedAt:  serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('saveOptInProofPdf failed:', err)
+  }
+}
 
 
 const CONSENT_LANGUAGE =
@@ -81,15 +156,34 @@ export default function Login() {
 
       // Record opt-in only when the notification consent checkbox was checked
       if (agreed) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+        const consentedAtStr = new Date().toLocaleString('en-US', {
+          year: 'numeric', month: 'long', day: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          timeZoneName: 'short',
+        })
         setDoc(doc(db, 'opt_in_records', e164), {
           phone:           e164,
           consentedAt:     serverTimestamp(),
           consentLanguage: CONSENT_LANGUAGE,
           method:          'portal-sms-login',
           userAgent:       navigator.userAgent,
-          timezone:        Intl.DateTimeFormat().resolvedOptions().timeZone,
+          timezone:        tz,
           consentCount:    1,
         }, { merge: true }).catch(() => {})
+
+        const { orgId, clientDocId } = phoneSnap.data() || {}
+        if (orgId && clientDocId) {
+          saveOptInProofPdf({
+            phone:           e164,
+            orgId,
+            clientDocId,
+            consentLanguage: CONSENT_LANGUAGE,
+            consentedAt:     consentedAtStr,
+            userAgent:       navigator.userAgent,
+            timezone:        tz,
+          })
+        }
       }
 
       // Use the preloaded reCAPTCHA Enterprise instance (index.html script tag).

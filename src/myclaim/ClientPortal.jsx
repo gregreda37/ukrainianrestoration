@@ -76,7 +76,7 @@ const TODO_TYPE_INFO = {
 
 const MITIGATION_STEPS    = ["Claim Submitted","Mitigation in Progress","Mitigation Completed","Estimate Submitted","Estimate Approved"];
 const CONSTRUCTION_STEPS  = ["Construction Estimate Received","Construction Estimate Approved","Construction Beginning","Construction Completes"];
-const PORTAL_DEFAULTS     = { todos:true, mitigationProgress:true, constructionProgress:true, budget:true, selections:true, photos:true, invoices:true };
+const PORTAL_DEFAULTS     = { todos:true, mitigationProgress:true, constructionProgress:true, budget:false, selections:false, photos:true, invoices:true };
 
 // ── Progress tracker component ──────────────────────────────────────────────
 function ProgressTracker({ steps, currentStep = -1 }) {
@@ -261,6 +261,8 @@ export default function ClientPortal() {
               setClientDocId(cDocId);
               // Cache clientDocId in users/{uid} so uploads and syncs always have it
               setDoc(doc(db,"users",user.uid), { clientDocId: cDocId }, { merge:true }).catch(()=>{});
+              // Write uid back to client doc so Dashboard activity sort can find this client
+              setDoc(doc(db,"organization_data",oid,"clients",cDocId), { uid: user.uid }, { merge:true }).catch(()=>{});
               if (cData.driveExternalFolderId) setDriveExternalFolderId(cData.driveExternalFolderId);
               setClaimProgress({
                 mitigationStep:   cData.mitigationStep  ?? -1,
@@ -779,6 +781,47 @@ export default function ClientPortal() {
                 }
               </div>
             )}
+
+            {/* Photos — compact card below action items */}
+            {companyCamProjectId && portalSections.photos && (
+              <div className="cp-card cp-card--compact">
+                <div className="cp-card-head">
+                  <h2 className="cp-card-title">📷 My Photos</h2>
+                  {!photosLoading && visiblePhotos.length > 0 && (
+                    <span className="cp-card-badge">{visiblePhotos.length} photos</span>
+                  )}
+                </div>
+                {photosLoading
+                  ? <div className="cp-photos-loading"><div className="cp-spin" /></div>
+                  : photosError
+                    ? <p className="cp-photos-empty" style={{color:"#ef4444"}}>{photosError}</p>
+                    : visiblePhotos.length===0
+                      ? <p className="cp-photos-empty">No photos yet.</p>
+                      : (
+                        <>
+                          <div className="cp-photos-grid cp-photos-grid--compact">
+                            {visiblePhotos.slice(0, 6).map((photo, idx) => {
+                              const {thumb} = getPhotoUrls(photo); if (!thumb) return null;
+                              return (
+                                <div key={photo.id} className="cp-photo-tile" onClick={() => { setShowPhotoPopup(true); setPhotoLightboxIdx(idx); logActivity("photo_viewed", `Viewed photo ${idx + 1} of ${visiblePhotos.length}`); }}>
+                                  <img src={thumb} alt="" loading="lazy" />
+                                </div>
+                              );
+                            })}
+                            {visiblePhotos.length > 6 && (
+                              <div className="cp-photo-tile cp-photo-more" onClick={() => setShowPhotoPopup(true)}>
+                                +{visiblePhotos.length - 6} more
+                              </div>
+                            )}
+                          </div>
+                          <button className="cp-photos-view-all" onClick={() => setShowPhotoPopup(true)}>
+                            View all {visiblePhotos.length} photos
+                          </button>
+                        </>
+                      )
+                }
+              </div>
+            )}
           </div>
 
           {/* Right column */}
@@ -798,7 +841,7 @@ export default function ClientPortal() {
                     }
                     <div>
                       <p className="cp-contractor-company">{orgInfo.companyName||orgInfo.domain}</p>
-                      <p className="cp-contractor-sub">Your restoration contractor</p>
+                      {orgInfo.companyLicense && <p className="cp-contractor-sub">License #{orgInfo.companyLicense}</p>}
                     </div>
                   </div>
                   <hr className="cp-contractor-divider" />
@@ -813,12 +856,6 @@ export default function ClientPortal() {
                       <span className="cp-contractor-link">
                         <span className="cp-contractor-link-icon"><MapPinIcon size={13} /></span>
                         {orgInfo.companyAddress}
-                      </span>
-                    )}
-                    {orgInfo.companyLicense && (
-                      <span className="cp-contractor-link">
-                        <span className="cp-contractor-link-icon"><LicenseIcon size={13} /></span>
-                        License: {orgInfo.companyLicense}
                       </span>
                     )}
                   </div>
@@ -1043,46 +1080,6 @@ export default function ClientPortal() {
               </div>
             )}
 
-            {/* Photos */}
-            {companyCamProjectId && portalSections.photos && (
-              <div className="cp-card">
-                <div className="cp-card-head">
-                  <h2 className="cp-card-title">My Photos</h2>
-                  {companyCamProjectName && <span className="cp-card-badge">{companyCamProjectName}</span>}
-                </div>
-                {photosLoading
-                  ? <div className="cp-photos-loading"><div className="cp-spin" /></div>
-                  : photosError
-                    ? <p className="cp-photos-empty" style={{color:"#ef4444"}}>{photosError}</p>
-                    : visiblePhotos.length===0
-                      ? <p className="cp-photos-empty">No photos yet.</p>
-                      : (
-                        <>
-                          <div className="cp-photos-grid">
-                            {visiblePhotos.slice(0, 8).map((photo, idx) => {
-                              const {thumb} = getPhotoUrls(photo); if (!thumb) return null;
-                              return (
-                                <div key={photo.id} className="cp-photo-tile" onClick={() => { setShowPhotoPopup(true); setPhotoLightboxIdx(idx); logActivity("photo_viewed", `Viewed photo ${idx + 1} of ${visiblePhotos.length}`); }}>
-                                  <img src={thumb} alt="" loading="lazy" />
-                                </div>
-                              );
-                            })}
-                            {visiblePhotos.length > 8 && (
-                              <div className="cp-photo-tile cp-photo-more" onClick={() => setShowPhotoPopup(true)}>
-                                +{visiblePhotos.length - 8} more
-                              </div>
-                            )}
-                          </div>
-                          {visiblePhotos.length > 0 && (
-                            <button className="cp-photos-view-all" onClick={() => setShowPhotoPopup(true)}>
-                              View all {visiblePhotos.length} photos
-                            </button>
-                          )}
-                        </>
-                      )
-                }
-              </div>
-            )}
           </div>
         </div>
 

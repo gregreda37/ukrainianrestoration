@@ -136,7 +136,7 @@ export default function Clients() {
         const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid));
         if (cancelled) return;
         const contractorRole    = contractorSnap.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
-        const needsFilter       = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+        const needsFilter       = contractorRole === "public_adjuster";
         const assignedPhones    = needsFilter ? (contractorSnap.data()?.assignedClients || []) : null;
         setUserRole(contractorRole);
 
@@ -216,7 +216,7 @@ export default function Clients() {
   const refreshClients = async (oid) => {
     const contractorSnap = await getDoc(doc(db, "organization_data", oid, "contractors", user.uid)).catch(() => null);
     const contractorRole = contractorSnap?.exists() ? (contractorSnap.data()?.role || "admin") : "admin";
-    const needsFilter    = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+    const needsFilter    = contractorRole === "public_adjuster";
     const assignedPhones = needsFilter ? (contractorSnap?.data()?.assignedClients || []) : null;
 
     const snap = await getDocs(collection(db, "organization_data", oid, "clients"));
@@ -549,15 +549,17 @@ export default function Clients() {
                     <button className="cl-delete-btn" onClick={() => setConfirmDelete(client)} title="Archive client">
                       <TrashIcon />
                     </button>
-                    <button
-                      className={`cl-row-expand-btn${isExpanded ? " cl-row-expand-btn--active" : ""}`}
-                      onClick={() => {
-                        if (isExpanded) { setExpandedId(null); return; }
-                        loadAndExpandSettlement(client);
-                      }}
-                    >
-                      <ChevronIcon up={isExpanded} /> Quick Edit
-                    </button>
+                    {userRole !== 'project_manager' && (
+                      <button
+                        className={`cl-row-expand-btn${isExpanded ? " cl-row-expand-btn--active" : ""}`}
+                        onClick={() => {
+                          if (isExpanded) { setExpandedId(null); return; }
+                          loadAndExpandSettlement(client);
+                        }}
+                      >
+                        <ChevronIcon up={isExpanded} /> Quick Edit
+                      </button>
+                    )}
                     <button className="cl-row-open-btn"
                       onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
                       Open <ArrowIcon />
@@ -565,7 +567,7 @@ export default function Clients() {
                   </div>
                 </div>
 
-                {isExpanded && (
+                {isExpanded && userRole !== 'project_manager' && (
                   <div className="cl-qe-panel">
                     {settlementLoading ? (
                       <div className="cl-qe-loading"><div className="cl-spinner" style={{ width:24, height:24, borderWidth:2 }} /></div>

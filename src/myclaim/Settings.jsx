@@ -132,6 +132,10 @@ export default function Settings() {
   const [assignDraft,  setAssignDraft]  = useState([])
   const [assignSearch, setAssignSearch] = useState('')
   const [assignSaving, setAssignSaving] = useState(false)
+  const [editingMember, setEditingMember] = useState(null)
+  const [editDraft,     setEditDraft]     = useState({ displayName: '', phone: '', contactEmail: '' })
+  const [editSaving,    setEditSaving]    = useState(false)
+  const [editError,     setEditError]     = useState('')
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteEmail,     setInviteEmail]     = useState('')
   const [inviteRole,      setInviteRole]      = useState('project_manager')
@@ -285,7 +289,7 @@ export default function Settings() {
     setSavingTech(true); setTechMsg('')
     try {
       await setDoc(doc(db, 'organization_data', orgId, 'contractors', user.uid),
-        { displayName: techName.trim(), phone: techPhone.trim(), contactEmail: contactEmail.trim() },
+        { displayName: techName.trim(), phone: techPhone.trim() },
         { merge: true })
       setTechMsg('ok')
     } catch { setTechMsg('err') }
@@ -386,6 +390,27 @@ export default function Settings() {
       setMembers(prev => prev.map(m => m.id === assignModal.id ? { ...m, assignedClients: assignDraft } : m))
       setAssignModal(null)
     } finally { setAssignSaving(false) }
+  }
+
+  const openEditModal = (member) => {
+    setEditDraft({ displayName: member.displayName || '', phone: member.phone || '' })
+    setEditError('')
+    setEditingMember(member)
+  }
+
+  const saveEditMember = async () => {
+    if (!editingMember) return
+    setEditSaving(true); setEditError('')
+    try {
+      const update = {
+        displayName: editDraft.displayName.trim(),
+        phone:       editDraft.phone.trim(),
+      }
+      await setDoc(doc(db, 'organization_data', orgId, 'contractors', editingMember.id), update, { merge: true })
+      setMembers(prev => prev.map(m => m.id === editingMember.id ? { ...m, ...update } : m))
+      setEditingMember(null)
+    } catch { setEditError('Failed to save. Please try again.') }
+    finally { setEditSaving(false) }
   }
 
   // ── Integration handlers ──────────────────────────────────────────────────
@@ -654,10 +679,8 @@ export default function Settings() {
                         onChange={e => setTechPhone(e.target.value)} placeholder="(555) 000-0000" />
                     </div>
                     <div className="st-field">
-                      <label className="st-label">Contact Email</label>
-                      <input className="st-input" type="email" value={contactEmail}
-                        onChange={e => setContactEmail(e.target.value)} placeholder="you@example.com" />
-                      <span className="st-hint">Optional — if different from your login email.</span>
+                      <label className="st-label">Email</label>
+                      <input className="st-input" type="email" value={user?.email || ''} disabled style={{ color: '#94a3b8', background: '#f8fafc' }} />
                     </div>
                     <div className="st-actions">
                       <button className="st-btn st-btn--primary" type="submit" disabled={savingTech || !orgId}>
@@ -698,7 +721,7 @@ export default function Settings() {
                   </div>
                 </div>
 
-                {user?.email && (
+                {user?.email && !user.providerData?.some(p => p.providerId === 'google.com') && (
                   <div className="st-card">
                     <div className="st-card-header">
                       <div className="st-card-icon st-card-icon--amber"><LockIcon /></div>
@@ -776,7 +799,7 @@ export default function Settings() {
                           <div className="ts-member-email">{member.email || '—'}</div>
                           <div className="ts-member-meta">
                             Last login: {fmtDate(member.lastLogin)}
-                            {(mRole === 'project_manager' || mRole === 'public_adjuster') && (
+                            {mRole === 'public_adjuster' && (
                               <span className="ts-assigned-hint">
                                 &nbsp;· {assignedCount} client{assignedCount !== 1 ? 's' : ''} assigned
                               </span>
@@ -788,9 +811,14 @@ export default function Settings() {
                             disabled={isYou || isSaving} onChange={e => updateRole(member, e.target.value)}>
                             {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                           </select>
-                          {(mRole === 'project_manager' || mRole === 'public_adjuster') && !isYou && (
+                          {mRole === 'public_adjuster' && !isYou && (
                             <button className="ts-assign-btn" onClick={() => openAssignModal(member)} disabled={isSaving}>
                               <ClientsIcon /> Manage Clients
+                            </button>
+                          )}
+                          {!isYou && (
+                            <button className="ts-assign-btn" onClick={() => openEditModal(member)} disabled={isSaving} title="Edit member details">
+                              <PencilIcon /> Edit
                             </button>
                           )}
                           {!isYou && (
@@ -839,7 +867,7 @@ export default function Settings() {
                   </div>
                   <div className="ts-legend-item">
                     <span className="ts-role-badge ts-role-pm-badge">Project Manager</span>
-                    <span>Access limited to assigned clients · no team settings</span>
+                    <span>Sees all clients · no team settings</span>
                   </div>
                 </div>
               </div>
@@ -1101,6 +1129,42 @@ export default function Settings() {
       )}
 
       {/* ── Assign Clients Modal ── */}
+      {/* ── Edit Member Modal ── */}
+      {editingMember && (
+        <>
+          <div className="ts-overlay" onClick={() => setEditingMember(null)} />
+          <div className="ts-modal" style={{ width: 420 }}>
+            <div className="ts-modal-header">
+              <h2>Edit Member Details</h2>
+              <p className="ts-modal-sub">Update info for <strong>{editingMember.displayName || editingMember.email}</strong></p>
+            </div>
+            <div style={{ padding: '0 24px 8px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="st-field-row" style={{ flexDirection: 'column', gap: 5 }}>
+                <label className="st-label">Name</label>
+                <input className="st-input" type="text" placeholder="Full name"
+                  value={editDraft.displayName} onChange={e => setEditDraft(p => ({ ...p, displayName: e.target.value }))} />
+              </div>
+              <div className="st-field-row" style={{ flexDirection: 'column', gap: 5 }}>
+                <label className="st-label">Phone</label>
+                <input className="st-input" type="tel" placeholder="Phone number"
+                  value={editDraft.phone} onChange={e => setEditDraft(p => ({ ...p, phone: e.target.value }))} />
+              </div>
+              <div className="st-field-row" style={{ flexDirection: 'column', gap: 5 }}>
+                <label className="st-label">Email</label>
+                <input className="st-input" type="email" value={editingMember?.email || ''} disabled style={{ color: '#94a3b8', background: '#f8fafc' }} />
+              </div>
+              {editError && <p style={{ color: '#ef4444', fontSize: 13, margin: 0 }}>{editError}</p>}
+            </div>
+            <div className="ts-modal-actions">
+              <button className="ts-btn-secondary" onClick={() => setEditingMember(null)}>Cancel</button>
+              <button className="ts-btn-primary" onClick={saveEditMember} disabled={editSaving}>
+                {editSaving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {assignModal && (() => {
         const q = assignSearch.toLowerCase()
         const visibleClients = clients.filter(c =>
@@ -1269,5 +1333,11 @@ const CheckIcon = () => (
 const PlusIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+)
+const PencilIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
   </svg>
 )

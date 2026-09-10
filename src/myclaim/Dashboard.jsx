@@ -41,11 +41,11 @@ function fmtDate(str) {
 }
 
 const PIPELINE_STATUS_META = {
+  estimating:    { label: 'Estimating',    color: '#64748b', bg: '#f1f5f9' },
   submitted:     { label: 'Submitted',     color: '#2563eb', bg: '#eff6ff' },
   negotiating:   { label: 'Negotiating',   color: '#d97706', bg: '#fffbeb' },
-  supplementing: { label: 'Supplementing', color: '#ea580c', bg: '#fff7ed' },
-  estimating:    { label: 'Estimating',    color: '#7c3aed', bg: '#f5f3ff' },
-  settled:       { label: 'Settled',       color: '#16a34a', bg: '#f0fdf4' },
+  supplementing: { label: 'Supplementing', color: '#7c3aed', bg: '#f5f3ff' },
+  settled:       { label: 'Settled ✓',     color: '#15803d', bg: '#dcfce7' },
 }
 
 const MITIGATION_STEPS = [
@@ -118,10 +118,22 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
     const fee       = calcFee(s)
     const coNet     = Math.max(0, base - fee)
 
+    const needsSettlementAmount = statusKey === 'settled' && !isSettled
+
     const clientCell = (
       <td className="oil-td oil-td--client">
-        <div>{s.clientName || '—'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {s.clientName || '—'}
+          {needsSettlementAmount && (
+            <span title="Settlement amount missing — enter amount to complete" style={{ color: '#d97706', fontSize: 13, lineHeight: 1 }}>⚠</span>
+          )}
+        </div>
         {s.clientAddress && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{s.clientAddress}</div>}
+        {needsSettlementAmount && href && (
+          <div style={{ fontSize: 11, marginTop: 2, fontWeight: 500 }}>
+            <a href={href} style={{ color: '#d97706', textDecoration: 'underline', cursor: 'pointer' }} onClick={e => e.stopPropagation()}>Enter amount in Settlement Tracker →</a>
+          </div>
+        )}
       </td>
     )
     const statusBadge = (
@@ -590,7 +602,7 @@ export default function Dashboard() {
           phone:       contractorData.phone || "",
           role:        contractorRole,
         });
-        const needsFilter = contractorRole === "project_manager" || contractorRole === "public_adjuster";
+        const needsFilter = contractorRole === "public_adjuster";
         const assignedPhones = needsFilter ? (contractorData.assignedClients || []) : null;
         const all = clientsSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -741,7 +753,13 @@ export default function Dashboard() {
   }, [settRows])
 
   const pipelineClaims = useMemo(() =>
-    openClaims.filter(s => (s.status || 'estimating') !== 'settled')
+    openClaims.filter(s => {
+      const isSettled = (s.status || 'estimating') === 'settled'
+      const hasAmount = (parseFloat(s.totalSettled) || 0) > 0
+      // Only remove from pipeline once properly settled with an amount.
+      // settled+$0 stays here so it's never invisible.
+      return !isSettled || !hasAmount
+    })
   , [openClaims])
 
   const awaitingSettlements = useMemo(() => {
@@ -750,7 +768,7 @@ export default function Dashboard() {
       .sort((a, b) => (a.settlementDate || '') < (b.settlementDate || '') ? -1 : 1)
   }, [settRows])
 
-  const openClaimsPipelineValue = openClaims.reduce((sum, s) => {
+  const openClaimsPipelineValue = pipelineClaims.reduce((sum, s) => {
     let fee = 0;
     if (s.partnerId) {
       const settled = parseFloat(s.totalSettled) || 0;
@@ -789,7 +807,16 @@ export default function Dashboard() {
     if (!organizationName || savingPipelineStatus) return
     setSavingPipelineStatus(s.id)
     try {
-      await updateDoc(doc(db, 'organization_data', organizationName, 'settlement_summary', s.id), { status: newStatus })
+      const writes = [
+        updateDoc(doc(db, 'organization_data', organizationName, 'settlement_summary', s.id), { status: newStatus }),
+      ]
+      // Also update the source-of-truth settlement doc so Settlement Tracker stays in sync
+      if (s.clientDocId) {
+        writes.push(
+          updateDoc(doc(db, 'organization_data', organizationName, 'clients', s.clientDocId, 'settlements', s.id), { status: newStatus })
+        )
+      }
+      await Promise.all(writes)
       setSettRows(prev => prev.map(x => x.id === s.id ? { ...x, status: newStatus } : x))
     } catch (err) {
       console.error('handlePipelineStatusChange error:', err)
@@ -950,19 +977,21 @@ export default function Dashboard() {
               <span className="dash-stat-value">{recentLoading ? "—" : openClaims.length}</span>
               <span className="dash-stat-label">Open Claims</span>
             </div>
-            <div className="dash-stat">
-              <span className="dash-stat-value dash-stat-value--blue">{recentLoading ? "—" : fmtCurrency(openClaimsPipelineValue)}</span>
-              <span className="dash-stat-label">Co. Receivables</span>
-            </div>
-            <div className="dash-stat-divider" />
-            <div className="dash-stat">
-              <span className="dash-stat-value">{recentLoading ? "—" : awaitingSettlements.length}</span>
-              <span className="dash-stat-label">Awaiting Settlement</span>
-            </div>
-            <div className="dash-stat">
-              <span className="dash-stat-value dash-stat-value--green">{recentLoading ? "—" : fmtCurrency(awaitingSettlementTotal)}</span>
-              <span className="dash-stat-label">Co. Outstanding</span>
-            </div>
+            {role !== 'project_manager' && <>
+              <div className="dash-stat">
+                <span className="dash-stat-value dash-stat-value--blue">{recentLoading ? "—" : fmtCurrency(openClaimsPipelineValue)}</span>
+                <span className="dash-stat-label">Co. Receivables</span>
+              </div>
+              <div className="dash-stat-divider" />
+              <div className="dash-stat">
+                <span className="dash-stat-value">{recentLoading ? "—" : awaitingSettlements.length}</span>
+                <span className="dash-stat-label">Awaiting Settlement</span>
+              </div>
+              <div className="dash-stat">
+                <span className="dash-stat-value dash-stat-value--green">{recentLoading ? "—" : fmtCurrency(awaitingSettlementTotal)}</span>
+                <span className="dash-stat-label">Co. Outstanding</span>
+              </div>
+            </>}
           </div>
         </div>
 
@@ -1038,28 +1067,28 @@ export default function Dashboard() {
           />
         )}
 
-        {/* Open Claims Pipeline — financial view (excludes settled; those go to Awaiting Settlement) */}
-        {pipelineClaims.length > 0 && (
-          <div style={{ marginTop: 8 }}>
-            <OpenClaimsPipelineSection
-              items={pipelineClaims}
-              navigate={navigate}
-              onStatusChange={handlePipelineStatusChange}
-              savingStatus={savingPipelineStatus}
-            />
-          </div>
-        )}
-
-        {/* Awaiting Settlement Payment */}
-        {awaitingSettlements.length > 0 && (
-          <div style={{ marginTop: 28 }}>
-            <SettlementPaymentsSection
-              items={awaitingSettlements}
-              total={awaitingSettlementTotal}
-              navigate={navigate}
-            />
-          </div>
-        )}
+        {/* Open Claims Pipeline and Awaiting Settlement — hidden for project managers */}
+        {role !== 'project_manager' && <>
+          {pipelineClaims.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <OpenClaimsPipelineSection
+                items={pipelineClaims}
+                navigate={navigate}
+                onStatusChange={handlePipelineStatusChange}
+                savingStatus={savingPipelineStatus}
+              />
+            </div>
+          )}
+          {awaitingSettlements.length > 0 && (
+            <div style={{ marginTop: 28 }}>
+              <SettlementPaymentsSection
+                items={awaitingSettlements}
+                total={awaitingSettlementTotal}
+                navigate={navigate}
+              />
+            </div>
+          )}
+        </>}
 
         {/* Feature grid */}
         <div className="cw-section-label">Quick Access</div>
@@ -1148,9 +1177,15 @@ function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, 
   const settled   = parseFloat(s.totalSettled)  || 0
   const amount    = settled > 0 ? settled : estimate
   const isSettled = settled > 0
+  const needsSettlementAmount = statusKey === 'settled' && !isSettled
 
   return (
-    <div className="dash-job-card">
+    <div className={`dash-job-card${needsSettlementAmount ? ' dash-job-card--needs-amount' : ''}`}>
+      {needsSettlementAmount && (
+        <div className="dash-job-warning-banner" style={{ cursor: href ? 'pointer' : 'default' }} onClick={href ? () => navigate(href) : undefined}>
+          ⚠ No settlement amount — open Settlement Tracker to enter it
+        </div>
+      )}
       {/* Header */}
       <div className="dash-job-card-head">
         <div className="dash-job-client-info"

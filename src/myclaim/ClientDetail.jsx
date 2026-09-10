@@ -1901,10 +1901,11 @@ export default function ClientDetail() {
         {/* ══════════════ OVERVIEW ══════════════ */}
         <>
             {/* Insurance Settlement + CompanyCam — side by side collapsible */}
-            <div className={`cd-twin-row${portalSections.photos ? '' : ' cd-twin-row--single'}`}>
+            {(pmRole !== 'project_manager' || portalSections.photos) && (
+            <div className={`cd-twin-row${(pmRole !== 'project_manager' && portalSections.photos) ? '' : ' cd-twin-row--single'}`}>
 
-              {/* Insurance Settlement */}
-              <div className="cd-twin-card">
+              {/* Insurance Settlement — hidden for project managers */}
+              {pmRole !== 'project_manager' && <div className="cd-twin-card">
                 <SettlementOverviewCard
                   clientUid={clientUid}
                   clientDocId={clientDocId}
@@ -1923,7 +1924,7 @@ export default function ClientDetail() {
                     adjusterEmail:    adjuster.email,
                   }}
                 />
-              </div>
+              </div>}
 
               {/* CompanyCam */}
               {portalSections.photos && <div className="cd-twin-card">
@@ -2027,6 +2028,7 @@ export default function ClientDetail() {
               </div>}
 
             </div>
+            )}
 
             {/* To-Dos */}
             {portalSections.todos && <div className="cd-section-card">

@@ -49,20 +49,31 @@ const PIPELINE_STATUS_META = {
 }
 
 const MITIGATION_STEPS = [
-  "Claim Submitted", "Mitigation in Progress", "Mitigation Complete",
-  "Adjuster Inspection Scheduled", "Adjuster Inspection Complete",
+  "Claim Submitted",
+  "Mitigation in Progress",
+  "Mitigation Completed",
+  "Estimate Submitted",
+  "Estimate Approved",
 ]
 const CONSTRUCTION_STEPS = [
-  "Estimate Submitted", "Estimate Approved", "Material Ordered",
-  "Rough-In Complete", "Work in Progress", "Final Walkthrough", "Complete",
+  "Construction Estimate Received",
+  "Construction Estimate Approved",
+  "Construction Beginning",
+  "Construction Completes",
 ]
 
 function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStatus }) {
-  const [view, setView] = useState('net')
+  const [view,   setView]   = useState('net')
+  const [filter, setFilter] = useState('all')
+  const [page,   setPage]   = useState(0)
 
-  const statusGroups = Object.keys(PIPELINE_STATUS_META)
-    .map(key => ({ key, ...PIPELINE_STATUS_META[key], count: items.filter(i => (i.status || 'estimating') === key).length }))
-    .filter(g => g.count > 0)
+  const filtered = filter === 'all' ? items : items.filter(s => (s.status || 'estimating') === filter)
+
+  useEffect(() => { setPage(0) }, [filter])
+
+  const PIPE_PAGE_SIZE  = 10
+  const pipePages       = Math.ceil(filtered.length / PIPE_PAGE_SIZE)
+  const pipePaged       = filtered.slice(page * PIPE_PAGE_SIZE, (page + 1) * PIPE_PAGE_SIZE)
 
   // Estimate referral fee from settlement_summary fields.
   // For settled claims use the stored partnerFee dollar amount.
@@ -85,11 +96,11 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
     return settled > 0 ? settled : estimate
   }
 
-  const totalBase         = items.reduce((s, x) => s + rowBase(x), 0)
-  const totalFees         = items.reduce((s, x) => s + calcFee(x), 0)
-  const totalPaid         = items.reduce((s, x) => s + (parseFloat(x.totalPaidAmount) || 0), 0)
-  const coNetTotal        = items.reduce((s, x) => s + Math.max(0, rowBase(x) - calcFee(x)), 0)
-  const coOutstandingTotal = items.reduce((s, x) => {
+  const totalBase          = filtered.reduce((s, x) => s + rowBase(x), 0)
+  const totalFees          = filtered.reduce((s, x) => s + calcFee(x), 0)
+  const totalPaid          = filtered.reduce((s, x) => s + (parseFloat(x.totalPaidAmount) || 0), 0)
+  const coNetTotal         = filtered.reduce((s, x) => s + Math.max(0, rowBase(x) - calcFee(x)), 0)
+  const coOutstandingTotal = filtered.reduce((s, x) => {
     const coNet = Math.max(0, rowBase(x) - calcFee(x))
     return s + Math.max(0, coNet - (parseFloat(x.totalPaidAmount) || 0))
   }, 0)
@@ -190,12 +201,23 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
           </span>
         </div>
         <div className="oil-pipe-header-bottom">
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {statusGroups.map(g => (
-              <span key={g.key} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: g.bg, color: g.color, fontWeight: 600 }}>
-                {g.label}: {g.count}
-              </span>
-            ))}
+          <div className="dash-jobs-filters" style={{ marginBottom: 0 }}>
+            {[{ key: 'all', label: 'All' }, ...Object.entries(PIPELINE_STATUS_META).map(([k, v]) => ({ key: k, label: v.label }))].map(({ key, label }) => {
+              const count = key === 'all' ? items.length : items.filter(s => (s.status || 'estimating') === key).length
+              if (key !== 'all' && count === 0) return null
+              const meta = PIPELINE_STATUS_META[key]
+              return (
+                <button
+                  key={key}
+                  className={`dash-filter-btn${filter === key ? ' active' : ''}`}
+                  style={filter === key && meta ? { background: meta.bg, color: meta.color, borderColor: meta.color + '55' } : {}}
+                  onClick={() => setFilter(key)}
+                >
+                  {label}
+                  <span className="dash-filter-count">{count}</span>
+                </button>
+              )
+            })}
           </div>
           <div className="oil-sett-view-tabs">
             <button className={`oil-sett-tab${view === 'net' ? ' oil-sett-tab--active' : ''}`} onClick={() => setView('net')}>
@@ -232,7 +254,7 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
             )}
           </thead>
           <tbody>
-            {items.map(s => <PipelineRow key={s.id} s={s} />)}
+            {pipePaged.map(s => <PipelineRow key={s.id} s={s} />)}
           </tbody>
           <tfoot>
             {view === 'full' ? (
@@ -261,12 +283,26 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
           </tfoot>
         </table>
       </div>
+      {pipePages > 1 && (
+        <div className="dash-jobs-pagination">
+          <button className="dash-page-btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Prev</button>
+          <span className="dash-page-info">Page {page + 1} of {pipePages}</span>
+          <button className="dash-page-btn" disabled={page >= pipePages - 1} onClick={() => setPage(p => p + 1)}>Next →</button>
+        </div>
+      )}
     </div>
   )
 }
 
 function SettlementPaymentsSection({ items, total, navigate }) {
   const [view, setView] = useState('net')
+  const [page, setPage] = useState(0)
+
+  useEffect(() => { setPage(0) }, [view])
+
+  const SETT_PAGE_SIZE = 10
+  const settPages      = Math.ceil(items.length / SETT_PAGE_SIZE)
+  const settPaged      = items.slice(page * SETT_PAGE_SIZE, (page + 1) * SETT_PAGE_SIZE)
 
   const coNetTotal = items.reduce((sum, s) => {
     const settled = parseFloat(s.totalSettled)    || 0
@@ -327,7 +363,7 @@ function SettlementPaymentsSection({ items, total, navigate }) {
               </tr>
             </thead>
             <tbody>
-              {items.map(s => {
+              {settPaged.map(s => {
                 const settled     = parseFloat(s.totalSettled)     || 0
                 const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
                 const outstanding = parseFloat(s.totalOutstanding) ?? Math.max(0, settled - totalPaid)
@@ -383,7 +419,7 @@ function SettlementPaymentsSection({ items, total, navigate }) {
               </tr>
             </thead>
             <tbody>
-              {items.map(s => {
+              {settPaged.map(s => {
                 const settled  = parseFloat(s.totalSettled)    || 0
                 const fee      = parseFloat(s.partnerFee)      || 0
                 const paid     = parseFloat(s.totalPaidAmount) || 0
@@ -439,6 +475,13 @@ function SettlementPaymentsSection({ items, total, navigate }) {
           </table>
         )}
       </div>
+      {settPages > 1 && (
+        <div className="dash-jobs-pagination">
+          <button className="dash-page-btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Prev</button>
+          <span className="dash-page-info">Page {page + 1} of {settPages}</span>
+          <button className="dash-page-btn" disabled={page >= settPages - 1} onClick={() => setPage(p => p + 1)}>Next →</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -697,6 +740,10 @@ export default function Dashboard() {
       })
   }, [settRows])
 
+  const pipelineClaims = useMemo(() =>
+    openClaims.filter(s => (s.status || 'estimating') !== 'settled')
+  , [openClaims])
+
   const awaitingSettlements = useMemo(() => {
     return settRows
       .filter(s => (parseFloat(s.totalSettled) || 0) > 0 && !s.paid)
@@ -873,48 +920,49 @@ export default function Dashboard() {
     <div className="cw-root">
       <main className="cw-main">
 
-        {/* Hero */}
-        <div className="cw-hero">
-          {recentLoading ? (
-            <div className="cw-avatar-fallback cw-avatar-fallback--loading" />
-          ) : userDetails?.photoURL ? (
-            <img src={userDetails.photoURL} alt={firstName} className="cw-avatar" referrerPolicy="no-referrer" />
-          ) : (
-            <div className="cw-avatar-fallback">{firstName.charAt(0).toUpperCase()}</div>
-          )}
-          <div className="cw-hero-text">
-            <h1>Welcome back, {recentLoading ? "" : firstName}!</h1>
-            {!recentLoading && (
-              <p className="cw-subtitle">
-                <span>{userDetails?.email}</span>&ensp;&middot;&ensp;{companyName}
-              </p>
+        {/* Hero + Stats row */}
+        <div className="cw-hero-row">
+          <div className="cw-hero">
+            {recentLoading ? (
+              <div className="cw-avatar-fallback cw-avatar-fallback--loading" />
+            ) : userDetails?.photoURL ? (
+              <img src={userDetails.photoURL} alt={firstName} className="cw-avatar" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="cw-avatar-fallback">{firstName.charAt(0).toUpperCase()}</div>
             )}
+            <div className="cw-hero-text">
+              <h1>Welcome back, {recentLoading ? "" : firstName}!</h1>
+              {!recentLoading && (
+                <p className="cw-subtitle">
+                  <span>{userDetails?.email}</span>&ensp;&middot;&ensp;{companyName}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Stats strip */}
-        <div className="dash-stats-strip">
-          <div className="dash-stat">
-            <span className="dash-stat-value">{recentLoading ? "—" : totalClients}</span>
-            <span className="dash-stat-label">Total Clients</span>
-          </div>
-          <div className="dash-stat-divider" />
-          <div className="dash-stat">
-            <span className="dash-stat-value">{recentLoading ? "—" : openClaims.length}</span>
-            <span className="dash-stat-label">Open Claims</span>
-          </div>
-          <div className="dash-stat">
-            <span className="dash-stat-value dash-stat-value--blue">{recentLoading ? "—" : fmtCurrency(openClaimsPipelineValue)}</span>
-            <span className="dash-stat-label">Co. Receivables</span>
-          </div>
-          <div className="dash-stat-divider" />
-          <div className="dash-stat">
-            <span className="dash-stat-value">{recentLoading ? "—" : awaitingSettlements.length}</span>
-            <span className="dash-stat-label">Awaiting Settlement</span>
-          </div>
-          <div className="dash-stat">
-            <span className="dash-stat-value dash-stat-value--green">{recentLoading ? "—" : fmtCurrency(awaitingSettlementTotal)}</span>
-            <span className="dash-stat-label">Co. Outstanding</span>
+          <div className="dash-stats-strip">
+            <div className="dash-stat">
+              <span className="dash-stat-value">{recentLoading ? "—" : totalClients}</span>
+              <span className="dash-stat-label">Total Clients</span>
+            </div>
+            <div className="dash-stat-divider" />
+            <div className="dash-stat">
+              <span className="dash-stat-value">{recentLoading ? "—" : openClaims.length}</span>
+              <span className="dash-stat-label">Open Claims</span>
+            </div>
+            <div className="dash-stat">
+              <span className="dash-stat-value dash-stat-value--blue">{recentLoading ? "—" : fmtCurrency(openClaimsPipelineValue)}</span>
+              <span className="dash-stat-label">Co. Receivables</span>
+            </div>
+            <div className="dash-stat-divider" />
+            <div className="dash-stat">
+              <span className="dash-stat-value">{recentLoading ? "—" : awaitingSettlements.length}</span>
+              <span className="dash-stat-label">Awaiting Settlement</span>
+            </div>
+            <div className="dash-stat">
+              <span className="dash-stat-value dash-stat-value--green">{recentLoading ? "—" : fmtCurrency(awaitingSettlementTotal)}</span>
+              <span className="dash-stat-label">Co. Outstanding</span>
+            </div>
           </div>
         </div>
 
@@ -990,11 +1038,11 @@ export default function Dashboard() {
           />
         )}
 
-        {/* Open Claims Pipeline — financial view */}
-        {openClaims.length > 0 && (
+        {/* Open Claims Pipeline — financial view (excludes settled; those go to Awaiting Settlement) */}
+        {pipelineClaims.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <OpenClaimsPipelineSection
-              items={openClaims}
+              items={pipelineClaims}
               navigate={navigate}
               onStatusChange={handlePipelineStatusChange}
               savingStatus={savingPipelineStatus}

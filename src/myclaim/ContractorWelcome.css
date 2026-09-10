@@ -19,10 +19,20 @@
 }
 
 /* ── Hero ───────────────────────────────────────── */
+.cw-hero-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
 .cw-hero {
   display: flex;
   align-items: center;
   gap: 20px;
+  flex-shrink: 0;
 }
 
 .cw-avatar {
@@ -676,6 +686,10 @@
   .cw-recent-grid { grid-template-columns: repeat(3, 1fr); }
   .cw-cards-row   { grid-template-columns: repeat(2, 1fr); }
 }
+@media (max-width: 900px) {
+  .cw-hero-row { flex-direction: column; align-items: flex-start; }
+  .dash-stats-strip { width: 100%; }
+}
 @media (max-width: 700px) {
   .cw-cards-row { grid-template-columns: 1fr; }
 }
@@ -694,12 +708,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px 40px;
-  background: white;
-  border: 1px solid rgba(148,163,184,0.2);
-  border-radius: 20px;
-  padding: 22px 32px;
-  box-shadow: 0 4px 16px rgba(15,23,42,0.05);
+  gap: 10px 28px;
+  flex-shrink: 0;
 }
 .dash-stat {
   display: flex;

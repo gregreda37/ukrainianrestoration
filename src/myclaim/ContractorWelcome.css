@@ -411,6 +411,28 @@
   color: #64748b;
 }
 
+.cw-recent-addr {
+  margin: 0 0 2px;
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cw-recent-activity {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cw-recent-activity-time {
+  color: #94a3b8;
+}
+
 .cw-muted {
   color: #94a3b8;
   font-weight: 400;

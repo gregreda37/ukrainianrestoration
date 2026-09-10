@@ -6,11 +6,27 @@ import { loadGoogleMaps } from "./loadMaps";
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5000' : '/api/backend');
 import {
   doc, getDoc, addDoc, setDoc, getDocs, updateDoc,
-  collection, serverTimestamp,
+  collection, serverTimestamp, query, orderBy, limit,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import "./ContractorWelcome.css";
 import "./OrgInvoices.css";
+
+function timeAgo(ts) {
+  if (!ts) return ''
+  const ms = ts.toMillis ? ts.toMillis() : new Date(ts).getTime()
+  const diff = Date.now() - ms
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  const wks = Math.floor(days / 7)
+  if (wks < 5) return `${wks}w ago`
+  return `${Math.floor(days / 30)}mo ago`
+}
 
 function fmtMoney(n) {
   return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -487,6 +503,7 @@ export default function Dashboard() {
   const [saveError,             setSaveError]             = useState("");
   const [savingPipelineStatus,  setSavingPipelineStatus]  = useState(null);
   const [savingStep,            setSavingStep]            = useState({});
+  const [recentActivities,      setRecentActivities]      = useState({});
 
   const clientAddressRef       = useRef(null);
   const clientAutocompleteRef  = useRef(null);
@@ -536,7 +553,25 @@ export default function Dashboard() {
           .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
         all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
         setTotalClients(all.length);
-        setRecentClients(all.slice(0, 4));
+        const top4 = all.slice(0, 4)
+        setRecentClients(top4)
+
+        // Fetch latest activity for each recent client
+        const actResults = await Promise.all(
+          top4.filter(c => c.uid).map(c =>
+            getDocs(query(collection(db, 'users', c.uid, 'activity'), orderBy('timestamp', 'desc'), limit(1)))
+              .then(snap => ({ docId: c.id, snap }))
+              .catch(() => null)
+          )
+        )
+        const acts = {}
+        actResults.forEach(r => {
+          if (r && !r.snap.empty) {
+            const d = r.snap.docs[0].data()
+            acts[r.docId] = { details: d.details, timestamp: d.timestamp }
+          }
+        })
+        if (!cancelled) setRecentActivities(acts)
 
         // Build address, phone, uid→docId, name→docId, and step lookups from already-loaded clients
         const addrByDocId = {}, addrByPhone = {}, uidToDocId = {}, nameToDocId = {}, stepByDocId = {}
@@ -814,7 +849,8 @@ export default function Dashboard() {
       const snap = await getDocs(collection(db, "organization_data", organizationName, "clients"));
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       all.sort((a, b) => (b.addedAt?.toMillis?.() ?? 0) - (a.addedAt?.toMillis?.() ?? 0));
-      setRecentClients(all.slice(0, 4));
+      const top4 = all.slice(0, 4)
+      setRecentClients(top4)
       setTimeout(closeModal, 1400);
     } catch (err) {
       console.error("Add client error:", err);
@@ -906,7 +942,17 @@ export default function Dashboard() {
                     </div>
                     <div className="cw-recent-info">
                       <p className="cw-recent-name">{client.name || <span className="cw-muted">No name</span>}</p>
-                      <p className="cw-recent-phone">{client.phone ? formatPhone(client.phone) : <span style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone</span>}</p>
+                      {client.address && <p className="cw-recent-addr">{client.address}</p>}
+                      {recentActivities[client.id] ? (
+                        <p className="cw-recent-activity">
+                          {recentActivities[client.id].details}
+                          {recentActivities[client.id].timestamp && (
+                            <span className="cw-recent-activity-time"> · {timeAgo(recentActivities[client.id].timestamp)}</span>
+                          )}
+                        </p>
+                      ) : (
+                        <p className="cw-recent-phone">{client.phone ? formatPhone(client.phone) : <span style={{ color:"#94a3b8", fontStyle:"italic" }}>No phone</span>}</p>
+                      )}
                     </div>
                     {(client.openContractorTodos > 0) && (
                       <span className="cw-todo-badge">{client.openContractorTodos}</span>
@@ -1112,7 +1158,6 @@ function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, 
         <span className={`dash-job-amount${isSettled ? ' dash-job-amount--settled' : ''}`}>
           {isSettled ? 'Settled' : 'Est'} {fmtMoney(amount)}
         </span>
-        {s.claimNumber && <span className="dash-job-claim-num">Claim #{s.claimNumber}</span>}
         <div className="dash-job-close-wrap">
           {confirmClose ? (
             <>

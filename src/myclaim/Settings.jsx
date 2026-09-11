@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useAuth } from './useAuth'
+import { useDensity } from './ClaimLayout'
 import { api } from './api'
 import TemplateBuilder from './TemplateBuilder'
 import './Settings.css'
@@ -77,8 +78,15 @@ const fmtDate = (ts) => {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+const DENSITY_OPTIONS = [
+  { value: 'small',  label: 'S', title: 'Small' },
+  { value: 'medium', label: 'M', title: 'Medium' },
+  { value: 'large',  label: 'L', title: 'Large' },
+]
+
 export default function Settings() {
   const { user } = useAuth()
+  const { density, setDensityPref } = useDensity() || {}
 
   // Core
   const [role,  setRole]  = useState(null)
@@ -690,6 +698,52 @@ export default function Settings() {
                       {techMsg === 'err' && <span className="st-msg st-msg--err">Could not save. Try again.</span>}
                     </div>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {/* ── Display Preferences (in My Profile tab) ───────────────── */}
+            {activeTab === 'My Profile' && setDensityPref && (
+              <div className="st-card" style={{ marginTop: 20 }}>
+                <div className="st-card-header">
+                  <div className="st-card-icon st-card-icon--slate">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                      <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="st-card-title">Display Preferences</p>
+                    <p className="st-card-hint">Controls how compact the interface appears.</p>
+                  </div>
+                </div>
+                <div className="st-card-body">
+                  <div className="st-field">
+                    <label className="st-label">Layout Size</label>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      {DENSITY_OPTIONS.map(opt => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setDensityPref(opt.value)}
+                          title={opt.title}
+                          style={{
+                            padding: '7px 20px',
+                            borderRadius: 7,
+                            border: density === opt.value ? '2px solid #1E7FAF' : '1.5px solid #e2e8f0',
+                            background: density === opt.value ? '#eff8ff' : '#fff',
+                            color: density === opt.value ? '#1E7FAF' : '#64748b',
+                            fontWeight: density === opt.value ? 700 : 500,
+                            fontSize: 13,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {opt.title}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="st-hint" style={{ marginTop: 6 }}>Saved automatically. Applies only to this device.</span>
+                  </div>
                 </div>
               </div>
             )}

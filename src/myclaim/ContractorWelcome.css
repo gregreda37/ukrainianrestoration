@@ -809,8 +809,12 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.15s;
 }
-.dash-job-client-info[style*="pointer"]:hover .dash-job-name { color: #2563eb; }
+.dash-job-client-info[style*="pointer"]:hover .dash-job-name {
+  color: #2563eb;
+  text-decoration: underline;
+}
 .dash-job-addr {
   font-size: 11.5px;
   color: #64748b;

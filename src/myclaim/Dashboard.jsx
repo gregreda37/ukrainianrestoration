@@ -9,6 +9,7 @@ import {
   collection, serverTimestamp, query, orderBy, limit,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
+import Settlement from "./Settlement";
 import "./ContractorWelcome.css";
 import "./OrgInvoices.css";
 
@@ -62,7 +63,7 @@ const CONSTRUCTION_STEPS = [
   "Construction Completes",
 ]
 
-function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStatus }) {
+function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStatus, onOpenSettlement }) {
   const [view,   setView]   = useState('net')
   const [filter, setFilter] = useState('all')
   const [page,   setPage]   = useState(0)
@@ -110,7 +111,6 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
     const statusKey = s.status || 'estimating'
     const meta      = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
     const settNav   = s.clientPhone || s.clientDocId
-    const href      = settNav ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement` : null
     const settled   = parseFloat(s.totalSettled)  || 0
     const estimate  = parseFloat(s.totalEstimate) || 0
     const base      = settled > 0 ? settled : estimate
@@ -129,9 +129,9 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
           )}
         </div>
         {s.clientAddress && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{s.clientAddress}</div>}
-        {needsSettlementAmount && href && (
+        {needsSettlementAmount && settNav && (
           <div style={{ fontSize: 11, marginTop: 2, fontWeight: 500 }}>
-            <a href={href} style={{ color: '#d97706', textDecoration: 'underline', cursor: 'pointer' }} onClick={e => e.stopPropagation()}>Enter amount in Settlement Tracker →</a>
+            <button style={{ color: '#d97706', textDecoration: 'underline', cursor: 'pointer', background: 'none', border: 'none', padding: 0, font: 'inherit' }} onClick={e => { e.stopPropagation(); onOpenSettlement?.(settNav) }}>Enter amount in Settlement Tracker →</button>
           </div>
         )}
       </td>
@@ -152,14 +152,14 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
       </td>
     )
     const arrow = (
-      <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
-        {href ? '→' : ''}
+      <td className="oil-td" style={{ color: settNav ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+        {settNav ? '→' : ''}
       </td>
     )
 
     if (view === 'full') {
       return (
-        <tr className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+        <tr className={`oil-row${settNav ? '' : ' oil-row--no-link'}`} onClick={settNav ? () => onOpenSettlement?.(settNav) : undefined}>
           {clientCell}
           <td className="oil-td">{s.insuranceCompany || '—'}</td>
           {statusBadge}
@@ -175,7 +175,7 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
     const paid         = parseFloat(s.totalPaidAmount) || 0
     const coOutstanding = Math.max(0, coNet - paid)
     return (
-      <tr className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+      <tr className={`oil-row${settNav ? '' : ' oil-row--no-link'}`} onClick={settNav ? () => onOpenSettlement?.(settNav) : undefined}>
         {clientCell}
         {statusBadge}
         <td className="oil-td oil-td--amount">
@@ -306,7 +306,7 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
   )
 }
 
-function SettlementPaymentsSection({ items, total, navigate }) {
+function SettlementPaymentsSection({ items, total, navigate, onOpenSettlement }) {
   const [view, setView] = useState('net')
   const [page, setPage] = useState(0)
 
@@ -380,11 +380,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
                 const outstanding = parseFloat(s.totalOutstanding) ?? Math.max(0, settled - totalPaid)
                 const settNav = s.clientPhone || s.clientDocId
-                const href = settNav
-                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
-                  : null
                 return (
-                  <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+                  <tr key={s.id} className={`oil-row${settNav ? '' : ' oil-row--no-link'}`} onClick={settNav ? () => onOpenSettlement?.(settNav) : undefined}>
                     <td className="oil-td oil-td--client">
                       <div>{s.clientName || '—'}</div>
                       {s.clientAddress && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{s.clientAddress}</div>}
@@ -399,8 +396,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                       <span className="oil-outstanding-val">{fmtMoney(outstanding)}</span>
                     </td>
                     <td className="oil-td oil-td--date">{fmtDate(s.settlementDate)}</td>
-                    <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
-                      {href ? '→' : ''}
+                    <td className="oil-td" style={{ color: settNav ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+                      {settNav ? '→' : ''}
                     </td>
                   </tr>
                 )
@@ -438,11 +435,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const coNet    = Math.max(0, settled - fee)
                 const coOuts   = Math.max(0, coNet - paid)
                 const settNav = s.clientPhone || s.clientDocId
-                const href = settNav
-                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
-                  : null
                 return (
-                  <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+                  <tr key={s.id} className={`oil-row${settNav ? '' : ' oil-row--no-link'}`} onClick={settNav ? () => onOpenSettlement?.(settNav) : undefined}>
                     <td className="oil-td oil-td--client">
                       <div>{s.clientName || '—'}</div>
                       {s.clientAddress && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{s.clientAddress}</div>}
@@ -466,8 +460,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                     <td className="oil-td oil-td--amount">
                       <span className="oil-outstanding-val">{fmtMoney(coOuts)}</span>
                     </td>
-                    <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
-                      {href ? '→' : ''}
+                    <td className="oil-td" style={{ color: settNav ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+                      {settNav ? '→' : ''}
                     </td>
                   </tr>
                 )
@@ -559,6 +553,7 @@ export default function Dashboard() {
   const [saveError,             setSaveError]             = useState("");
   const [savingPipelineStatus,  setSavingPipelineStatus]  = useState(null);
   const [savingStep,            setSavingStep]            = useState({});
+  const [settlementModalId,     setSettlementModalId]     = useState(null);
   const [recentActivities,      setRecentActivities]      = useState({});
 
   const clientAddressRef       = useRef(null);
@@ -1064,6 +1059,7 @@ export default function Dashboard() {
             onStepChange={handleStepChange}
             savingStep={savingStep}
             onCloseClaim={handleCloseClaim}
+            onOpenSettlement={setSettlementModalId}
           />
         )}
 
@@ -1076,6 +1072,7 @@ export default function Dashboard() {
                 navigate={navigate}
                 onStatusChange={handlePipelineStatusChange}
                 savingStatus={savingPipelineStatus}
+                onOpenSettlement={setSettlementModalId}
               />
             </div>
           )}
@@ -1085,6 +1082,7 @@ export default function Dashboard() {
                 items={awaitingSettlements}
                 total={awaitingSettlementTotal}
                 navigate={navigate}
+                onOpenSettlement={setSettlementModalId}
               />
             </div>
           )}
@@ -1141,6 +1139,13 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {settlementModalId && (
+        <Settlement
+          clientIdOverride={settlementModalId}
+          onClose={() => setSettlementModalId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1157,12 +1162,11 @@ function StepDots({ steps, current }) {
   )
 }
 
-function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, savingStep, onCloseClaim }) {
+function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, savingStep, onCloseClaim, onOpenSettlement }) {
   const [confirmClose, setConfirmClose] = React.useState(false)
   const statusKey = s.status || 'estimating'
   const meta      = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
   const settNav   = s.clientPhone || s.clientDocId
-  const href      = settNav ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement` : null
   const clientHref = settNav ? `/myclaim/clients/${encodeURIComponent(settNav)}` : null
 
   const mitStep = typeof s.mitigationStep   === 'number' ? s.mitigationStep   : -1
@@ -1182,7 +1186,7 @@ function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, 
   return (
     <div className={`dash-job-card${needsSettlementAmount ? ' dash-job-card--needs-amount' : ''}`}>
       {needsSettlementAmount && (
-        <div className="dash-job-warning-banner" style={{ cursor: href ? 'pointer' : 'default' }} onClick={href ? () => navigate(href) : undefined}>
+        <div className="dash-job-warning-banner" style={{ cursor: settNav ? 'pointer' : 'default' }} onClick={settNav ? () => onOpenSettlement?.(settNav) : undefined}>
           ⚠ No settlement amount — open Settlement Tracker to enter it
         </div>
       )}
@@ -1195,19 +1199,8 @@ function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, 
           {s.clientAddress && <span className="dash-job-addr">{s.clientAddress}</span>}
         </div>
         <div className="dash-job-head-right">
-          <select
-            className="dash-status-select"
-            style={{ color: meta.color, background: meta.bg, borderColor: meta.color + '44' }}
-            value={statusKey}
-            disabled={savingStatus === s.id}
-            onChange={e => onStatusChange(s, e.target.value)}
-          >
-            {Object.entries(PIPELINE_STATUS_META).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
-            ))}
-          </select>
-          {clientHref && (
-            <button className="dash-job-view-btn" onClick={() => navigate(clientHref)}>View →</button>
+          {settNav && (
+            <button className="dash-job-view-btn" onClick={() => onOpenSettlement?.(settNav)}>Settlement Details →</button>
           )}
         </div>
       </div>
@@ -1253,6 +1246,17 @@ function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, 
           {isSettled ? 'Settled' : 'Est'} {fmtMoney(amount)}
         </span>
         <div className="dash-job-close-wrap">
+          <select
+            className="dash-status-select"
+            style={{ color: meta.color, background: meta.bg, borderColor: meta.color + '44' }}
+            value={statusKey}
+            disabled={savingStatus === s.id}
+            onChange={e => onStatusChange(s, e.target.value)}
+          >
+            {Object.entries(PIPELINE_STATUS_META).map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
+          </select>
           {confirmClose ? (
             <>
               <span className="dash-job-close-confirm-label">Close claim?</span>
@@ -1270,7 +1274,7 @@ function OpenJobCard({ s, navigate, onStatusChange, savingStatus, onStepChange, 
 
 const JOBS_PAGE_SIZE = 6
 
-function OpenJobsSection({ items, loading, navigate, onStatusChange, savingStatus, onStepChange, savingStep, onCloseClaim }) {
+function OpenJobsSection({ items, loading, navigate, onStatusChange, savingStatus, onStepChange, savingStep, onCloseClaim, onOpenSettlement }) {
   const [filter, setFilter] = React.useState('all')
   const [page, setPage] = React.useState(0)
 
@@ -1318,7 +1322,7 @@ function OpenJobsSection({ items, loading, navigate, onStatusChange, savingStatu
               <OpenJobCard key={s.id} s={s} navigate={navigate}
                 onStatusChange={onStatusChange} savingStatus={savingStatus}
                 onStepChange={onStepChange} savingStep={savingStep}
-                onCloseClaim={onCloseClaim} />
+                onCloseClaim={onCloseClaim} onOpenSettlement={onOpenSettlement} />
             ))}
           </div>
           {totalPages > 1 && (

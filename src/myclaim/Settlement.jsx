@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import {
@@ -20,10 +20,9 @@ const CATEGORIES = [
 ]
 
 const COL_FIELDS = [
-  { key: 'Estimate',   label: 'Our Estimate',    hint: 'Amount on your scope of work',          color: '#0f172a' },
-  { key: 'Supplement', label: 'Supplement',       hint: 'Additional amounts negotiated',         color: '#0891b2' },
-  { key: 'Settled',    label: 'Final Settlement', hint: 'Total amount actually paid out',        color: '#16a34a' },
-  { key: 'Expenses',   label: 'Expenses',         hint: 'Company expenses for this category',   color: '#dc2626' },
+  { key: 'Estimate',  label: 'Our Estimate',    hint: 'Amount on your scope of work',        color: '#0f172a' },
+  { key: 'Settled',   label: 'Final Settlement', hint: 'Total amount actually paid out',     color: '#16a34a' },
+  { key: 'Expenses',  label: 'Expenses',         hint: 'Company expenses for this category', color: '#dc2626' },
 ]
 
 const STATUS_META = {
@@ -75,10 +74,10 @@ const EMPTY_FORM = (prefill = {}) => ({
   claimNumber: prefill.claimNumber || '', dateOfLoss: '', settlementDate: '',
   insuranceCompany: prefill.insuranceCompany || '', adjusterName: prefill.adjusterName || '',
   adjusterPhone: prefill.adjusterPhone || '', adjusterEmail: prefill.adjusterEmail || '',
-  status: 'estimating', deductible: '',
+  status: 'estimating',
   recoupPercent: 0,
-  dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: '', packoutRecoupPct: '',
-  partnerId: '', partnerName: '', partnerFeePct: '', partnerFeeOnNet: true,
+  dryCleanRecoupPct: '', mitigationRecoupPct: '', reconstructionRecoupPct: 0, packoutRecoupPct: '',
+  partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFixedFee: '', partnerFeeOnNet: true,
   notes: '',
   ...CATEGORIES.flatMap(c => COL_FIELDS.map(f => [`${c.key}${f.key}`, ''])).reduce((o, [k, v]) => ({ ...o, [k]: v }), {}),
 })
@@ -101,7 +100,8 @@ function computeCategoryRecoups(form, onNet = false) {
 
 function computePartnerFee(form, companyRecoup) {
   if (!form.partnerId) return 0
-  return n(form.partnerFeePct) / 100 * companyRecoup
+  if (form.partnerFeeType === 'fixed') return parseFloat(form.partnerFixedFee) || 0
+  return companyRecoup
 }
 
 function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone, clientDocId) {
@@ -161,9 +161,10 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone, c
     reconstructionCompanyRecoup: hasSettled ? recoups.breakdown[2]?.recoup : null,
     packoutCompanyRecoup:        hasSettled ? recoups.breakdown[3]?.recoup : null,
     companyRecoup:               hasSettled ? recoups.companyRecoup : null,
-    partnerId:                   data.partnerId   || null,
-    partnerName:                 data.partnerName || null,
-    partnerFeePct:               n(data.partnerFeePct),
+    partnerId:                   data.partnerId      || null,
+    partnerName:                 data.partnerName    || null,
+    partnerFeeType:              data.partnerFeeType || 'percent',
+    partnerFixedFee:             data.partnerFeeType === 'fixed' ? (parseFloat(data.partnerFixedFee) || null) : null,
     partnerFeeOnNet:             !!data.partnerFeeOnNet,
     partnerFee:                  hasSettled && data.partnerId ? partnerFee : null,
     companyNetAfterPartner:      netAfterPartner,
@@ -175,10 +176,12 @@ function buildSummaryDoc(id, data, totals, clientUid, clientName, clientPhone, c
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function Settlement() {
-  const { id: routeParam } = useParams()
-  const isPhoneParam = (routeParam || '').startsWith('+')
+export default function Settlement({ onClose, clientIdOverride } = {}) {
+  const params = useParams()
+  const routeParam = clientIdOverride || params?.id || ''
+  const isPhoneParam = routeParam.startsWith('+')
   const navigate = useNavigate()
+  const isModal = !!onClose
   const { user } = useAuth()
   const [clientPhone,  setClientPhone]  = useState('')
 
@@ -197,6 +200,14 @@ export default function Settlement() {
   const [showNew,      setShowNew]      = useState(false)
   const [newForm,      setNewForm]      = useState(EMPTY_FORM())
   const [savingNew,    setSavingNew]    = useState(false)
+  const activeSaveRef = useRef(null)
+
+  function handleClose() {
+    if (editingId) {
+      if (!window.confirm('Close without saving?')) return
+    }
+    onClose()
+  }
 
   useEffect(() => { if (user) load() }, [user, routeParam])
 
@@ -258,7 +269,12 @@ export default function Settlement() {
         const seenIds   = new Set(userSetts.map(s => s.id))
         const merged    = [...userSetts, ...orgSetts.filter(s => !seenIds.has(s.id))]
         setSettlements(merged)
-        if (merged.length > 0) setExpanded(merged[0].id)
+        if (merged.length > 0) {
+          const tsMillis = s => (s.updatedAt?.toMillis?.() ?? s.createdAt?.toMillis?.() ?? 0)
+          const latest = merged.reduce((a, b) => tsMillis(a) >= tsMillis(b) ? a : b)
+          setExpanded(latest.id)
+          setEditingId(latest.id)
+        }
       } else {
         setClientName(cdata.name || '')
         setClaimNumbers(cdata.claimNumbers || [])
@@ -267,7 +283,12 @@ export default function Settlement() {
         setClientPrefill(pf)
         setNewForm(EMPTY_FORM(pf))
         setSettlements(orgSetts)
-        if (orgSetts.length > 0) setExpanded(orgSetts[0].id)
+        if (orgSetts.length > 0) {
+          const tsMillis = s => (s.updatedAt?.toMillis?.() ?? s.createdAt?.toMillis?.() ?? 0)
+          const latest = orgSetts.reduce((a, b) => tsMillis(a) >= tsMillis(b) ? a : b)
+          setExpanded(latest.id)
+          setEditingId(latest.id)
+        }
       }
     } finally {
       setLoading(false)
@@ -338,28 +359,34 @@ export default function Settlement() {
       setSettlements(prev => [{ id: ref.id, ...data, ...(!clientUid && { _isOrgSettlement: true }) }, ...prev])
       setShowNew(false)
       setNewForm(EMPTY_FORM(clientPrefill))
-      setExpanded(ref.id)
+      if (isModal) {
+        onClose()
+      } else {
+        setExpanded(ref.id)
+        setEditingId(ref.id)
+      }
     } finally {
       setSavingNew(false)
     }
   }
 
-  if (loading) return <div className="sl-loading">Loading…</div>
-
-  const backPath = `/myclaim/clients/${encodeURIComponent(routeParam)}`
-
-  return (
-    <div className="sl-root">
-      <div className="sl-header">
-        <div>
-          <button className="sl-back" onClick={() => navigate(-1)}>← Back to Client</button>
-          <h2 className="sl-title">Insurance Settlement Tracker</h2>
-          {clientName && <p className="sl-sub">{clientName}</p>}
-        </div>
-        <button className="sl-btn sl-btn--primary" onClick={() => { setShowNew(true); setExpanded(null) }}>
-          + Track New Claim
-        </button>
+  if (loading) {
+    const loader = <div className="sl-loading">Loading…</div>
+    if (isModal) return (
+      <div className="sl-page-overlay">
+        <div className="sl-page-modal">{loader}</div>
       </div>
+    )
+    return loader
+  }
+
+  const trackBtn = (
+    <button className="sl-btn sl-btn--primary" onClick={() => { setShowNew(true); setExpanded(null) }}>
+      + Track New Claim
+    </button>
+  )
+
+  const bodyContent = (<>
 
       {/* ── New settlement form ── */}
       {showNew && (
@@ -410,16 +437,11 @@ export default function Settlement() {
                   <div key={s.id} className="sl-awaiting-card">
                     <div className="sl-awaiting-left">
                       <span className="sl-awaiting-claim">{s.claimNumber || 'No claim #'}</span>
-                      <span className="sl-awaiting-insurer">{s.insuranceCompany || 'Insurance TBD'}</span>
-                      {s.settlementDate && <span className="sl-awaiting-date">Settled {fmtDate(s.settlementDate)}</span>}
-                      {totalPaid > 0 && (
-                        <span className="sl-awaiting-rcvd">{fmtMoney(totalPaid)} received</span>
-                      )}
+                      {s.insuranceCompany && <span className="sl-awaiting-insurer">{s.insuranceCompany}</span>}
+                      {s.settlementDate && <span className="sl-awaiting-date">· {fmtDate(s.settlementDate)}</span>}
+                      {totalPaid > 0 && <span className="sl-awaiting-rcvd">· {fmtMoney(totalPaid)} rcvd</span>}
                     </div>
-                    <div className="sl-awaiting-right">
-                      <span className="sl-awaiting-amt">{fmtMoney(outstanding)}</span>
-                      <span className="sl-awaiting-due-label">outstanding</span>
-                    </div>
+                    <span className="sl-awaiting-amt">{fmtMoney(outstanding)} <span className="sl-awaiting-due-label">due</span></span>
                   </div>
                 )
               })}
@@ -458,9 +480,15 @@ export default function Settlement() {
             onRemoveInsurer={removeInsurer}
             expanded={expanded === s.id}
             editing={editingId === s.id}
-            onToggle={() => { setExpanded(prev => prev === s.id ? null : s.id); setEditingId(null) }}
+            onToggle={() => {
+              const willExpand = expanded !== s.id
+              setExpanded(willExpand ? s.id : null)
+              setEditingId(willExpand ? s.id : null)
+            }}
             onEdit={() => { setEditingId(s.id); setExpanded(s.id) }}
             onCancelEdit={() => setEditingId(null)}
+            onRegisterSave={fn => { activeSaveRef.current = fn }}
+            onSaveAndClose={isModal ? onClose : null}
             onSaved={updated => {
               setSettlements(prev => prev.map(x => x.id === s.id ? { ...x, ...updated } : x))
               setEditingId(null)
@@ -470,18 +498,58 @@ export default function Settlement() {
           />
         ))
       )}
+  </>)
+
+  if (isModal) {
+    return (
+      <div className="sl-page-overlay" onClick={e => e.target === e.currentTarget && handleClose()}>
+        <div className="sl-page-modal">
+          <div className="sl-page-modal-header">
+            <div>
+              <h2 className="sl-title" style={{ margin: 0 }}>Insurance Settlement Tracker</h2>
+              {clientName && <p className="sl-sub" style={{ margin: 0 }}>{clientName}</p>}
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              {trackBtn}
+              {editingId && (
+                <button className="sl-btn sl-btn--primary" onClick={() => activeSaveRef.current?.()}>
+                  Save
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="sl-root sl-root--modal">
+            {bodyContent}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="sl-root">
+      <div className="sl-header">
+        <div>
+          <button className="sl-back" onClick={() => navigate(-1)}>← Back to Client</button>
+          <h2 className="sl-title">Insurance Settlement Tracker</h2>
+          {clientName && <p className="sl-sub">{clientName}</p>}
+        </div>
+        {trackBtn}
+      </div>
+      {bodyContent}
     </div>
   )
 }
 
 // ── Settlement record (summary + expandable detail) ───────────────────────────
 
-function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete, onPaidToggle }) {
+function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete, onPaidToggle, onRegisterSave, onSaveAndClose }) {
   const navigate = useNavigate()
   const totals = computeTotals(s)
   const sm = STATUS_META[s.status] || STATUS_META.estimating
   const [editForm, setEditForm] = useState(null)
   const [saving, setSaving]     = useState(false)
+  const doSaveRef = useRef(null)
   const [saveError, setSaveError] = useState(null)
   const [log, setLog]           = useState(null)
   const [loadingLog, setLoadingLog] = useState(false)
@@ -523,12 +591,23 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
     if (editing) {
       setEditForm({
         ...s,
+        partnerFeeType:  s.partnerFeeType || 'percent',
+        partnerFixedFee: s.partnerFixedFee ?? '',
         partnerFeeOnNet: s.partnerFeeOnNet !== false,
       })
       setSaveError(null)
     } else {
       setEditForm(null)
     }
+  }, [editing])
+
+  useEffect(() => {
+    if (editing) {
+      onRegisterSave?.(() => { doSaveRef.current?.() })
+    } else {
+      onRegisterSave?.(null)
+    }
+    return () => onRegisterSave?.(null)
   }, [editing])
 
   useEffect(() => {
@@ -547,6 +626,8 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
       setLoadingLog(false)
     }
   }
+
+  doSaveRef.current = doSave
 
   async function doSave() {
     if (!editForm) return
@@ -588,6 +669,7 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
         ).catch(e => console.warn('settlement_summary update:', e))
       }
       onSaved(updates)
+      onSaveAndClose?.()
     } catch (e) {
       console.error('Settlement save failed:', e)
       setSaveError('Save failed — please try again.')
@@ -792,6 +874,13 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                 onRemovePartner={onRemovePartner}
                 onAddInsurer={onAddInsurer}
                 onRemoveInsurer={onRemoveInsurer}
+                paidAmounts={paidAmounts}
+                catPaid={catPaid}
+                onPaidAmountChange={(cat, val) => setPaidAmounts(prev => ({ ...prev, [cat]: val }))}
+                onPaidAmountBlur={(cat, val) => saveCatPaidAmount(cat, val)}
+                onTogglePaid={doToggleCatPaid}
+                togglingCat={togglingCat}
+                savingPaidAmt={savingPaidAmt}
               />
             </>
           ) : (
@@ -802,7 +891,6 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                   {s.adjusterName    && <span>👤 {s.adjusterName}</span>}
                   {s.adjusterPhone   && <span>📞 {s.adjusterPhone}</span>}
                   {s.adjusterEmail   && <span>✉️ {s.adjusterEmail}</span>}
-                  {s.deductible > 0  && <span>🧾 Deductible: {fmtMoney(s.deductible)}</span>}
                 </div>
               )}
 
@@ -912,11 +1000,6 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                   {displayTotals.Settled > 0 && (
                     <RecoveryBar label="Final Settlement" value={displayTotals.Settled}   max={displayTotals.Estimate} color="#86efac" highlight />
                   )}
-                  {n(s.deductible) > 0 && (
-                    <div className="sl-deductible-note">
-                      Client deductible: {fmtMoney(s.deductible)} — net to company: {fmtMoney(Math.max(0, displayTotals.Settled - n(s.deductible)))}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -943,7 +1026,6 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
                     <div className="sl-profit-row sl-profit-row--deduct">
                       <span className="sl-profit-label">
                         Less: Referral Fee{displaySource.partnerName ? ` (${displaySource.partnerName})` : ''}
-                        {displaySource.partnerFeePct ? <span className="sl-fee-basis-chip">{displaySource.partnerFeePct}%</span> : null}
                         <span className="sl-fee-basis-chip">{displaySource.partnerFeeOnNet ? 'on net' : 'on gross'}</span>
                       </span>
                       <span className="sl-profit-val sl-profit-val--expense">− {fmtMoney(displayPartnerFee)}</span>
@@ -1014,7 +1096,6 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
               )}
 
               <div className="sl-detail-actions">
-                <button className="sl-btn sl-btn--outline" onClick={onEdit}>Edit</button>
                 <button className="sl-btn sl-btn--receipt" onClick={() => {
                   const items = [
                     n(s.dryCleanSettled)        > 0 && { label: 'Dry Cleaning / Contents', unit: 'total', price: n(s.dryCleanSettled) },
@@ -1116,8 +1197,27 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
 
 // ── Settlement form (new + edit) ──────────────────────────────────────────────
 
-function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving, saveError, isNew, partners = [], insurers = [], onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer }) {
+function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving, saveError, isNew, partners = [], insurers = [], onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer, paidAmounts, catPaid, onPaidAmountChange, onPaidAmountBlur, onTogglePaid, togglingCat, savingPaidAmt }) {
+  const hasPaid = !isNew && paidAmounts && onPaidAmountChange
+  const [showFeeBreakdown, setShowFeeBreakdown] = useState(false)
   const set = (k, v) => onChange(prev => ({ ...prev, [k]: v }))
+
+  function handlePartnerSelect(p) {
+    const updates = { partnerId: p.id, partnerName: p.name, partnerFeeType: p.feeType || 'percent' }
+    if (p.feeType === 'fixed') {
+      updates.partnerFixedFee = p.defaultFixedFee ?? ''
+    } else {
+      if (p.defaultFeePct != null)               updates.recoupPercent           = p.defaultFeePct
+      if (p.defaultReconstructionFeePct != null) updates.reconstructionRecoupPct = p.defaultReconstructionFeePct
+    }
+    onChange(prev => ({ ...prev, ...updates }))
+    setShowFeeBreakdown(false)
+  }
+
+  function handlePartnerClear() {
+    onChange(prev => ({ ...prev, partnerId: '', partnerName: '', partnerFeeType: 'percent', partnerFixedFee: '', recoupPercent: 0, reconstructionRecoupPct: 0 }))
+    setShowFeeBreakdown(false)
+  }
 
   return (
     <div className="sl-form">
@@ -1173,11 +1273,6 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
           <input className="sl-input" type="email" value={form.adjusterEmail}
             onChange={e => set('adjusterEmail', e.target.value)} placeholder="adjuster@insurer.com" />
         </div>
-        <div className="sl-field">
-          <label className="sl-label">Client Deductible ($)</label>
-          <input className="sl-input" type="number" min="0" step="0.01" value={form.deductible}
-            onChange={e => set('deductible', e.target.value)} placeholder="0.00" />
-        </div>
       </div>
 
       {/* Category amounts table */}
@@ -1190,11 +1285,12 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
               {COL_FIELDS.map(f => (
                 <th key={f.key} title={f.hint} style={{ color: f.color }}>{f.label}</th>
               ))}
+              {hasPaid && <th style={{ color: '#0891b2', textAlign: 'center' }}>Received</th>}
             </tr>
           </thead>
           <tbody>
             {CATEGORIES.map(cat => (
-              <tr key={cat.key}>
+              <tr key={cat.key} className={hasPaid && catPaid?.[cat.key] ? 'sl-data-row sl-data-row--paid' : undefined}>
                 <td className="sl-form-cat-label">{cat.label}</td>
                 {COL_FIELDS.map(f => (
                   <td key={f.key}>
@@ -1207,6 +1303,27 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
                     />
                   </td>
                 ))}
+                {hasPaid && (
+                  <td style={{ textAlign: 'center' }}>
+                    <div className="sl-paid-cell" style={{ justifyContent: 'center' }}>
+                      <input
+                        type="number" min="0" step="0.01"
+                        className={`sl-paid-amt-input${savingPaidAmt === cat.key ? ' sl-paid-amt-input--saving' : ''}`}
+                        placeholder="$ rcvd"
+                        value={paidAmounts[cat.key] || ''}
+                        onChange={e => onPaidAmountChange(cat.key, e.target.value)}
+                        onBlur={e => onPaidAmountBlur(cat.key, e.target.value)}
+                      />
+                      <button
+                        className={`sl-cat-paid-btn${catPaid?.[cat.key] ? ' sl-cat-paid-btn--paid' : ''}`}
+                        onClick={e => { e.stopPropagation(); onTogglePaid(cat.key) }}
+                        disabled={togglingCat === cat.key}
+                        title={catPaid?.[cat.key] ? 'Mark as unpaid' : 'Mark as fully paid'}
+                        type="button"
+                      >✓</button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -1221,100 +1338,29 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
                   </td>
                 )
               })}
+              {hasPaid && (() => {
+                const totalRcvd = CATEGORIES.reduce((s, c) => s + (n(paidAmounts[c.key]) || 0), 0)
+                const totalSett = CATEGORIES.reduce((s, c) => s + n(form[`${c.key}Settled`]), 0)
+                const outstanding = Math.max(0, totalSett - totalRcvd)
+                return (
+                  <td className="sl-form-total-cell" style={{ color: '#0891b2', textAlign: 'center' }}>
+                    {totalRcvd > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                        <span>{fmtMoney(totalRcvd)}</span>
+                        {outstanding > 0
+                          ? <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 700 }}>− {fmtMoney(outstanding)} due</span>
+                          : <span style={{ fontSize: 11, color: '#15803d', fontWeight: 700 }}>Paid in full ✓</span>}
+                      </div>
+                    ) : '—'}
+                  </td>
+                )
+              })()}
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {/* Referral Fee Breakdown - per category */}
-      <div className="sl-recoup-block">
-        <div className="sl-recoup-section-title">Referral Fee Breakdown</div>
-
-        {/* Master slider */}
-        <div className="sl-recoup-master-row">
-          <div className="sl-recoup-header">
-            <label className="sl-label">Default Referral Fee %</label>
-            <span className="sl-recoup-pct">{n(form.recoupPercent) || 0}%</span>
-          </div>
-          <input type="range" min="0" max="100" step="5"
-            className="sl-recoup-slider"
-            value={n(form.recoupPercent) || 0}
-            onChange={e => set('recoupPercent', Number(e.target.value))} />
-          <div className="sl-recoup-labels">
-            <span>0% — no referral fee</span>
-            <span>50% of settled</span>
-            <span>100% — all settled to partner</span>
-          </div>
-        </div>
-
-        {/* Per-category overrides */}
-        <div className="sl-recoup-cats">
-          <div className="sl-recoup-cats-label">Per-Category Override (blank = use default)</div>
-          {CATEGORIES.map(cat => {
-            const fieldKey   = `${cat.key}RecoupPct`
-            const val        = form[fieldKey]
-            const masterPct  = n(form.recoupPercent)
-            const effectivePct = (val !== null && val !== undefined && val !== '') ? n(val) : masterPct
-            const settled    = n(form[`${cat.key}Settled`])
-            const estimate   = n(form[`${cat.key}Estimate`])
-            const baseAmt    = settled > 0 ? settled : estimate
-            const expenses   = form.partnerFeeOnNet ? n(form[`${cat.key}Expenses`]) : 0
-            const base       = Math.max(0, baseAmt - expenses)
-            const recoup     = base * effectivePct / 100
-            const isEstimate = settled === 0 && estimate > 0
-            return (
-              <div key={cat.key} className="sl-recoup-cat-row">
-                <span className="sl-recoup-cat-name">{cat.label}</span>
-                <div className="sl-recoup-cat-input-wrap">
-                  <input
-                    type="number" min="0" max="100" step="1"
-                    className="sl-amount-input sl-recoup-cat-input"
-                    placeholder={`${masterPct}% (master)`}
-                    value={val ?? ''}
-                    onChange={e => set(fieldKey, e.target.value)}
-                  />
-                  <span className="sl-recoup-cat-unit">%</span>
-                </div>
-                {baseAmt > 0 && (
-                  <span className="sl-recoup-cat-preview">
-                    → {fmtMoney(recoup)} ({effectivePct}%){isEstimate ? ' est.' : ''}
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Total recoup preview */}
-        {(() => {
-          const t = computeTotals(form)
-          const hasSettled  = t.Settled  > 0
-          const hasEstimate = t.Estimate > 0
-          if (!hasSettled && !hasEstimate) return null
-          const calcForm = hasSettled ? form : {
-            ...form,
-            ...CATEGORIES.reduce((acc, cat) => ({
-              ...acc, [`${cat.key}Settled`]: form[`${cat.key}Estimate`] || '',
-            }), {})
-          }
-          const { companyRecoup } = computeCategoryRecoups(calcForm, !!form.partnerFeeOnNet)
-          const effectiveAmt = hasSettled ? t.Settled : t.Estimate
-          const effectiveExp = form.partnerFeeOnNet ? (hasSettled ? t.Expenses : 0) : 0
-          return (
-            <div className="sl-recoup-total-preview">
-              <span>
-                Your recoup total: <strong>{fmtMoney(companyRecoup)}</strong>
-                {!hasSettled && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 5 }}>(based on estimates)</span>}
-              </span>
-              <span className="sl-recoup-split-note">
-                (of {fmtMoney(Math.max(0, effectiveAmt - effectiveExp))} {form.partnerFeeOnNet ? 'net ' : ''}{hasSettled ? 'settled' : 'estimated'})
-              </span>
-            </div>
-          )
-        })()}
-      </div>
-
-      {/* Partner / Referral */}
+      {/* Partner / Referral Fee */}
       <div className="sl-partner-block">
         <div className="sl-recoup-section-title">Partner / Referral Fee</div>
         <div className="sl-partner-grid">
@@ -1325,40 +1371,29 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
               selectedId={form.partnerId || ''}
               selectedName={form.partnerName || ''}
               partners={partners}
-              onSelect={p => { set('partnerId', p.id); set('partnerName', p.name) }}
-              onClear={() => { set('partnerId', ''); set('partnerName', '') }}
+              onSelect={handlePartnerSelect}
+              onClear={handlePartnerClear}
               onAdd={onAddPartner}
               onRemove={onRemovePartner}
               placeholder="Search or add partner…"
             />
           </div>
-          {form.partnerId && (
-            <>
-              <div className="sl-field">
-                <label className="sl-label">Referral Fee %</label>
-                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <input className="sl-input" type="number" min="0" max="100" step="0.5"
-                    placeholder="e.g. 25"
-                    style={{ width:90 }}
-                    value={form.partnerFeePct ?? ''}
-                    onChange={e => set('partnerFeePct', e.target.value)} />
-                  <span style={{ fontSize:14, color:'#64748b' }}>% of your recoup</span>
-                </div>
+          {form.partnerId && form.partnerFeeType !== 'fixed' && (
+            <div className="sl-field">
+              <label className="sl-label">Fee Based On</label>
+              <div className="sl-toggle-row">
+                <button type="button"
+                  className={`sl-toggle-btn${!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
+                  onClick={() => set('partnerFeeOnNet', false)}>Gross Settlement</button>
+                <button type="button"
+                  className={`sl-toggle-btn${!!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
+                  onClick={() => set('partnerFeeOnNet', true)}>Net (after expenses)</button>
               </div>
-              <div className="sl-field">
-                <label className="sl-label">Recoup Based On</label>
-                <div className="sl-toggle-row">
-                  <button type="button"
-                    className={`sl-toggle-btn${!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
-                    onClick={() => set('partnerFeeOnNet', false)}>Gross Settlement</button>
-                  <button type="button"
-                    className={`sl-toggle-btn${!!form.partnerFeeOnNet ? ' sl-toggle-btn--active' : ''}`}
-                    onClick={() => set('partnerFeeOnNet', true)}>Net (after expenses)</button>
-                </div>
-              </div>
-            </>
+            </div>
           )}
         </div>
+
+        {/* Partner fee preview */}
         {(() => {
           if (!form.partnerId) return null
           const t = computeTotals(form)
@@ -1372,12 +1407,11 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
             }), {})
           }
           const { companyRecoup } = computeCategoryRecoups(calcForm, !!form.partnerFeeOnNet)
-          const pct             = n(form.partnerFeePct)
-          const fee             = computePartnerFee(form, companyRecoup)
-          const effectiveTotal  = hasSettled ? t.Settled  : t.Estimate
-          const effectiveExp    = hasSettled ? t.Expenses : 0
-          const netToCompany    = effectiveTotal - effectiveExp - fee
-          const partnerName     = partners.find(p => p.id === form.partnerId)?.name || 'Partner'
+          const fee            = computePartnerFee(form, companyRecoup)
+          const effectiveTotal = hasSettled ? t.Settled  : t.Estimate
+          const effectiveExp   = hasSettled ? t.Expenses : 0
+          const netToCompany   = effectiveTotal - effectiveExp - fee
+          const partnerName    = partners.find(p => p.id === form.partnerId)?.name || 'Partner'
           return (
             <div className="sl-partner-preview">
               {!hasSettled && (
@@ -1387,12 +1421,14 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
               )}
               <span>
                 {partnerName} earns:{' '}
-                {pct > 0
-                  ? <><strong>{pct}%</strong> × {fmtMoney(companyRecoup)} = <strong>{fmtMoney(fee)}</strong></>
-                  : <strong style={{ color:'#94a3b8' }}>enter % above</strong>}
-                <span className="sl-fee-basis-chip">{form.partnerFeeOnNet ? 'on net' : 'on gross'}</span>
+                {fee > 0
+                  ? <strong>{fmtMoney(fee)}</strong>
+                  : <strong style={{ color: '#94a3b8' }}>set referral fee below</strong>}
+                {form.partnerFeeType === 'fixed'
+                  ? <span className="sl-fee-basis-chip">fixed</span>
+                  : <span className="sl-fee-basis-chip">{form.partnerFeeOnNet ? 'on net' : 'on gross'}</span>}
               </span>
-              {pct > 0 && (
+              {fee > 0 && (
                 <span className="sl-partner-net">
                   Company nets: <strong style={{ color: netToCompany >= 0 ? '#2563eb' : '#dc2626' }}>{fmtMoney(netToCompany)}</strong>
                 </span>
@@ -1400,6 +1436,109 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
             </div>
           )
         })()}
+
+        {/* Referral fee breakdown — collapsible, only shown when partner selected */}
+        {form.partnerId && (
+          <div style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="sl-fee-breakdown-toggle"
+              onClick={() => setShowFeeBreakdown(v => !v)}
+            >
+              Edit Referral Fees {showFeeBreakdown ? '▲' : '▼'}
+            </button>
+            {showFeeBreakdown && (
+              <div className="sl-recoup-block" style={{ marginTop: 8 }}>
+                {/* Fee type toggle */}
+                <div className="sl-field" style={{ marginBottom: 12 }}>
+                  <label className="sl-label">Fee Type</label>
+                  <div className="sl-toggle-row">
+                    <button type="button"
+                      className={`sl-toggle-btn${form.partnerFeeType !== 'fixed' ? ' sl-toggle-btn--active' : ''}`}
+                      onClick={() => set('partnerFeeType', 'percent')}>% of Settlement</button>
+                    <button type="button"
+                      className={`sl-toggle-btn${form.partnerFeeType === 'fixed' ? ' sl-toggle-btn--active' : ''}`}
+                      onClick={() => set('partnerFeeType', 'fixed')}>Fixed Amount</button>
+                  </div>
+                </div>
+
+                {form.partnerFeeType === 'fixed' ? (
+                  <div className="sl-field">
+                    <label className="sl-label">Fixed Referral Fee</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 14, color: '#64748b' }}>$</span>
+                      <input
+                        type="number" min="0" step="0.01"
+                        className="sl-amount-input"
+                        style={{ width: 130 }}
+                        placeholder="0.00"
+                        value={form.partnerFixedFee ?? ''}
+                        onChange={e => set('partnerFixedFee', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Master slider */}
+                    <div className="sl-recoup-master-row">
+                      <div className="sl-recoup-header">
+                        <label className="sl-label">Referral Fee %</label>
+                        <span className="sl-recoup-pct">{n(form.recoupPercent) || 0}%</span>
+                      </div>
+                      <input type="range" min="0" max="100" step="5"
+                        className="sl-recoup-slider"
+                        value={n(form.recoupPercent) || 0}
+                        onChange={e => set('recoupPercent', Number(e.target.value))} />
+                      <div className="sl-recoup-labels">
+                        <span>0%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                      </div>
+                    </div>
+
+                    {/* Reconstruction override */}
+                    {(() => {
+                      const cat = CATEGORIES.find(c => c.key === 'reconstruction')
+                      const fieldKey = 'reconstructionRecoupPct'
+                      const val = form[fieldKey]
+                      const effectivePct = (val !== null && val !== undefined && val !== '') ? n(val) : 0
+                      const settled = n(form['reconstructionSettled'])
+                      const estimate = n(form['reconstructionEstimate'])
+                      const baseAmt = settled > 0 ? settled : estimate
+                      const expenses = form.partnerFeeOnNet ? n(form['reconstructionExpenses']) : 0
+                      const base = Math.max(0, baseAmt - expenses)
+                      const recoup = base * effectivePct / 100
+                      const isEstimate = settled === 0 && estimate > 0
+                      return (
+                        <div className="sl-recoup-cats">
+                          <div className="sl-recoup-cats-label">Reconstruction Referral Fee %</div>
+                          <div className="sl-recoup-cat-row">
+                            <span className="sl-recoup-cat-name">{cat.label}</span>
+                            <div className="sl-recoup-cat-input-wrap">
+                              <input
+                                type="number" min="0" max="100" step="1"
+                                className="sl-amount-input sl-recoup-cat-input"
+                                placeholder="0%"
+                                value={val ?? ''}
+                                onChange={e => set(fieldKey, e.target.value)}
+                              />
+                              <span className="sl-recoup-cat-unit">%</span>
+                            </div>
+                            {baseAmt > 0 && (
+                              <span className="sl-recoup-cat-preview">
+                                → {fmtMoney(recoup)} ({effectivePct}%){isEstimate ? ' est.' : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Notes */}
@@ -1411,12 +1550,14 @@ function SettlementForm({ form, onChange, claimNumbers, onSave, onCancel, saving
       </div>
 
       {saveError && <p className="sl-save-error">{saveError}</p>}
-      <div className="sl-form-actions">
-        <button className="sl-btn sl-btn--outline" onClick={onCancel} type="button">Cancel</button>
-        <button className="sl-btn sl-btn--primary" onClick={onSave} disabled={saving} type="button">
-          {saving ? 'Saving…' : isNew ? 'Create Settlement' : 'Save Changes'}
-        </button>
-      </div>
+      {isNew && (
+        <div className="sl-form-actions">
+          <button className="sl-btn sl-btn--outline" onClick={onCancel} type="button">Cancel</button>
+          <button className="sl-btn sl-btn--primary" onClick={onSave} disabled={saving} type="button">
+            {saving ? 'Saving…' : 'Create Settlement'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

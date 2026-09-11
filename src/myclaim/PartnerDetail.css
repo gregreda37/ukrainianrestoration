@@ -587,3 +587,98 @@
   .pd-mg-cell { min-width: 80px; padding: 10px 10px; }
   .pd-pipe-card { min-width: 120px; }
 }
+
+/* ── Default Referral Fees section ── */
+.pd-fee-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.pd-fee-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.pd-fee-header .pd-section-title { margin-bottom: 0; }
+
+.pd-fee-edit-btn {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  background: none;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 7px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.13s;
+}
+.pd-fee-edit-btn:hover { background: #eff6ff; }
+
+.pd-fee-display { display: flex; flex-direction: column; gap: 8px; }
+.pd-fee-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13.5px;
+}
+.pd-fee-row-label { color: #475569; font-weight: 500; }
+.pd-fee-row-val { font-weight: 700; color: #0f172a; }
+.pd-fee-row-empty { color: #94a3b8; font-weight: 400; }
+
+.pd-fee-form { display: flex; flex-direction: column; gap: 12px; }
+.pd-fee-field { display: flex; flex-direction: column; gap: 4px; }
+.pd-fee-label { font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: .04em; }
+.pd-fee-input-row { display: flex; align-items: center; gap: 8px; }
+.pd-fee-input {
+  width: 80px;
+  padding: 6px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.pd-fee-input::-webkit-inner-spin-button,
+.pd-fee-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+.pd-fee-input:focus { border-color: #2563eb; }
+.pd-fee-unit { font-size: 14px; font-weight: 700; color: #475569; }
+.pd-fee-hint { font-size: 12px; color: #94a3b8; }
+.pd-fee-error { font-size: 12.5px; color: #dc2626; margin: 0; }
+.pd-fee-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.pd-fee-cancel {
+  font-size: 13px; font-weight: 600; color: #64748b;
+  background: none; border: 1.5px solid #e2e8f0; border-radius: 8px;
+  padding: 6px 14px; cursor: pointer;
+}
+.pd-fee-cancel:hover { background: #f1f5f9; }
+.pd-fee-save {
+  font-size: 13px; font-weight: 600; color: #fff;
+  background: #2563eb; border: none; border-radius: 8px;
+  padding: 6px 16px; cursor: pointer; transition: background 0.13s;
+}
+.pd-fee-save:hover:not(:disabled) { background: #1d4ed8; }
+.pd-fee-save:disabled { opacity: 0.6; cursor: default; }
+
+.pd-fee-type-row { display: flex; gap: 8px; }
+.pd-fee-type-btn {
+  flex: 1;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.13s;
+}
+.pd-fee-type-btn--active {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #2563eb;
+}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { doc, getDoc, getDocs, deleteDoc, collection, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { useAuth } from './useAuth'
+import Settlement from './Settlement'
 import './OrgInvoices.css'
 
 const SETT_CATS = [
@@ -38,6 +39,7 @@ const STATUS_META = {
 
 function SettlementPaymentsSection({ items, total, navigate }) {
   const [view, setView] = useState('full')
+  const [settlementModalId, setSettlementModalId] = useState(null)
 
   const coNetTotal = items.reduce((sum, s) => {
     const settled = parseFloat(s.totalSettled)    || 0
@@ -50,6 +52,7 @@ function SettlementPaymentsSection({ items, total, navigate }) {
   const displayTotal = view === 'net' ? coNetTotal : total
 
   return (
+    <>
     <div className="oil-section">
       <div className="oil-section-header" style={{ borderLeftColor: '#d97706' }}>
         <div className="oil-section-left">
@@ -101,11 +104,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const totalPaid   = parseFloat(s.totalPaidAmount)  || 0
                 const outstanding = parseFloat(s.totalOutstanding) ?? Math.max(0, settled - totalPaid)
                 const settNav = s.clientPhone || s.clientDocId
-                const href = settNav
-                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
-                  : null
                 return (
-                  <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+                  <tr key={s.id} className={`oil-row${settNav ? '' : ' oil-row--no-link'}`} onClick={settNav ? () => setSettlementModalId(settNav) : undefined}>
                     <td className="oil-td oil-td--client">{s.clientName || '—'}</td>
                     <td className="oil-td oil-td--num">{s.claimNumber || '—'}</td>
                     <td className="oil-td">{s.insuranceCompany || '—'}</td>
@@ -117,8 +117,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                       <span className="oil-outstanding-val">{fmtMoney(outstanding)}</span>
                     </td>
                     <td className="oil-td oil-td--date">{fmtDate(s.settlementDate)}</td>
-                    <td className="oil-td" style={{ color: href ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
-                      {href ? '→' : ''}
+                    <td className="oil-td" style={{ color: settNav ? '#2563eb' : '#94a3b8', fontSize: 13, textAlign: 'right' }}>
+                      {settNav ? '→' : ''}
                     </td>
                   </tr>
                 )
@@ -156,11 +156,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
                 const coNet    = Math.max(0, settled - fee)
                 const coOuts   = Math.max(0, coNet - paid)
                 const settNav = s.clientPhone || s.clientDocId
-                const href = settNav
-                  ? `/myclaim/clients/${encodeURIComponent(settNav)}/settlement`
-                  : null
                 return (
-                  <tr key={s.id} className={`oil-row${href ? '' : ' oil-row--no-link'}`} onClick={href ? () => navigate(href) : undefined}>
+                  <tr key={s.id} className={`oil-row${settNav ? '' : ' oil-row--no-link'}`} onClick={settNav ? () => setSettlementModalId(settNav) : undefined}>
                     <td className="oil-td oil-td--client">
                       <div>{s.clientName || '—'}</div>
                       {fee > 0 && (
@@ -205,6 +202,8 @@ function SettlementPaymentsSection({ items, total, navigate }) {
         )}
       </div>
     </div>
+    {settlementModalId && <Settlement clientIdOverride={settlementModalId} onClose={() => setSettlementModalId(null)} />}
+    </>
   )
 }
 

@@ -560,6 +560,14 @@
 }
 .sl-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.07); }
 .sl-input::placeholder { color: #94a3b8; }
+select.sl-input {
+  appearance: none; -webkit-appearance: none;
+  height: 40px; cursor: pointer;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
 
 .sl-textarea {
   width: 100%;
@@ -621,6 +629,10 @@
 .sl-form-table td {
   padding: 6px 8px;
   vertical-align: middle;
+}
+
+.sl-form-table td:not(:first-child) {
+  text-align: right;
 }
 
 .sl-form-table tr:nth-child(even) { background: #fafbfc; }
@@ -1014,6 +1026,25 @@
 
 .sl-partner-net { color: #374151; }
 
+.sl-fee-breakdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  background: none;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.13s, border-color 0.13s;
+}
+.sl-fee-breakdown-toggle:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
 .sl-fee-basis-chip {
   display: inline-block;
   font-size: 10px;
@@ -1066,8 +1097,8 @@
 .sl-awaiting-section {
   background: #fffbeb;
   border: 1.5px solid #fde68a;
-  border-radius: 14px;
-  padding: 18px 22px;
+  border-radius: 12px;
+  padding: 10px 14px;
   margin-bottom: 4px;
 }
 
@@ -1075,69 +1106,70 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .sl-awaiting-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #92400e;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .sl-awaiting-total {
-  font-size: 18px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
   color: #d97706;
 }
 
 .sl-awaiting-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .sl-awaiting-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   background: #fff;
   border: 1px solid #fde68a;
-  border-radius: 10px;
-  padding: 11px 16px;
+  border-radius: 8px;
+  padding: 5px 10px;
 }
 
 .sl-awaiting-left {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
 }
 
 .sl-awaiting-claim {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: #0f172a;
 }
 
 .sl-awaiting-insurer {
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: #64748b;
 }
 
 .sl-awaiting-date {
-  font-size: 11.5px;
+  font-size: 11px;
   color: #94a3b8;
 }
 
 .sl-awaiting-amt {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 700;
   color: #d97706;
   white-space: nowrap;
   flex-shrink: 0;
@@ -1336,24 +1368,14 @@
 
 /* ── Awaiting section received note ── */
 .sl-awaiting-rcvd {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   color: #0891b2;
-}
-
-.sl-awaiting-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  flex-shrink: 0;
 }
 
 .sl-awaiting-due-label {
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: #d97706;
 }
 
@@ -1493,3 +1515,115 @@
 .sl-profit-val--settled { color: #16a34a; }
 .sl-profit-val--expense { color: #dc2626; }
 .sl-profit-val--net     { color: #2563eb; font-size: 14px; font-weight: 700; }
+
+/* ── Page-level Settlement Modal ──────────────────────────────────────────── */
+.sl-page-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.48);
+  z-index: 700;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-y: auto;
+  padding: 24px 16px 48px;
+}
+
+.sl-page-modal {
+  position: relative;
+  background: #f7f8fa;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 1140px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+  flex-shrink: 0;
+  margin: auto 0;
+}
+
+.sl-page-modal-header {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 16px 16px 0 0;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 10;
+}
+
+.sl-modal-x {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.sl-modal-x:hover { background: #f1f5f9; color: #0f172a; }
+
+.sl-root--modal {
+  padding: 20px 24px 40px;
+}
+
+/* ── Payment tracking (edit mode) ── */
+.sl-payment-tracking {
+  margin-top: 20px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 18px;
+  background: #f8fafc;
+}
+.sl-payment-tracking-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+.sl-pt-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.sl-pt-row:last-of-type { border-bottom: none; }
+.sl-pt-cat {
+  font-size: 12.5px;
+  color: #334155;
+  flex: 1;
+  min-width: 0;
+}
+.sl-pt-settled {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #16a34a;
+  white-space: nowrap;
+}
+.sl-pt-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1.5px solid #e2e8f0;
+  gap: 12px;
+}
+.sl-pt-summary-label {
+  font-size: 12px;
+  color: #64748b;
+}
+.sl-pt-summary-val {
+  font-size: 13px;
+}

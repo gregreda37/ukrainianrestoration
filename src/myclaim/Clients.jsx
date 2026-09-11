@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
+import Settlement from "./Settlement";
 import { loadGoogleMaps } from "./loadMaps";
 import {
   collection, getDocs, addDoc, setDoc, getDoc, deleteDoc, updateDoc,
@@ -107,11 +108,7 @@ export default function Clients() {
 
   const [openPage,          setOpenPage]          = useState(0);
   const [closedPage,        setClosedPage]        = useState(0);
-  const [expandedId,        setExpandedId]        = useState(null);
-  const [settlementData,    setSettlementData]    = useState(null);
-  const [settlementLoading, setSettlementLoading] = useState(false);
-  const [qeForm,            setQeForm]            = useState({});
-  const [qeSaving,          setQeSaving]          = useState(false);
+  const [settlementModalPhone, setSettlementModalPhone] = useState(null);
 
   const addressInputRef = useRef(null);
   const autocompleteRef = useRef(null);
@@ -330,132 +327,7 @@ export default function Clients() {
     }
   };
 
-  const loadAndExpandSettlement = async (client) => {
-    setExpandedId(client.id);
-    setSettlementData(null);
-    setQeForm({});
-    setSettlementLoading(true);
-    try {
-      // Fetch both paths without orderBy — avoids silent exclusion of docs missing createdAt
-      const [orgSnap, userSnap] = await Promise.all([
-        getDocs(collection(db, "organization_data", organizationName, "clients", client.id, "settlements"))
-          .catch(e => { console.warn("org settlements:", e); return null; }),
-        client.uid
-          ? getDocs(collection(db, "users", client.uid, "settlements"))
-              .catch(e => { console.warn("user settlements:", e); return null; })
-          : Promise.resolve(null),
-      ]);
 
-      const orgSets  = orgSnap?.docs.map(d => ({ id: d.id, _isOrgSettlement: true, ...d.data() })) ?? [];
-      const userSets = userSnap?.docs.map(d => ({ id: d.id, ...d.data() })) ?? [];
-      const seen = new Set(userSets.map(x => x.id));
-      const all  = [...userSets, ...orgSets.filter(x => !seen.has(x.id))];
-
-      const ts = v => v?.toMillis?.() ?? 0;
-      const s = all.sort((a, b) => ts(b.updatedAt ?? b.createdAt) - ts(a.updatedAt ?? a.createdAt))[0] ?? null;
-
-      setSettlementData(s);
-      if (s) {
-        setQeForm({
-          status:                   s.status                   || "estimating",
-          settlementDate:           s.settlementDate           || "",
-          dryCleanEstimate:         s.dryCleanEstimate         ?? "",
-          mitigationEstimate:       s.mitigationEstimate       ?? "",
-          reconstructionEstimate:   s.reconstructionEstimate   ?? "",
-          packoutEstimate:          s.packoutEstimate          ?? "",
-          dryCleanSupplement:       s.dryCleanSupplement       ?? "",
-          mitigationSupplement:     s.mitigationSupplement     ?? "",
-          reconstructionSupplement: s.reconstructionSupplement ?? "",
-          packoutSupplement:        s.packoutSupplement        ?? "",
-          dryCleanSettled:          s.dryCleanSettled          ?? "",
-          mitigationSettled:        s.mitigationSettled        ?? "",
-          reconstructionSettled:    s.reconstructionSettled    ?? "",
-          packoutSettled:           s.packoutSettled           ?? "",
-          dryCleanExpenses:         s.dryCleanExpenses         ?? "",
-          mitigationExpenses:       s.mitigationExpenses       ?? "",
-          reconstructionExpenses:   s.reconstructionExpenses   ?? "",
-          packoutExpenses:          s.packoutExpenses          ?? "",
-        });
-      }
-    } catch (err) {
-      console.error("Settlement load error:", err);
-    } finally {
-      setSettlementLoading(false);
-    }
-  };
-
-  const doQuickSave = async (client) => {
-    if (!settlementData || !organizationName) return;
-    setQeSaving(true);
-    try {
-      const s = settlementData;
-      const merged = { ...s, ...qeForm };
-      const totals = computeTotals(merged);
-      const hasSettled = totals.Settled > 0;
-      const settlementDate = qeForm.settlementDate ||
-        (hasSettled && qeForm.status === "settled" ? new Date().toISOString().slice(0, 10) : s.settlementDate || "");
-      const recoups    = computeCategoryRecoups(merged);
-      const partnerFee = hasSettled ? computePartnerFee(merged, recoups.companyRecoup) : 0;
-      const patch = {
-        status:                   qeForm.status,
-        settlementDate,
-        dryCleanEstimate:         qeForm.dryCleanEstimate,
-        mitigationEstimate:       qeForm.mitigationEstimate,
-        reconstructionEstimate:   qeForm.reconstructionEstimate,
-        packoutEstimate:          qeForm.packoutEstimate,
-        dryCleanSupplement:       qeForm.dryCleanSupplement,
-        mitigationSupplement:     qeForm.mitigationSupplement,
-        reconstructionSupplement: qeForm.reconstructionSupplement,
-        packoutSupplement:        qeForm.packoutSupplement,
-        dryCleanSettled:          qeForm.dryCleanSettled,
-        mitigationSettled:        qeForm.mitigationSettled,
-        reconstructionSettled:    qeForm.reconstructionSettled,
-        packoutSettled:           qeForm.packoutSettled,
-        dryCleanExpenses:         qeForm.dryCleanExpenses,
-        mitigationExpenses:       qeForm.mitigationExpenses,
-        reconstructionExpenses:   qeForm.reconstructionExpenses,
-        packoutExpenses:          qeForm.packoutExpenses,
-        totalEstimate:            totals.Estimate,
-        totalSettled:             totals.Settled,
-        recoveryRate:             hasSettled ? totals.recoveryRate : null,
-        gap:                      hasSettled ? totals.gap          : null,
-        companyRecoup:            hasSettled ? recoups.companyRecoup : null,
-        partnerFee:               hasSettled && merged.partnerId ? partnerFee : null,
-        companyNetAfterPartner:   hasSettled ? recoups.companyRecoup - (merged.partnerId ? partnerFee : 0) : null,
-        updatedAt:                serverTimestamp(),
-      };
-      const settRef = s._isOrgSettlement
-        ? doc(db, "organization_data", organizationName, "clients", client.id, "settlements", s.id)
-        : doc(db, "users", client.uid, "settlements", s.id);
-      await updateDoc(settRef, patch);
-      updateDoc(doc(db, "organization_data", organizationName, "settlement_summary", s.id), {
-        status:                 qeForm.status,
-        settlementDate,
-        dryCleanEstimate:       n(qeForm.dryCleanEstimate),
-        mitigationEstimate:     n(qeForm.mitigationEstimate),
-        reconstructionEstimate: n(qeForm.reconstructionEstimate),
-        packoutEstimate:        n(qeForm.packoutEstimate),
-        dryCleanSettled:        n(qeForm.dryCleanSettled),
-        mitigationSettled:      n(qeForm.mitigationSettled),
-        reconstructionSettled:  n(qeForm.reconstructionSettled),
-        packoutSettled:         n(qeForm.packoutSettled),
-        totalEstimate:          totals.Estimate,
-        totalSettled:           totals.Settled,
-        recoveryRate:           hasSettled ? totals.recoveryRate : null,
-        gap:                    hasSettled ? totals.gap          : null,
-        companyRecoup:          hasSettled ? recoups.companyRecoup : null,
-        partnerFee:             hasSettled && merged.partnerId ? partnerFee : null,
-        companyNetAfterPartner: hasSettled ? recoups.companyRecoup - (merged.partnerId ? partnerFee : 0) : null,
-        updatedAt:              serverTimestamp(),
-      }).catch(e => console.warn("settlement_summary quick update:", e));
-      setSettlementData(prev => ({ ...prev, ...patch, settlementDate }));
-      setExpandedId(null);
-    } catch (err) {
-      console.error("Quick save error:", err);
-    } finally {
-      setQeSaving(false);
-    }
-  };
 
   const filtered = clients.filter(c => {
     const q = search.toLowerCase();
@@ -468,6 +340,7 @@ export default function Clients() {
   });
 
   return (
+    <>
     <div className="cl-root">
       <div className="cl-main">
 
@@ -508,12 +381,11 @@ export default function Clients() {
           const closedClients = byLogin(filtered.filter(c => c.claimStatus === "closed"));
 
           const renderRow = (client) => {
-            const isClosed   = client.claimStatus === "closed";
-            const isExpanded = expandedId === client.id;
-            const claimNum   = client.claimNumbers?.[0] || "";
+            const isClosed = client.claimStatus === "closed";
+            const claimNum = client.claimNumbers?.[0] || "";
 
             return (
-              <div key={client.id} className={`cl-row${isClosed ? " cl-row--closed" : ""}${isExpanded ? " cl-row--expanded" : ""}`}>
+              <div key={client.id} className={`cl-row${isClosed ? " cl-row--closed" : ""}`}>
                 <div className="cl-row-main">
                   <span className={`cl-account-dot cl-account-dot--${client.hasAccount ? "active" : "pending"}`}
                     title={client.hasAccount ? "Portal active" : "Awaiting first login"} />
@@ -551,13 +423,10 @@ export default function Clients() {
                     </button>
                     {userRole !== 'project_manager' && (
                       <button
-                        className={`cl-row-expand-btn${isExpanded ? " cl-row-expand-btn--active" : ""}`}
-                        onClick={() => {
-                          if (isExpanded) { setExpandedId(null); return; }
-                          loadAndExpandSettlement(client);
-                        }}
+                        className="cl-row-expand-btn"
+                        onClick={() => setSettlementModalPhone(client.phone || client.id)}
                       >
-                        <ChevronIcon up={isExpanded} /> Quick Edit
+                        Quick Edit
                       </button>
                     )}
                     <button className="cl-row-open-btn"
@@ -567,97 +436,6 @@ export default function Clients() {
                   </div>
                 </div>
 
-                {isExpanded && userRole !== 'project_manager' && (
-                  <div className="cl-qe-panel">
-                    {settlementLoading ? (
-                      <div className="cl-qe-loading"><div className="cl-spinner" style={{ width:24, height:24, borderWidth:2 }} /></div>
-                    ) : !settlementData ? (
-                      <div className="cl-qe-no-sett">
-                        <span>No settlement tracked yet.</span>
-                        <button className="cl-qe-full-btn"
-                          onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
-                          Open full details to add one →
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="cl-qe-top">
-                          <div className="cl-qe-field">
-                            <label className="cl-qe-label">Status</label>
-                            <select className="cl-qe-input cl-qe-select" value={qeForm.status || "estimating"}
-                              onChange={e => setQeForm(p => ({ ...p, status: e.target.value }))}>
-                              {Object.entries(STATUS_META).map(([v, m]) => (
-                                <option key={v} value={v}>{m.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="cl-qe-field">
-                            <label className="cl-qe-label">Settlement Date</label>
-                            <input className="cl-qe-input" type="date" value={qeForm.settlementDate || ""}
-                              onChange={e => setQeForm(p => ({ ...p, settlementDate: e.target.value }))} />
-                          </div>
-                          {settlementData.claimNumber && (
-                            <div className="cl-qe-field">
-                              <label className="cl-qe-label">Claim #</label>
-                              <span className="cl-qe-static">{settlementData.claimNumber}</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="cl-qe-table-scroll">
-                          <table className="cl-qe-table">
-                            <thead>
-                              <tr>
-                                <th className="cl-qe-th-cat">Category</th>
-                                <th className="cl-qe-th-num" style={{ color: "#0f172a" }}>Estimate</th>
-                                <th className="cl-qe-th-num" style={{ color: "#16a34a" }}>Settled</th>
-                                <th className="cl-qe-th-num" style={{ color: "#0891b2" }}>Supplement</th>
-                                <th className="cl-qe-th-num" style={{ color: "#dc2626" }}>Expenses</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {CATEGORIES.map(cat => (
-                                <tr key={cat.key}>
-                                  <td className="cl-qe-td-cat">{cat.label}</td>
-                                  {["Estimate", "Settled", "Supplement", "Expenses"].map(col => (
-                                    <td key={col} className="cl-qe-td-amt">
-                                      <input className="cl-qe-amount-input" type="number" min="0" step="0.01" placeholder="—"
-                                        value={qeForm[`${cat.key}${col}`] ?? ""}
-                                        onChange={e => setQeForm(p => ({ ...p, [`${cat.key}${col}`]: e.target.value }))} />
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                            <tfoot>
-                              {(() => {
-                                const qt = computeTotals({ ...settlementData, ...qeForm });
-                                return (
-                                  <tr className="cl-qe-tfoot-row">
-                                    <td className="cl-qe-td-cat">Total</td>
-                                    <td className="cl-qe-td-amt" style={{ color:"#0f172a", fontWeight:700 }}>{qt.Estimate   > 0 ? fmtMoney(qt.Estimate)   : "—"}</td>
-                                    <td className="cl-qe-td-amt" style={{ color:"#16a34a", fontWeight:700 }}>{qt.Settled    > 0 ? fmtMoney(qt.Settled)    : "—"}</td>
-                                    <td className="cl-qe-td-amt" style={{ color:"#0891b2", fontWeight:700 }}>{qt.Supplement > 0 ? fmtMoney(qt.Supplement) : "—"}</td>
-                                    <td className="cl-qe-td-amt" style={{ color:"#dc2626", fontWeight:700 }}>{qt.Expenses   > 0 ? fmtMoney(qt.Expenses)   : "—"}</td>
-                                  </tr>
-                                );
-                              })()}
-                            </tfoot>
-                          </table>
-                        </div>
-                        <div className="cl-qe-actions">
-                          <button className="cl-btn-secondary" onClick={() => setExpandedId(null)}>Cancel</button>
-                          <button className="cl-btn-primary" onClick={() => doQuickSave(client)} disabled={qeSaving}>
-                            {qeSaving ? "Saving…" : "Save"}
-                          </button>
-                          <button className="cl-qe-full-btn"
-                            onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(client.phone || client.id)}`)}>
-                            Full Details →
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
             );
           };
@@ -871,6 +649,10 @@ export default function Clients() {
         </div>
       )}
     </div>
+    {settlementModalPhone && (
+      <Settlement clientIdOverride={settlementModalPhone} onClose={() => setSettlementModalPhone(null)} />
+    )}
+    </>
   );
 }
 
@@ -884,10 +666,3 @@ const ActiveDotIcon = () => <svg viewBox="0 0 8 8" width="7" height="7" fill="cu
 const ClaimIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="12" height="12" style={{flexShrink:0}}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>;
 const ClockIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="12" height="12" style={{flexShrink:0}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
 const EmptyIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="40" height="40"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>;
-const ChevronIcon = ({ up }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-    strokeLinecap="round" strokeLinejoin="round" width="13" height="13"
-    style={{ transform: up ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
-    <polyline points="6 9 12 15 18 9"/>
-  </svg>
-);

@@ -23,11 +23,11 @@ const COL_FIELDS = [
 ]
 
 const STATUS_META = {
-  estimating:    { label: 'Estimating',    color: '#64748b', bg: '#f1f5f9' },
-  submitted:     { label: 'Submitted',     color: '#2563eb', bg: '#eff6ff' },
-  negotiating:   { label: 'Negotiating',   color: '#d97706', bg: '#fffbeb' },
-  supplementing: { label: 'Supplementing', color: '#7c3aed', bg: '#f5f3ff' },
-  settled:       { label: 'Settled ✓',     color: '#15803d', bg: '#dcfce7' },
+  estimating:     { label: 'Estimating',     color: '#64748b', bg: '#f1f5f9' },
+  submitted:      { label: 'Submitted',      color: '#2563eb', bg: '#eff6ff' },
+  negotiating:    { label: 'Negotiating',    color: '#d97706', bg: '#fffbeb' },
+  reconstruction: { label: 'Reconstruction', color: '#0891b2', bg: '#ecfeff' },
+  settled:        { label: 'Settled ✓',      color: '#15803d', bg: '#dcfce7' },
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ function computePartnerFee(form, companyRecoup) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {}, insurers = [], onAddInsurer, onRemoveInsurer }) {
+export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {}, insurers = [], onAddInsurer, onRemoveInsurer, onOpenModal, refreshKey = 0 }) {
   const navigate = useNavigate()
   const prevPrefillRef = useRef(null)
 
@@ -109,10 +109,6 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
   const [showForm,     setShowForm]     = useState(false)
   const [form,         setForm]         = useState(() => buildEmptyForm(prefill))
   const [saving,       setSaving]       = useState(false)
-  const [quickEditId,  setQuickEditId]  = useState(null)
-  const [quickForm,    setQuickForm]    = useState({})
-  const [quickSaving,  setQuickSaving]  = useState(false)
-
   // When adjuster/claim data loads asynchronously in the parent, update blank form fields
   useEffect(() => {
     const prev = prevPrefillRef.current
@@ -138,7 +134,7 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
   useEffect(() => {
     if (clientUid || (orgId && clientDocId)) load()
     else setLoading(false)
-  }, [clientUid, clientDocId, orgId])
+  }, [clientUid, clientDocId, orgId, refreshKey])
 
   async function load() {
     setLoading(true)
@@ -269,108 +265,6 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
     setForm(buildEmptyForm(prefill))
   }
 
-  function openQuickEdit(s) {
-    setQuickEditId(s.id)
-    setQuickForm({
-      status:                   s.status                   || 'estimating',
-      settlementDate:           s.settlementDate           || '',
-      dryCleanEstimate:         s.dryCleanEstimate         ?? '',
-      mitigationEstimate:       s.mitigationEstimate       ?? '',
-      reconstructionEstimate:   s.reconstructionEstimate   ?? '',
-      packoutEstimate:          s.packoutEstimate          ?? '',
-      dryCleanSupplement:       s.dryCleanSupplement       ?? '',
-      mitigationSupplement:     s.mitigationSupplement     ?? '',
-      reconstructionSupplement: s.reconstructionSupplement ?? '',
-      packoutSupplement:        s.packoutSupplement        ?? '',
-      dryCleanSettled:          s.dryCleanSettled          ?? '',
-      mitigationSettled:        s.mitigationSettled        ?? '',
-      reconstructionSettled:    s.reconstructionSettled    ?? '',
-      packoutSettled:           s.packoutSettled           ?? '',
-      dryCleanExpenses:         s.dryCleanExpenses         ?? '',
-      mitigationExpenses:       s.mitigationExpenses       ?? '',
-      reconstructionExpenses:   s.reconstructionExpenses   ?? '',
-      packoutExpenses:          s.packoutExpenses          ?? '',
-    })
-  }
-
-  async function doQuickSave(s) {
-    setQuickSaving(true)
-    try {
-      const qf = quickForm
-      const merged = { ...s, ...qf }
-      const totals = computeTotals(merged)
-      const hasSettled = totals.Settled > 0
-      const settlementDate = qf.settlementDate ||
-        (hasSettled && qf.status === 'settled' ? new Date().toISOString().slice(0, 10) : s.settlementDate || '')
-      const recoups    = computeCategoryRecoups(merged)
-      const partnerFee = hasSettled ? computePartnerFee(merged, recoups.companyRecoup) : 0
-
-      const patch = {
-        status:                   qf.status,
-        settlementDate,
-        dryCleanEstimate:         qf.dryCleanEstimate,
-        mitigationEstimate:       qf.mitigationEstimate,
-        reconstructionEstimate:   qf.reconstructionEstimate,
-        packoutEstimate:          qf.packoutEstimate,
-        dryCleanSupplement:       qf.dryCleanSupplement,
-        mitigationSupplement:     qf.mitigationSupplement,
-        reconstructionSupplement: qf.reconstructionSupplement,
-        packoutSupplement:        qf.packoutSupplement,
-        dryCleanSettled:          qf.dryCleanSettled,
-        mitigationSettled:        qf.mitigationSettled,
-        reconstructionSettled:    qf.reconstructionSettled,
-        packoutSettled:           qf.packoutSettled,
-        dryCleanExpenses:         qf.dryCleanExpenses,
-        mitigationExpenses:       qf.mitigationExpenses,
-        reconstructionExpenses:   qf.reconstructionExpenses,
-        packoutExpenses:          qf.packoutExpenses,
-        totalEstimate:            totals.Estimate,
-        totalSettled:             totals.Settled,
-        recoveryRate:             hasSettled ? totals.recoveryRate : null,
-        gap:                      hasSettled ? totals.gap          : null,
-        companyRecoup:            hasSettled ? recoups.companyRecoup : null,
-        partnerFee:               hasSettled && merged.partnerId ? partnerFee : null,
-        companyNetAfterPartner:   hasSettled ? recoups.companyRecoup - (merged.partnerId ? partnerFee : 0) : null,
-        updatedAt:                serverTimestamp(),
-      }
-
-      const settRef = s._isOrgSettlement
-        ? doc(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements', s.id)
-        : doc(db, 'users', clientUid, 'settlements', s.id)
-      await updateDoc(settRef, patch)
-
-      if (orgId) {
-        updateDoc(doc(db, 'organization_data', orgId, 'settlement_summary', s.id), {
-          status:                   qf.status,
-          settlementDate,
-          dryCleanEstimate:         n(qf.dryCleanEstimate),
-          mitigationEstimate:       n(qf.mitigationEstimate),
-          reconstructionEstimate:   n(qf.reconstructionEstimate),
-          packoutEstimate:          n(qf.packoutEstimate),
-          dryCleanSettled:          n(qf.dryCleanSettled),
-          mitigationSettled:        n(qf.mitigationSettled),
-          reconstructionSettled:    n(qf.reconstructionSettled),
-          packoutSettled:           n(qf.packoutSettled),
-          totalEstimate:            totals.Estimate,
-          totalSettled:             totals.Settled,
-          recoveryRate:             hasSettled ? totals.recoveryRate : null,
-          gap:                      hasSettled ? totals.gap          : null,
-          companyRecoup:            hasSettled ? recoups.companyRecoup : null,
-          partnerFee:               hasSettled && merged.partnerId ? partnerFee : null,
-          companyNetAfterPartner:   hasSettled ? recoups.companyRecoup - (merged.partnerId ? partnerFee : 0) : null,
-          updatedAt:                serverTimestamp(),
-        }).catch(e => console.warn('settlement_summary quick update:', e))
-      }
-
-      setSettlements(prev => prev.map(x => x.id === s.id ? { ...x, ...patch, settlementDate } : x))
-      setQuickEditId(null)
-    } catch (e) {
-      console.error('quick save error:', e)
-    } finally {
-      setQuickSaving(false)
-    }
-  }
-
   const encoded = encodeURIComponent(phone)
   const fullPage = `/myclaim/clients/${encoded}/settlement`
 
@@ -382,16 +276,16 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
         <div className="sovc-title-wrap">
           <span className="sovc-title">🏛️ Insurance Settlement</span>
           {!loading && settlements.length > 0 && (
-            <button className="sovc-text-btn" onClick={() => navigate(fullPage)}>
+            <button className="sovc-text-btn" onClick={() => onOpenModal?.()}>
               Full details & log →
             </button>
           )}
         </div>
         <button
-          className={`sovc-add-btn${showForm ? ' sovc-add-btn--cancel' : ''}`}
-          onClick={() => showForm ? cancelForm() : setShowForm(true)}
+          className="sovc-add-btn"
+          onClick={() => onOpenModal?.()}
         >
-          {showForm ? '✕ Cancel' : '+ Track Claim'}
+          + Track Claim
         </button>
       </div>
 
@@ -419,12 +313,6 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
                   </div>
                   <div className="sovc-row-right">
                     <span className="sovc-badge" style={{ color: sm.color, background: sm.bg }}>{sm.label}</span>
-                    <button
-                      className={`sovc-qe-edit-btn${quickEditId === s.id ? ' sovc-qe-edit-btn--active' : ''}`}
-                      onClick={() => quickEditId === s.id ? setQuickEditId(null) : openQuickEdit(s)}
-                    >
-                      ✏️ Quick Edit
-                    </button>
                     {(n(s.dryCleanSettled) > 0 || n(s.mitigationSettled) > 0 || n(s.reconstructionSettled) > 0 || n(s.packoutSettled) > 0) && (
                       <button className="sovc-receipt-btn" onClick={() => {
                         const items = [
@@ -443,7 +331,7 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
                         )
                       }}>🧾 Receipt</button>
                     )}
-                    <button className="sovc-text-btn" onClick={() => navigate(fullPage)}>Details →</button>
+                    <button className="sovc-text-btn" onClick={() => onOpenModal?.()}>Details →</button>
                   </div>
                 </div>
 
@@ -742,84 +630,6 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
           </div>
         </div>
       )}
-      {/* ── Quick Edit Modal ── */}
-      {quickEditId && (() => {
-        const s = settlements.find(x => x.id === quickEditId)
-        if (!s) return null
-        return (
-          <div className="sovc-qe-overlay" onClick={() => setQuickEditId(null)}>
-            <div className="sovc-qe-modal" onClick={e => e.stopPropagation()}>
-              <div className="sovc-qe-modal-header">
-                <span className="sovc-qe-modal-title">Quick Edit — {s.claimNumber || 'Settlement'}</span>
-                <button className="sovc-qe-modal-close" onClick={() => setQuickEditId(null)}>✕</button>
-              </div>
-              <div className="sovc-qe-top">
-                <div className="sovc-field">
-                  <label className="sovc-label">Status</label>
-                  <select className="sovc-input" value={quickForm.status}
-                    onChange={e => setQuickForm(p => ({ ...p, status: e.target.value }))}>
-                    {Object.entries(STATUS_META).map(([v, m]) => (
-                      <option key={v} value={v}>{m.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="sovc-field">
-                  <label className="sovc-label">Settlement Date</label>
-                  <input className="sovc-input" type="date" value={quickForm.settlementDate}
-                    onChange={e => setQuickForm(p => ({ ...p, settlementDate: e.target.value }))} />
-                </div>
-              </div>
-              <div className="sovc-table-scroll">
-                <table className="sovc-table">
-                  <thead>
-                    <tr>
-                      <th className="sovc-th-cat">Category</th>
-                      <th className="sovc-th-num" style={{ color: '#0f172a' }}>Estimate</th>
-                      <th className="sovc-th-num" style={{ color: '#16a34a' }}>Settled</th>
-                      <th className="sovc-th-num" style={{ color: '#0891b2' }}>Supplement</th>
-                      <th className="sovc-th-num" style={{ color: '#dc2626' }}>Expenses</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {CATEGORIES.map(cat => (
-                      <tr key={cat.key}>
-                        <td className="sovc-td-cat">{cat.label}</td>
-                        {['Estimate', 'Settled', 'Supplement', 'Expenses'].map(col => (
-                          <td key={col} className="sovc-td-amt">
-                            <input className="sovc-amount-input" type="number" min="0" step="0.01" placeholder="—"
-                              value={quickForm[`${cat.key}${col}`] ?? ''}
-                              onChange={e => setQuickForm(p => ({ ...p, [`${cat.key}${col}`]: e.target.value }))} />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    {(() => {
-                      const qt = computeTotals({ ...s, ...quickForm })
-                      return (
-                        <tr className="sovc-tfoot-row">
-                          <td className="sovc-td-cat">Total</td>
-                          <td className="sovc-td-amt" style={{ color: '#0f172a', fontWeight: 700 }}>{qt.Estimate > 0 ? fmtMoney(qt.Estimate) : '—'}</td>
-                          <td className="sovc-td-amt" style={{ color: '#16a34a', fontWeight: 700 }}>{qt.Settled > 0 ? fmtMoney(qt.Settled) : '—'}</td>
-                          <td className="sovc-td-amt" style={{ color: '#0891b2', fontWeight: 700 }}>{qt.Supplement > 0 ? fmtMoney(qt.Supplement) : '—'}</td>
-                          <td className="sovc-td-amt" style={{ color: '#dc2626', fontWeight: 700 }}>{qt.Expenses > 0 ? fmtMoney(qt.Expenses) : '—'}</td>
-                        </tr>
-                      )
-                    })()}
-                  </tfoot>
-                </table>
-              </div>
-              <div className="sovc-qe-actions">
-                <button className="sovc-btn sovc-btn--outline" onClick={() => setQuickEditId(null)}>Cancel</button>
-                <button className="sovc-btn sovc-btn--primary" onClick={() => doQuickSave(s)} disabled={quickSaving}>
-                  {quickSaving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
     </div>
   )
 }

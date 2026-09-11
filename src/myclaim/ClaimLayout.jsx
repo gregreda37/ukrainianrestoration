@@ -7,6 +7,9 @@ import { useAuth } from './useAuth'
 export const NavCollapseContext = createContext(null)
 export const useNavCollapse = () => useContext(NavCollapseContext)
 
+export const DensityContext = createContext(null)
+export const useDensity = () => useContext(DensityContext)
+
 const ALL_NAV = [
   { to: '/myclaim',               label: 'Dashboard',   icon: '▦',  end: true },
   { to: '/myclaim/clients',       label: 'Clients',     icon: '👥' },
@@ -32,6 +35,10 @@ export default function ClaimLayout() {
     () => localStorage.getItem('mc-nav-collapsed') === 'true'
   )
 
+  const [density, setDensity] = useState(
+    () => localStorage.getItem('mc-density') || 'medium'
+  )
+
   function toggleCollapsed() {
     setCollapsed((prev) => {
       const next = !prev
@@ -39,6 +46,13 @@ export default function ClaimLayout() {
       return next
     })
   }
+
+  function setDensityPref(val) {
+    setDensity(val)
+    localStorage.setItem('mc-density', val)
+  }
+
+  const ZOOM = { large: 1, medium: 0.85, small: 0.72 }
 
   async function handleSignOut() {
     await signOut(auth)
@@ -51,6 +65,7 @@ export default function ClaimLayout() {
   }
 
   return (
+    <DensityContext.Provider value={{ density, setDensityPref }}>
     <NavCollapseContext.Provider value={collapseNav}>
     <div className="mc-shell">
       <aside className={`mc-sidebar${collapsed ? ' mc-sidebar--collapsed' : ''}`}>
@@ -83,6 +98,23 @@ export default function ClaimLayout() {
 
         <div className="mc-sidebar__footer">
           {!collapsed && (
+            <div className="mc-sidebar__density">
+              <span className="mc-sidebar__density-label">Layout</span>
+              <div className="mc-sidebar__density-btns">
+                {['small', 'medium', 'large'].map(d => (
+                  <button
+                    key={d}
+                    className={`mc-density-btn${density === d ? ' mc-density-btn--active' : ''}`}
+                    onClick={() => setDensityPref(d)}
+                    title={d.charAt(0).toUpperCase() + d.slice(1)}
+                  >
+                    {d === 'small' ? 'S' : d === 'medium' ? 'M' : 'L'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {!collapsed && (
             <div className="mc-sidebar__user">
               <div className="mc-sidebar__avatar">
                 {user?.email?.[0]?.toUpperCase() ?? '?'}
@@ -107,7 +139,13 @@ export default function ClaimLayout() {
       </aside>
 
       <main className="mc-main">
-        <Outlet />
+        <div style={ZOOM[density] < 1 ? {
+          transform: `scale(${ZOOM[density]})`,
+          transformOrigin: 'top left',
+          width: `${100 / ZOOM[density]}%`,
+        } : undefined}>
+          <Outlet />
+        </div>
       </main>
 
       <nav className="mc-bottomnav">
@@ -125,5 +163,6 @@ export default function ClaimLayout() {
       </nav>
     </div>
     </NavCollapseContext.Provider>
+    </DensityContext.Provider>
   )
 }

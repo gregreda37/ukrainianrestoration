@@ -14,6 +14,7 @@ import ContractorSignModal from "./ContractorSignModal";
 import TemplateBuilder from "./TemplateBuilder";
 import SettlementOverviewCard from "./SettlementOverviewCard";
 import InsurerCombobox from "./InsurerCombobox";
+import Settlement from "./Settlement";
 
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:5001" : "/api/backend");
 
@@ -380,6 +381,8 @@ export default function ClientDetail() {
   const [secondaryError,       setSecondaryError]       = useState("");
   const [savingSecondary,      setSavingSecondary]      = useState(false);
   const [removingSecondary,    setRemovingSecondary]    = useState(null);
+  const [showSettlementModal,  setShowSettlementModal]  = useState(false);
+  const [settlementRefreshKey, setSettlementRefreshKey] = useState(0);
 
   // ── Load contractor's org id and check access ──────────────────────
   useEffect(() => {
@@ -1655,71 +1658,6 @@ export default function ClientDetail() {
                   </div>
                 </div>
 
-                {/* Adjuster */}
-                <div className="cd-header-adj-section">
-                  <div className="cd-header-adj-meta">
-                    <span className="cd-header-adj-label"><AdjusterIcon /> Insurance Adjuster</span>
-                    {!editingAdjuster && (
-                      <button className="cd-header-adj-edit-btn"
-                        onClick={() => { setAdjusterEdit({ ...adjuster }); setEditingAdjuster(true); }}>
-                        <EditIcon />
-                      </button>
-                    )}
-                  </div>
-                  {editingAdjuster ? (
-                    <form className="cd-header-adj-form" onSubmit={saveAdjuster}>
-                      <div className="cd-header-adj-fields">
-                        <input className="cd-header-adj-input" placeholder="Name" value={adjusterEdit.name}
-                          onChange={e => setAdjusterEdit(a => ({ ...a, name: e.target.value }))} />
-                        <InsurerCombobox
-                          className="cd-header-adj-input"
-                          value={adjusterEdit.company}
-                          onChange={v => setAdjusterEdit(a => ({ ...a, company: v }))}
-                          insurers={insurers}
-                          placeholder="Company"
-                          onAdd={addInsurer}
-                          onRemove={removeInsurer}
-                        />
-                        <input className="cd-header-adj-input" placeholder="Phone" value={adjusterEdit.phone}
-                          onChange={e => setAdjusterEdit(a => ({ ...a, phone: e.target.value }))} />
-                        <input className="cd-header-adj-input" placeholder="Email" value={adjusterEdit.email}
-                          onChange={e => setAdjusterEdit(a => ({ ...a, email: e.target.value }))} />
-                        <input className="cd-header-adj-input cd-header-adj-input-full" placeholder="Notes"
-                          value={adjusterEdit.notes}
-                          onChange={e => setAdjusterEdit(a => ({ ...a, notes: e.target.value }))} />
-                      </div>
-                      <div className="cd-header-adj-actions">
-                        <button type="button" className="cd-btn-secondary" onClick={() => setEditingAdjuster(false)}>Cancel</button>
-                        <button type="submit" className="cd-btn-primary" disabled={savingAdjuster}>
-                          {savingAdjuster ? "Saving…" : "Save"}
-                        </button>
-                      </div>
-                    </form>
-                  ) : adjuster.name ? (
-                    <div className="cd-header-adj-detail">
-                      <p className="cd-header-adj-name">
-                        <PersonIcon /> {adjuster.name}{adjuster.company && ` · ${adjuster.company}`}
-                      </p>
-                      {adjuster.phone && <p className="cd-header-adj-line"><PhoneIcon /> {adjuster.phone}</p>}
-                      {adjuster.email && (
-                        <p className="cd-header-adj-line">
-                          <EmailIcon /> <a href={`mailto:${adjuster.email}`} className="cd-header-adj-link">{adjuster.email}</a>
-                        </p>
-                      )}
-                      {adjuster.notes && (
-                        <p className="cd-header-adj-notes">
-                          <span className="cd-header-adj-notes-label">Adjuster Notes: </span>{adjuster.notes}
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <button className="cd-header-adj-add-btn"
-                      onClick={() => { setAdjusterEdit({ ...adjuster }); setEditingAdjuster(true); }}>
-                      <PlusIcon /> Add adjuster info
-                    </button>
-                  )}
-                </div>
-
                 {/* Quick stats */}
                 <div className="cd-header-stats">
                   {[
@@ -1915,6 +1853,8 @@ export default function ClientDetail() {
                   insurers={insurers}
                   onAddInsurer={addInsurer}
                   onRemoveInsurer={removeInsurer}
+                  onOpenModal={() => setShowSettlementModal(true)}
+                  refreshKey={settlementRefreshKey}
                   prefill={{
                     claimNumber:      clientFields.claimNumber,
                     policyNumber:     clientFields.policyNumber,
@@ -2858,6 +2798,13 @@ export default function ClientDetail() {
             setContractorFirstSigningTodo(null);
           }}
           onClose={() => setContractorFirstSigningTodo(null)}
+        />
+      )}
+
+      {showSettlementModal && (
+        <Settlement
+          clientIdOverride={client?.phone || clientDocId}
+          onClose={() => { setShowSettlementModal(false); setSettlementRefreshKey(k => k + 1) }}
         />
       )}
     </div>

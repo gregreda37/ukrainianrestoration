@@ -24,7 +24,7 @@ const initials = (name = '') =>
 
 // ── Empty Add/Edit form ───────────────────────────────────────────────────────
 
-const EMPTY = { name: '', email: '', phone: '' }
+const EMPTY = { name: '', email: '', phone: '', feeType: 'percent', defaultFeePct: '', defaultReconstructionFeePct: '', defaultFixedFee: '' }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -126,15 +126,23 @@ export default function Partners() {
     }
     setAdding(true); setAddError('')
     try {
+      const feeType                     = addForm.feeType || 'percent'
+      const defaultFeePct               = feeType !== 'fixed' && addForm.defaultFeePct !== '' ? parseFloat(addForm.defaultFeePct) : null
+      const defaultReconstructionFeePct = feeType !== 'fixed' && addForm.defaultReconstructionFeePct !== '' ? parseFloat(addForm.defaultReconstructionFeePct) : null
+      const defaultFixedFee             = feeType === 'fixed' && addForm.defaultFixedFee !== '' ? parseFloat(addForm.defaultFixedFee) : null
       const ref = await addDoc(collection(db, 'organization_data', orgId, 'partners'), {
         name,
-        email:     addForm.email.trim()  || null,
-        phone:     addForm.phone.trim()  || null,
-        archived:  false,
-        createdAt: serverTimestamp(),
+        email:                       addForm.email.trim()  || null,
+        phone:                       addForm.phone.trim()  || null,
+        feeType,
+        defaultFeePct,
+        defaultReconstructionFeePct,
+        defaultFixedFee,
+        archived:                    false,
+        createdAt:                   serverTimestamp(),
       })
       setPartners(prev =>
-        [...prev, { id: ref.id, name, email: addForm.email.trim() || null, phone: addForm.phone.trim() || null, archived: false }]
+        [...prev, { id: ref.id, name, email: addForm.email.trim() || null, phone: addForm.phone.trim() || null, feeType, defaultFeePct, defaultReconstructionFeePct, defaultFixedFee, archived: false }]
           .sort((a, b) => a.name.localeCompare(b.name))
       )
       setShowAdd(false)
@@ -147,7 +155,7 @@ export default function Partners() {
   function openEdit(partner, e) {
     e.stopPropagation()
     setEditTarget(partner)
-    setEditForm({ name: partner.name || '', email: partner.email || '', phone: partner.phone || '' })
+    setEditForm({ name: partner.name || '', email: partner.email || '', phone: partner.phone || '', feeType: partner.feeType || 'percent', defaultFeePct: partner.defaultFeePct ?? '', defaultReconstructionFeePct: partner.defaultReconstructionFeePct ?? '', defaultFixedFee: partner.defaultFixedFee ?? '' })
     setEditError('')
   }
 
@@ -159,14 +167,22 @@ export default function Partners() {
     if (duplicate) { setEditError('Another partner already has this name.'); return }
     setEditSaving(true); setEditError('')
     try {
+      const feeType                     = editForm.feeType || 'percent'
+      const defaultFeePct               = feeType !== 'fixed' && editForm.defaultFeePct !== '' ? parseFloat(editForm.defaultFeePct) : null
+      const defaultReconstructionFeePct = feeType !== 'fixed' && editForm.defaultReconstructionFeePct !== '' ? parseFloat(editForm.defaultReconstructionFeePct) : null
+      const defaultFixedFee             = feeType === 'fixed' && editForm.defaultFixedFee !== '' ? parseFloat(editForm.defaultFixedFee) : null
       await updateDoc(doc(db, 'organization_data', orgId, 'partners', editTarget.id), {
         name,
-        email: editForm.email.trim() || null,
-        phone: editForm.phone.trim() || null,
+        email:                       editForm.email.trim() || null,
+        phone:                       editForm.phone.trim() || null,
+        feeType,
+        defaultFeePct,
+        defaultReconstructionFeePct,
+        defaultFixedFee,
       })
       setPartners(prev =>
         prev.map(p => p.id === editTarget.id
-          ? { ...p, name, email: editForm.email.trim() || null, phone: editForm.phone.trim() || null }
+          ? { ...p, name, email: editForm.email.trim() || null, phone: editForm.phone.trim() || null, feeType, defaultFeePct, defaultReconstructionFeePct, defaultFixedFee }
           : p
         ).sort((a, b) => a.name.localeCompare(b.name))
       )
@@ -333,6 +349,7 @@ export default function Partners() {
                       <div className="pt-partner-name">{p.name}</div>
                       {p.email && <div className="pt-contact">{p.email}</div>}
                       {p.phone && <div className="pt-contact">{p.phone}</div>}
+                      {p.defaultFeePct != null && <div className="pt-contact">{p.defaultFeePct}% default referral fee</div>}
                     </div>
                   </div>
 
@@ -461,6 +478,33 @@ export default function Partners() {
                   onChange={e => setAddForm(f => ({ ...f, phone: e.target.value }))}
                 />
               </div>
+              <div className="pt-field">
+                <label className="pt-label">Default Referral Fee % <span className="pt-optional">optional — can be set later</span></label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      className="pt-input"
+                      type="number" min="0" max="100" step="0.5"
+                      placeholder="e.g. 25"
+                      style={{ width: 80 }}
+                      value={addForm.defaultFeePct}
+                      onChange={e => setAddForm(f => ({ ...f, defaultFeePct: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 13, color: '#64748b' }}>% all categories</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      className="pt-input"
+                      type="number" min="0" max="100" step="0.5"
+                      placeholder="0"
+                      style={{ width: 80 }}
+                      value={addForm.defaultReconstructionFeePct}
+                      onChange={e => setAddForm(f => ({ ...f, defaultReconstructionFeePct: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 13, color: '#64748b' }}>% reconstruction</span>
+                  </div>
+                </div>
+              </div>
               {addError && <p className="pt-error">{addError}</p>}
               <div className="pt-modal-actions">
                 <button type="button" className="pt-btn-secondary" onClick={() => setShowAdd(false)}>Cancel</button>
@@ -512,6 +556,33 @@ export default function Partners() {
                   value={editForm.phone}
                   onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
                 />
+              </div>
+              <div className="pt-field">
+                <label className="pt-label">Default Referral Fee % <span className="pt-optional">optional</span></label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      className="pt-input"
+                      type="number" min="0" max="100" step="0.5"
+                      placeholder="e.g. 25"
+                      style={{ width: 80 }}
+                      value={editForm.defaultFeePct}
+                      onChange={e => setEditForm(f => ({ ...f, defaultFeePct: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 13, color: '#64748b' }}>% all categories</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      className="pt-input"
+                      type="number" min="0" max="100" step="0.5"
+                      placeholder="0"
+                      style={{ width: 80 }}
+                      value={editForm.defaultReconstructionFeePct}
+                      onChange={e => setEditForm(f => ({ ...f, defaultReconstructionFeePct: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 13, color: '#64748b' }}>% reconstruction</span>
+                  </div>
+                </div>
               </div>
               {editError && <p className="pt-error">{editError}</p>}
               <div className="pt-modal-actions">

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { doc, getDoc, getDocs, collection } from 'firebase/firestore'
 import { useAuth } from './useAuth'
+import Settlement from './Settlement'
 import './InvoiceReport.css'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -86,6 +87,7 @@ export default function InvoiceReport() {
   const [plSearch,        setPlSearch]        = useState('')
   const [selectedCat,     setSelectedCat]     = useState(null)
   const [catJobSearch,    setCatJobSearch]     = useState('')
+  const [settlementModalId, setSettlementModalId] = useState(null)
 
   useEffect(() => { if (user) load() }, [user])
 
@@ -462,6 +464,7 @@ const sn = v => parseFloat(v) || 0
   const insPct         = companyNet > 0 ? insNet         / companyNet * 100 : 0
 
   return (
+    <>
     <div className="ir-root">
 
       {/* ── Header ── */}
@@ -704,7 +707,7 @@ const sn = v => parseFloat(v) || 0
                         <tr
                           key={s.id}
                           className="ir-pl-row"
-                          onClick={() => s.clientPhone && navigate(`/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`)}
+                          onClick={() => s.clientPhone && setSettlementModalId(s.clientPhone)}
                           style={{ cursor: s.clientPhone ? 'pointer' : 'default' }}
                         >
                           <td className="ir-pl-rank-col">{s._catRank}</td>
@@ -926,7 +929,7 @@ const sn = v => parseFloat(v) || 0
                       <tr
                         key={s.id}
                         className={`ir-pl-row${isLoss ? ' ir-pl-row--loss' : ''}`}
-                        onClick={() => s.clientPhone && navigate(`/myclaim/clients/${encodeURIComponent(s.clientPhone)}/settlement`)}
+                        onClick={() => s.clientPhone && setSettlementModalId(s.clientPhone)}
                         style={{ cursor: s.clientPhone ? 'pointer' : 'default' }}
                       >
                         <td className="ir-pl-rank-col">{s._rank}</td>
@@ -1325,6 +1328,8 @@ const sn = v => parseFloat(v) || 0
         )
       })()}
     </div>
+    {settlementModalId && <Settlement clientIdOverride={settlementModalId} onClose={() => setSettlementModalId(null)} />}
+    </>
   )
 }
 

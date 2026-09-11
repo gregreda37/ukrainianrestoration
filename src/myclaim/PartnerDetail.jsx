@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, getDoc, getDocs, collection, query, where } from 'firebase/firestore'
+import { doc, getDoc, getDocs, updateDoc, collection, query, where } from 'firebase/firestore'
 import { useAuth } from './useAuth'
+import Settlement from './Settlement'
 import './PartnerDetail.css'
 
 const STATUS_META = {
@@ -35,12 +36,20 @@ export default function PartnerDetail() {
   const navigate      = useNavigate()
   const { user }      = useAuth()
 
+  const [orgId,        setOrgId]        = useState(null)
   const [loading,      setLoading]      = useState(true)
   const [partner,      setPartner]      = useState(null)
   const [settlements,  setSettlements]  = useState([])
   const [phoneMap,     setPhoneMap]     = useState({})
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [claimTab,     setClaimTab]     = useState('all')
+
+  // ── Fee defaults edit ───────────────────────────────────────────────────────
+  const [settlementModalId, setSettlementModalId] = useState(null)
+  const [feeEditing, setFeeEditing] = useState(false)
+  const [feeForm,    setFeeForm]    = useState({ feeType: 'percent', defaultFeePct: '', defaultReconstructionFeePct: '', defaultFixedFee: '' })
+  const [feeSaving,  setFeeSaving]  = useState(false)
+  const [feeError,   setFeeError]   = useState('')
 
   useEffect(() => { if (user) load() }, [user, partnerId])
 
@@ -51,8 +60,18 @@ export default function PartnerDetail() {
       const oid = userSnap.data()?.organizationId
       if (!oid) return
 
+      setOrgId(oid)
       const partnerSnap = await getDoc(doc(db, 'organization_data', oid, 'partners', partnerId))
-      if (partnerSnap.exists()) setPartner({ id: partnerSnap.id, ...partnerSnap.data() })
+      if (partnerSnap.exists()) {
+        const p = { id: partnerSnap.id, ...partnerSnap.data() }
+        setPartner(p)
+        setFeeForm({
+          feeType:                     p.feeType                     || 'percent',
+          defaultFeePct:               p.defaultFeePct               ?? '',
+          defaultReconstructionFeePct: p.defaultReconstructionFeePct ?? '',
+          defaultFixedFee:             p.defaultFixedFee             ?? '',
+        })
+      }
 
       const [settSnap, clientSnap] = await Promise.all([
         getDocs(query(
@@ -141,6 +160,22 @@ export default function PartnerDetail() {
     return [...sortedOpen, ...settledClaims, ...olderSettled]
   }, [claimTab, openClaims, settledClaims, settlements, selectedYear])
 
+  async function handleFeesSave() {
+    setFeeSaving(true); setFeeError('')
+    try {
+      const updates = {
+        feeType:                     feeForm.feeType || 'percent',
+        defaultFeePct:               feeForm.feeType !== 'fixed' && feeForm.defaultFeePct !== '' ? parseFloat(feeForm.defaultFeePct) : null,
+        defaultReconstructionFeePct: feeForm.feeType !== 'fixed' && feeForm.defaultReconstructionFeePct !== '' ? parseFloat(feeForm.defaultReconstructionFeePct) : null,
+        defaultFixedFee:             feeForm.feeType === 'fixed' && feeForm.defaultFixedFee !== '' ? parseFloat(feeForm.defaultFixedFee) : null,
+      }
+      await updateDoc(doc(db, 'organization_data', orgId, 'partners', partnerId), updates)
+      setPartner(prev => ({ ...prev, ...updates }))
+      setFeeEditing(false)
+    } catch { setFeeError('Failed to save. Please try again.') }
+    finally { setFeeSaving(false) }
+  }
+
   if (loading) return <div className="pd-loading"><div className="pd-spinner" /></div>
   if (!partner) return (
     <div className="pd-loading">
@@ -149,6 +184,7 @@ export default function PartnerDetail() {
   )
 
   return (
+    <>
     <div className="pd-root">
       <button className="pd-back" onClick={() => navigate(-1)}>← Back to Partners</button>
 
@@ -178,6 +214,116 @@ export default function PartnerDetail() {
             <div className="pd-hs-label">Settled</div>
           </div>
         </div>
+      </div>
+
+      {/* ── Default Referral Fees ── */}
+      <div className="pd-section pd-fee-section">
+        <div className="pd-fee-header">
+          <div className="pd-section-title">Default Referral Fees</div>
+          {!feeEditing && (
+            <button className="pd-fee-edit-btn" onClick={() => setFeeEditing(true)}>Edit</button>
+          )}
+        </div>
+        {feeEditing ? (
+          <div className="pd-fee-form">
+            {/* Fee type toggle */}
+            <div className="pd-fee-field">
+              <label className="pd-fee-label">Fee Type</label>
+              <div className="pd-fee-type-row">
+                <button type="button"
+                  className={`pd-fee-type-btn${feeForm.feeType !== 'fixed' ? ' pd-fee-type-btn--active' : ''}`}
+                  onClick={() => setFeeForm(f => ({ ...f, feeType: 'percent' }))}>% of Settlement</button>
+                <button type="button"
+                  className={`pd-fee-type-btn${feeForm.feeType === 'fixed' ? ' pd-fee-type-btn--active' : ''}`}
+                  onClick={() => setFeeForm(f => ({ ...f, feeType: 'fixed' }))}>Fixed Amount</button>
+              </div>
+            </div>
+
+            {feeForm.feeType === 'fixed' ? (
+              <div className="pd-fee-field">
+                <label className="pd-fee-label">Fixed Fee Amount</label>
+                <div className="pd-fee-input-row">
+                  <span className="pd-fee-unit">$</span>
+                  <input
+                    className="pd-fee-input"
+                    type="number" min="0" step="0.01"
+                    placeholder="e.g. 500"
+                    style={{ width: 110 }}
+                    value={feeForm.defaultFixedFee}
+                    onChange={e => setFeeForm(f => ({ ...f, defaultFixedFee: e.target.value }))}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="pd-fee-field">
+                  <label className="pd-fee-label">All Categories</label>
+                  <div className="pd-fee-input-row">
+                    <input
+                      className="pd-fee-input"
+                      type="number" min="0" max="100" step="0.5"
+                      placeholder="e.g. 25"
+                      value={feeForm.defaultFeePct}
+                      onChange={e => setFeeForm(f => ({ ...f, defaultFeePct: e.target.value }))}
+                    />
+                    <span className="pd-fee-unit">%</span>
+                    <span className="pd-fee-hint">dry cleaning, mitigation, packout</span>
+                  </div>
+                </div>
+                <div className="pd-fee-field">
+                  <label className="pd-fee-label">Reconstruction</label>
+                  <div className="pd-fee-input-row">
+                    <input
+                      className="pd-fee-input"
+                      type="number" min="0" max="100" step="0.5"
+                      placeholder="0"
+                      value={feeForm.defaultReconstructionFeePct}
+                      onChange={e => setFeeForm(f => ({ ...f, defaultReconstructionFeePct: e.target.value }))}
+                    />
+                    <span className="pd-fee-unit">%</span>
+                    <span className="pd-fee-hint">override for reconstruction</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {feeError && <p className="pd-fee-error">{feeError}</p>}
+            <div className="pd-fee-actions">
+              <button className="pd-fee-cancel" onClick={() => { setFeeEditing(false); setFeeError('') }}>Cancel</button>
+              <button className="pd-fee-save" onClick={handleFeesSave} disabled={feeSaving}>
+                {feeSaving ? 'Saving…' : 'Save Defaults'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="pd-fee-display">
+            {partner.feeType === 'fixed' ? (
+              <div className="pd-fee-row">
+                <span className="pd-fee-row-label">Fixed fee per claim</span>
+                <span className="pd-fee-row-val">
+                  {partner.defaultFixedFee != null
+                    ? `$${Number(partner.defaultFixedFee).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : <span className="pd-fee-row-empty">Not set</span>}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="pd-fee-row">
+                  <span className="pd-fee-row-label">All categories</span>
+                  <span className="pd-fee-row-val">
+                    {partner.defaultFeePct != null ? `${partner.defaultFeePct}%` : <span className="pd-fee-row-empty">Not set</span>}
+                  </span>
+                </div>
+                <div className="pd-fee-row">
+                  <span className="pd-fee-row-label">Reconstruction</span>
+                  <span className="pd-fee-row-val">
+                    {partner.defaultReconstructionFeePct != null ? `${partner.defaultReconstructionFeePct}%` : <span className="pd-fee-row-empty">0% (default)</span>}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Outstanding Pipeline ── */}
@@ -339,7 +485,7 @@ export default function PartnerDetail() {
                       {clientPhone && (
                         <button
                           className="pd-view-btn"
-                          onClick={() => navigate(`/myclaim/clients/${encodeURIComponent(clientPhone)}/settlement`)}
+                          onClick={() => setSettlementModalId(clientPhone)}
                         >
                           View Claim →
                         </button>
@@ -455,5 +601,7 @@ export default function PartnerDetail() {
         )}
       </div>
     </div>
+    {settlementModalId && <Settlement clientIdOverride={settlementModalId} onClose={() => setSettlementModalId(null)} />}
+    </>
   )
 }

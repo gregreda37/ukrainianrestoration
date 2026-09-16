@@ -214,6 +214,15 @@ export default function InvoiceEditor() {
     load()
   }, [user, routeParam, invoiceId])
 
+  // After save-and-send on a new invoice, the page navigates here with this flag.
+  // Open the SMS panel once loading is done and client data is available.
+  useEffect(() => {
+    if (!loading && location.state?.openSendAfterSave) {
+      openSmsView()
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [loading])
+
   async function load() {
     setLoading(true)
     try {
@@ -415,7 +424,9 @@ export default function InvoiceEditor() {
     return `${prefix}-${String(next).padStart(3, '0')}`
   }
 
-  async function doSave(statusOverride) {
+  async function doSave(arg) {
+    const statusOverride = typeof arg === 'string' ? arg : null
+    const thenOpenSend  = typeof arg === 'object' && !!arg?.thenOpenSend
     if (!orgId || (!clientUid && !clientDocId)) return
     setSaving(true); setSaveMsg('')
     try {
@@ -456,7 +467,10 @@ export default function InvoiceEditor() {
           updateDoc(newRef, { paymentLinkTodoId: todoRef.id }).catch(() => {})
         }
 
-        navigate(`/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${newRef.id}`, { replace: true })
+        navigate(
+          `/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${newRef.id}`,
+          { replace: true, state: thenOpenSend ? { openSendAfterSave: true } : undefined }
+        )
       } else {
         const invDocRef = clientUid
           ? doc(db, 'users', clientUid, 'invoices', invoiceId)
@@ -476,8 +490,14 @@ export default function InvoiceEditor() {
   }
 
   async function saveAndSendSms() {
-    const ok = await doSave()
-    if (ok) openSmsView()
+    if (isNew) {
+      // Save first — doSave navigates to the real invoice ID.
+      // Pass a flag so the new page opens the SMS panel automatically.
+      doSave({ thenOpenSend: true })
+    } else {
+      const ok = await doSave()
+      if (ok) openSmsView()
+    }
   }
 
   // ── Convert estimate → invoice ────────────────────────────────────────────
@@ -830,11 +850,9 @@ export default function InvoiceEditor() {
             disabled={addingDoc || (!clientUid && !clientDocId)}>
             {addingDoc ? 'Uploading…' : docAdded ? '✓ Docs' : '📎 Add to Docs'}
           </button>
-          {!isNew && (
-            <button className="ied-btn ied-btn--outline" onClick={saveAndSendSms} disabled={saving}>
-              Save &amp; Send
-            </button>
-          )}
+          <button className="ied-btn ied-btn--outline" onClick={saveAndSendSms} disabled={saving}>
+            Save &amp; Send
+          </button>
           <button className="ied-btn ied-btn--primary" onClick={() => doSave()} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -1053,11 +1071,9 @@ export default function InvoiceEditor() {
             <button className="ied-btn ied-btn--primary ied-btn--block" onClick={() => doSave()} disabled={saving}>
               {saving ? 'Saving…' : '💾 Save'}
             </button>
-            {!isNew && (
-              <button className="ied-btn ied-btn--outline ied-btn--block" onClick={saveAndSendSms} disabled={saving}>
-                Save &amp; Send SMS
-              </button>
-            )}
+            <button className="ied-btn ied-btn--outline ied-btn--block" onClick={saveAndSendSms} disabled={saving}>
+              Save &amp; Send SMS
+            </button>
             <button className="ied-btn ied-btn--outline ied-btn--block" onClick={() => exportPDF(true)} disabled={exporting}>
               ↓ Download PDF
             </button>

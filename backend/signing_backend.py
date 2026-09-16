@@ -130,7 +130,7 @@ def _composite_fields(doc, fields):
             print(f"[composite_fields] skipping field type={ftype} page={pi} rect={rect}: {exc}")
 
 
-def _composite_legacy(doc, sig_bytes, signer_name):
+def _composite_legacy(doc, sig_bytes, signer_name, label="Electronically signed"):
     """Single signature block at the bottom of the last page."""
     page = doc[-1]
     pw, ph = page.rect.width, page.rect.height
@@ -146,7 +146,7 @@ def _composite_legacy(doc, sig_bytes, signer_name):
 
     page.insert_text(
         fitz.Point(margin + 8, block_y0 + 14),
-        "Electronically signed",
+        label,
         fontsize=7.5, color=(0.45, 0.5, 0.6),
     )
 
@@ -711,7 +711,7 @@ def approve_estimate():
         pdf_bytes = base64.b64decode(pdf_base64)
         sig_bytes = base64.b64decode(sig_data_url.split(",", 1)[-1])
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        _composite_legacy(doc, sig_bytes, signer_name)
+        _composite_legacy(doc, sig_bytes, signer_name, label="Electronically signed and approved estimate")
 
         signed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         cert_data = {

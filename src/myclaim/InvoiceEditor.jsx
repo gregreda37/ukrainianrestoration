@@ -8,6 +8,7 @@ import {
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useAuth } from './useAuth'
 import { generatePDF, fmtMoney, fmtDate } from './invoicePdf'
+import NotesAIModal from './NotesAIModal'
 import './InvoiceEditor.css'
 
 const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '')
@@ -29,7 +30,7 @@ function addDays(dateStr, days) {
 function calcLine(item) {
   const qty   = parseFloat(item.qty)   || 0
   const price = parseFloat(item.price) || 0
-  return item.unit === 'total' ? price : qty * price
+  return qty * price
 }
 
 function calcTotals(lineItems, taxRate, discount) {
@@ -160,7 +161,8 @@ export default function InvoiceEditor() {
   const [taxRate,   setTaxRate]   = useState('')
   const [taxState,  setTaxState]  = useState('')
   const [discount,  setDiscount]  = useState('')
-  const [notes,     setNotes]     = useState('')
+  const [notes,       setNotes]       = useState('')
+  const [showNotesAI, setShowNotesAI] = useState(false)
   const [terms,     setTerms]     = useState(DEFAULT_TERMS)
 
   // ── Client / company snapshot ──
@@ -804,6 +806,7 @@ export default function InvoiceEditor() {
   if (loading) return <div className="ied-loading">Loading…</div>
 
   return (
+    <>
     <div className="ied-root">
       {/* ── Top bar ── */}
       <div className="ied-topbar">
@@ -819,42 +822,17 @@ export default function InvoiceEditor() {
           )}
         </div>
         <div className="ied-topbar-actions">
-          {isEstimate && status !== 'converted' && (
-            <button className="ied-btn ied-btn--outline" onClick={convertToInvoice} disabled={saving}>
-              → Convert to Invoice
-            </button>
-          )}
-          {type === 'invoice' && !isNew && status !== 'paid' && (
-            <button className="ied-btn ied-btn--purple" onClick={openPayLink}>
-              Send for Payment
-            </button>
-          )}
-          {(type === 'invoice') && status !== 'paid' && !stripePaymentIntentId && (
-            <button className="ied-btn ied-btn--green" onClick={() => setShowPaid(true)}>
-              Mark Paid
-            </button>
-          )}
-          {isReceipt && (
-            <span className="ied-paid-stamp">✓ PAID</span>
-          )}
-          <button className="ied-btn ied-btn--outline" onClick={() => exportPDF(false)} disabled={exporting}>
-            {exporting ? 'Generating…' : 'Preview PDF'}
-          </button>
+          {isReceipt && <span className="ied-paid-stamp">✓ PAID</span>}
           <button className="ied-btn ied-btn--outline" onClick={() => exportPDF(true)} disabled={exporting}>
-            ↓ Download PDF
+            ↓ Download
           </button>
-          <button className="ied-btn ied-btn--teal" onClick={addToClientDocs}
-            disabled={addingDoc || (!clientUid && !clientDocId)} title="Upload PDF to client's document portal">
-            {addingDoc ? 'Uploading…' : docAdded ? '✓ Added to Docs' : '📎 Add to Client Docs'}
+          <button className="ied-btn ied-btn--outline" onClick={addToClientDocs}
+            disabled={addingDoc || (!clientUid && !clientDocId)}>
+            {addingDoc ? 'Uploading…' : docAdded ? '✓ Docs' : '📎 Add to Docs'}
           </button>
-          {!isNew && (
-            <button className="ied-btn ied-btn--outline" onClick={openSmsView}>
-              📱 Send via SMS
-            </button>
-          )}
           {!isNew && (
             <button className="ied-btn ied-btn--outline" onClick={saveAndSendSms} disabled={saving}>
-              💾 Save & Send SMS
+              Save &amp; Send
             </button>
           )}
           <button className="ied-btn ied-btn--primary" onClick={() => doSave()} disabled={saving}>
@@ -906,8 +884,9 @@ export default function InvoiceEditor() {
               }
               <div>
                 <div className="ied-snapshot-name">{companyName || '—'}</div>
-                <div className="ied-snapshot-detail">{companyAddress}</div>
-                <div className="ied-snapshot-detail">{companyPhone}{companyLicense ? ` · License: ${companyLicense}` : ''}</div>
+                {companyAddress && <div className="ied-snapshot-detail">{companyAddress}</div>}
+                {companyPhone   && <div className="ied-snapshot-detail">{companyPhone}</div>}
+                {companyLicense && <div className="ied-snapshot-detail">License # {companyLicense}</div>}
               </div>
             </div>
             <p className="ied-snapshot-hint">Edit in Settings → Company</p>
@@ -949,44 +928,45 @@ export default function InvoiceEditor() {
               <button className="ied-add-line" onClick={addLine}>+ Add Item</button>
             </div>
 
-            <div className="ied-line-header">
-              <span style={{ flex: 2 }}>Item</span>
-              <span style={{ flex: 2 }}>Description</span>
-              <span style={{ flex: 1 }}>Unit</span>
-              <span style={{ width: 60, textAlign: 'right' }}>Qty</span>
-              <span style={{ width: 90, textAlign: 'right' }}>Price</span>
-              <span style={{ width: 90, textAlign: 'right' }}>Total</span>
-              <span style={{ width: 28 }} />
-            </div>
+            <div className="ied-items-list">
+              {lineItems.map(it => (
+                <div key={it.id} className="ied-item-block">
+                  {/* Column labels */}
+                  <div className="ied-items-header">
+                    <span className="ied-items-header-name">Name</span>
+                    <span className="ied-items-header-qty">Quantity</span>
+                    <span className="ied-items-header-price">Unit Price</span>
+                    <span className="ied-items-header-total">Total</span>
+                    <span className="ied-items-header-del" />
+                  </div>
+                  {/* Name + Qty + Price + Total + Delete — all one line */}
+                  <div className="ied-item-main-row">
+                    <input className="ied-line-input ied-item-name-input"
+                      placeholder="e.g. Drywall Repair"
+                      value={it.label}
+                      onChange={e => updateLine(it.id, 'label', e.target.value)} />
+                    <input className="ied-line-input ied-line-num ied-item-qty-input"
+                      type="number" min="0" placeholder="1"
+                      value={it.qty}
+                      onChange={e => updateLine(it.id, 'qty', e.target.value)} />
+                    <input className="ied-line-input ied-line-num ied-item-price-input"
+                      type="number" min="0" step="0.01" placeholder="0.00"
+                      value={it.price}
+                      onChange={e => updateLine(it.id, 'price', e.target.value)} />
+                    <div className="ied-item-total-val">{fmtMoney(calcLine(it))}</div>
+                    <button className="ied-line-del" onClick={() => removeLine(it.id)}
+                      disabled={lineItems.length === 1} title="Remove">×</button>
+                  </div>
 
-            {lineItems.map(it => (
-              <div key={it.id} className="ied-line-row">
-                <input className="ied-line-input" style={{ flex: 2 }}
-                  placeholder="e.g. Drywall Repair" value={it.label}
-                  onChange={e => updateLine(it.id, 'label', e.target.value)} />
-                <input className="ied-line-input" style={{ flex: 2 }}
-                  placeholder="Optional note" value={it.description}
-                  onChange={e => updateLine(it.id, 'description', e.target.value)} />
-                <select className="ied-line-select" style={{ flex: 1 }}
-                  value={it.unit} onChange={e => updateLine(it.id, 'unit', e.target.value)}>
-                  {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
-                </select>
-                <input className="ied-line-input ied-line-num" style={{ width: 60 }}
-                  type="number" min="0" placeholder="1"
-                  value={it.unit === 'total' ? '' : it.qty}
-                  disabled={it.unit === 'total'}
-                  onChange={e => updateLine(it.id, 'qty', e.target.value)} />
-                <input className="ied-line-input ied-line-num" style={{ width: 90 }}
-                  type="number" min="0" step="0.01" placeholder="0.00"
-                  value={it.price}
-                  onChange={e => updateLine(it.id, 'price', e.target.value)} />
-                <div className="ied-line-total" style={{ width: 90 }}>
-                  {fmtMoney(calcLine(it))}
+                  {/* Description */}
+                  <textarea className="ied-item-desc-ta"
+                    rows={2}
+                    placeholder="Description (optional)"
+                    value={it.description}
+                    onChange={e => updateLine(it.id, 'description', e.target.value)} />
                 </div>
-                <button className="ied-line-del" onClick={() => removeLine(it.id)}
-                  disabled={lineItems.length === 1} title="Remove">×</button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
           {/* Totals + adjustments */}
@@ -1025,7 +1005,11 @@ export default function InvoiceEditor() {
           <div className="ied-card">
             <div className="ied-card-title">Notes &amp; Terms</div>
             <div className="ied-field" style={{ marginBottom: 14 }}>
-              <label className="ied-label">Notes (shown on {isEstimate ? 'estimate' : 'invoice'})</label>
+              <div className="ied-label-row">
+                <label className="ied-label">Notes (shown on {isEstimate ? 'estimate' : 'invoice'})</label>
+                <button className="ied-ai-btn" type="button" onClick={() => setShowNotesAI(true)}
+                  title="Generate notes with AI">✨ AI</button>
+              </div>
               <textarea className="ied-textarea" rows={3} value={notes}
                 placeholder="Any notes for the client…"
                 onChange={e => setNotes(e.target.value)} />
@@ -1064,10 +1048,16 @@ export default function InvoiceEditor() {
             <div className="ied-summary-count">{lineItems.length} line item{lineItems.length !== 1 ? 's' : ''}</div>
           </div>
 
+          {/* Primary actions */}
           <div className="ied-summary-card ied-summary-card--actions">
             <button className="ied-btn ied-btn--primary ied-btn--block" onClick={() => doSave()} disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Saving…' : '💾 Save'}
             </button>
+            {!isNew && (
+              <button className="ied-btn ied-btn--outline ied-btn--block" onClick={saveAndSendSms} disabled={saving}>
+                Save &amp; Send SMS
+              </button>
+            )}
             <button className="ied-btn ied-btn--outline ied-btn--block" onClick={() => exportPDF(true)} disabled={exporting}>
               ↓ Download PDF
             </button>
@@ -1075,35 +1065,34 @@ export default function InvoiceEditor() {
               disabled={addingDoc || (!clientUid && !clientDocId)}>
               {addingDoc ? 'Uploading…' : docAdded ? '✓ Added to Docs' : '📎 Add to Client Docs'}
             </button>
-            {!isNew && (
-              <button className="ied-btn ied-btn--outline ied-btn--block" onClick={openSmsView}>
-                📱 Send via SMS
-              </button>
-            )}
-            {!isNew && (
-              <button className="ied-btn ied-btn--outline ied-btn--block" onClick={saveAndSendSms} disabled={saving}>
-                💾 Save &amp; Send SMS
-              </button>
-            )}
-            {isEstimate && status !== 'converted' && (
-              <button className="ied-btn ied-btn--amber ied-btn--block" onClick={convertToInvoice} disabled={saving}>
-                → Convert to Invoice
-              </button>
-            )}
-            {type === 'invoice' && !isNew && status !== 'paid' && (
-              <button className="ied-btn ied-btn--purple ied-btn--block" onClick={openPayLink}>
-                Send for Payment
-              </button>
-            )}
-            {type === 'invoice' && status !== 'paid' && (
-              <button className="ied-btn ied-btn--green ied-btn--block" onClick={() => setShowPaid(true)}>
-                ✓ Mark as Paid
-              </button>
-            )}
-            {isReceipt && (
-              <div className="ied-paid-block">✓ PAID — settlement receipt</div>
-            )}
           </div>
+
+          {/* Next steps — only shown when there are actions available */}
+          {((isEstimate && status !== 'converted') ||
+            (type === 'invoice' && status !== 'paid') ||
+            isReceipt) && (
+            <div className="ied-summary-card ied-summary-card--actions">
+              <div className="ied-action-group-label">Next Steps</div>
+              {isEstimate && status !== 'converted' && (
+                <button className="ied-btn ied-btn--amber ied-btn--block" onClick={convertToInvoice} disabled={saving}>
+                  → Convert to Invoice
+                </button>
+              )}
+              {type === 'invoice' && !isNew && status !== 'paid' && (
+                <button className="ied-btn ied-btn--purple ied-btn--block" onClick={openPayLink}>
+                  Send for Payment
+                </button>
+              )}
+              {type === 'invoice' && status !== 'paid' && !stripePaymentIntentId && (
+                <button className="ied-btn ied-btn--green ied-btn--block" onClick={() => setShowPaid(true)}>
+                  ✓ Mark as Paid
+                </button>
+              )}
+              {isReceipt && (
+                <div className="ied-paid-block">✓ PAID — settlement receipt</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1329,5 +1318,17 @@ export default function InvoiceEditor() {
         </div>
       )}
     </div>
+
+    {showNotesAI && (
+      <NotesAIModal
+        clientName={clientName}
+        companyName={companyName}
+        lineItems={lineItems}
+        isEstimate={isEstimate}
+        onSelect={text => { setNotes(text); setShowNotesAI(false) }}
+        onClose={() => setShowNotesAI(false)}
+      />
+    )}
+    </>
   )
 }

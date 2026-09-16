@@ -1,0 +1,209 @@
+.naim-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+
+.naim-modal {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.naim-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+
+.naim-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.naim-close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: #f1f5f9;
+  color: #64748b;
+  border-radius: 8px;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+}
+.naim-close:hover { background: #e2e8f0; color: #0f172a; }
+
+/* ── Thinking / streaming ── */
+.naim-thinking-wrap {
+  padding: 20px 24px;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.naim-thinking-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #7c3aed;
+}
+
+.naim-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7c3aed;
+  animation: naim-pulse 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes naim-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+.naim-stream-box {
+  flex: 1;
+  min-height: 120px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.7;
+  background: #f8fafc;
+  border: 1px solid #e8edf3;
+  border-radius: 12px;
+  padding: 14px 16px;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+/* ── Suggestions ── */
+.naim-suggestions {
+  padding: 16px 24px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.naim-card {
+  border: 1.5px solid #e8edf3;
+  border-radius: 14px;
+  padding: 16px 18px;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.naim-card:hover {
+  border-color: #c4b5fd;
+  box-shadow: 0 2px 12px rgba(124, 58, 237, 0.08);
+}
+
+.naim-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7c3aed;
+  margin-bottom: 8px;
+}
+
+.naim-card-text {
+  font-size: 14px;
+  color: #334155;
+  line-height: 1.65;
+  margin: 0 0 14px;
+}
+
+.naim-use-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 16px;
+  background: #7c3aed;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.13s, transform 0.1s;
+  font-family: inherit;
+}
+.naim-use-btn:hover { background: #6d28d9; }
+.naim-use-btn:active { transform: scale(0.97); }
+
+/* ── Error ── */
+.naim-error {
+  margin: 16px 24px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 10px;
+  color: #dc2626;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.naim-retry-link {
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  font-family: inherit;
+}
+
+/* ── Footer ── */
+.naim-footer {
+  padding: 16px 24px 20px;
+  flex-shrink: 0;
+  border-top: 1px solid #f1f5f9;
+}
+
+.naim-regen-btn {
+  background: none;
+  border: 1.5px solid #e2e8f0;
+  color: #64748b;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.13s, color 0.13s;
+}
+.naim-regen-btn:hover { border-color: #7c3aed; color: #7c3aed; }

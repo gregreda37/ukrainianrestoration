@@ -758,12 +758,12 @@ def approve_estimate():
             db.collection("organization_data").document(org_id) \
               .collection("clients").document(client_doc_id) \
               .collection("documents").add({
-                  "name":      doc_name,
-                  "type":      "signed_estimate",
-                  "url":       signed_doc_url,
-                  "invoiceId": invoice_id,
-                  "addedAt":   datetime.utcnow().isoformat() + "Z",
-                  "addedBy":   signer_name,
+                  "name":        doc_name,
+                  "type":        "signed_estimate",
+                  "downloadURL": signed_doc_url,
+                  "invoiceId":   invoice_id,
+                  "addedAt":     datetime.utcnow().isoformat() + "Z",
+                  "addedBy":     signer_name,
               })
         except Exception as exc:
             print(f"[approve-estimate] portal document write failed: {exc}")

@@ -1461,3 +1461,84 @@ def chat():
             "Connection":       "keep-alive",
         },
     )
+
+
+# ── Invoice notes AI suggestions ──────────────────────────────────────────────
+
+@ai_analysis_app.route("/suggest-notes", methods=["POST"])
+def suggest_notes():
+    uid, err = _require_auth()
+    if err:
+        return err
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+
+    body         = request.get_json(silent=True) or {}
+    doc_type     = body.get("docType", "invoice")
+    client_name  = body.get("clientName", "")
+    company_name = body.get("companyName", "the company")
+    line_items   = body.get("lineItems", [])
+    subtotal     = body.get("subtotal", 0)
+
+    items_text = "\n".join([
+        f"- {it.get('label', 'Item')}: qty {it.get('qty', 1)} @ ${float(it.get('price', 0)):.2f}"
+        + (f" — {it.get('description', '')}" if it.get("description") else "")
+        for it in line_items if it.get("label")
+    ]) or "No items listed"
+
+    prompt = f"""You are helping a water/fire/mold restoration contractor write professional client-facing notes for a {doc_type}.
+
+Company: {company_name}
+Client: {client_name or "the client"}
+Document type: {doc_type.title()}
+Subtotal: ${float(subtotal):,.2f}
+
+Line items:
+{items_text}
+
+Write 3 different professional notes options for this {doc_type}. Each should:
+- Be 2–4 sentences, professional and client-friendly
+- Reference the specific work listed above
+- Vary in tone: one reassuring/warranty-focused, one concise/formal, one warm/personal
+- NOT include prices or totals (those appear elsewhere on the document)
+
+Output EXACTLY in this format — no extra text before or after:
+SUGGESTION_1
+[note text]
+END_SUGGESTION_1
+
+SUGGESTION_2
+[note text]
+END_SUGGESTION_2
+
+SUGGESTION_3
+[note text]
+END_SUGGESTION_3"""
+
+    claude_client = anthropic.Anthropic(api_key=api_key)
+
+    def generate():
+        try:
+            with claude_client.messages.stream(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=800,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                for text in stream.text_stream:
+                    yield f"data: {json.dumps({'text': text})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":       "keep-alive",
+        },
+    )

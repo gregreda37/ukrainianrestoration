@@ -2,6 +2,12 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // Signed document copies — readable without auth (URL contains a storage token
+    // that acts as the credential; needed when opening the link in a new browser tab)
+    match /users/{userId}/documents/clients/{clientId}/signed/{allPaths=**} {
+      allow read: if true;
+    }
+
     // User documents — any authenticated user can read and write
     // (contractors need to upload files on behalf of clients)
     match /users/{userId}/documents/{allPaths=**} {

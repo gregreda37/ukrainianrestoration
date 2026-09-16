@@ -446,10 +446,8 @@ def sign_document():
         blob      = bucket.blob(blob_path)
 
         token = str(uuid.uuid4())
-        blob.upload_from_string(signed_bytes, content_type="application/pdf")
-        blob.reload()
         blob.metadata = {"firebaseStorageDownloadTokens": token}
-        blob.patch()
+        blob.upload_from_string(signed_bytes, content_type="application/pdf")
 
         download_url = _firebase_download_url(BUCKET_NAME, blob_path, token)
     except Exception as exc:
@@ -600,10 +598,8 @@ def contractor_sign():
         print(f"[contractor-sign] org_id={repr(org_id)} client_doc_id={repr(client_doc_id)} client_uid={repr(client_uid)} -> blob_path={blob_path}")
         blob = bucket.blob(blob_path)
         token = str(uuid.uuid4())
-        blob.upload_from_string(signed_bytes, content_type="application/pdf")
-        blob.reload()
         blob.metadata = {"firebaseStorageDownloadTokens": token}
-        blob.patch()
+        blob.upload_from_string(signed_bytes, content_type="application/pdf")
         countersigned_url = _firebase_download_url(BUCKET_NAME, blob_path, token)
         client_doc_url = countersigned_url
 
@@ -744,10 +740,8 @@ def approve_estimate():
 
         blob     = bucket.blob(blob_path)
         dl_token = str(uuid.uuid4())
-        blob.upload_from_string(signed_bytes, content_type="application/pdf")
-        blob.reload()
         blob.metadata = {"firebaseStorageDownloadTokens": dl_token}
-        blob.patch()
+        blob.upload_from_string(signed_bytes, content_type="application/pdf")
         signed_doc_url = _firebase_download_url(BUCKET_NAME, blob_path, dl_token)
     except Exception as exc:
         return jsonify({"error": f"Could not save signed PDF: {exc}"}), 500

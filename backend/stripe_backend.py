@@ -484,7 +484,8 @@ def create_payment_intent_public():
         if existing_pi:
             try:
                 pi = s.PaymentIntent.retrieve(existing_pi)
-                apm = (pi.get("automatic_payment_methods") or {}).get("enabled", False)
+                apm_obj = getattr(pi, "automatic_payment_methods", None)
+                apm = bool(apm_obj and getattr(apm_obj, "enabled", False))
                 if apm and pi.status in ("requires_payment_method", "requires_confirmation", "requires_action"):
                     return jsonify({
                         "clientSecret": pi.client_secret,

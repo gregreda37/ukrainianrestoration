@@ -85,9 +85,21 @@ export default function PublicInvoiceView() {
     </div>
   )
 
+  if (!inv) return (
+    <div className="piv-error-wrap">
+      <div className="piv-error-card">
+        <div className="piv-error-icon">⚠️</div>
+        <h2>Link Unavailable</h2>
+        <p>This document could not be loaded. The link may be invalid.</p>
+      </div>
+    </div>
+  )
+
   const t = inv
-  const isReceipt  = t.type === 'receipt' || t.status === 'paid'
-  const isEstimate = t.type === 'estimate'
+  // Infer type from validUntil for older documents that may lack an explicit type field
+  const docType    = t.type || (t.validUntil ? 'estimate' : 'invoice')
+  const isReceipt  = docType === 'receipt' || t.status === 'paid'
+  const isEstimate = docType === 'estimate'
   const typeLabel  = isEstimate ? 'ESTIMATE' : isReceipt ? 'RECEIPT' : 'INVOICE'
 
   const approvedUrl = approvedDocUrl || alreadyApproved?.signedDocUrl

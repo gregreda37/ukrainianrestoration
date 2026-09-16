@@ -135,6 +135,10 @@ export default function Invoices() {
     try {
       const token = crypto.randomUUID().replace(/-/g, '')
       const { id: _id, _isOrgInvoice: _f, createdAt: _c, updatedAt: _u, createdBy: _cb, paymentLinkTodoId: _p, ...invSnapshot } = smsInv
+      // Ensure type is always present — infer from validUntil for old docs that lack it
+      if (!invSnapshot.type) {
+        invSnapshot.type = invSnapshot.validUntil ? 'estimate' : 'invoice'
+      }
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
 
       await setDoc(doc(db, 'view_links', token), {

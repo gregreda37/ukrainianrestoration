@@ -316,7 +316,8 @@ export default function InvoiceEditor() {
         const invSnap = await getDoc(invRef)
         if (invSnap.exists()) {
           const inv = invSnap.data()
-          setType(inv.type || 'invoice')
+          // Fallback: infer from validUntil field (estimates have it, invoices don't)
+          setType(inv.type || (inv.validUntil ? 'estimate' : 'invoice'))
           setStatus(inv.status || 'draft')
           setInvNumber(inv.invoiceNumber || '')
           setIssueDate(inv.issueDate || todayStr())

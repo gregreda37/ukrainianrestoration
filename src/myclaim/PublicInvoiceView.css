@@ -1,0 +1,306 @@
+/* ── Loading & error states ─────────────────────────────────────────────── */
+
+.piv-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100vh;
+  font-size: 15px;
+  color: #64748b;
+}
+.piv-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: piv-spin 0.7s linear infinite;
+}
+@keyframes piv-spin { to { transform: rotate(360deg); } }
+
+.piv-error-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: #f8fafc;
+  padding: 24px;
+}
+.piv-error-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 40px 48px;
+  text-align: center;
+  max-width: 420px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+.piv-error-icon { font-size: 40px; margin-bottom: 14px; }
+.piv-error-card h2 { margin: 0 0 10px; font-size: 20px; color: #0f172a; }
+.piv-error-card p  { margin: 0; font-size: 14px; color: #64748b; line-height: 1.5; }
+
+/* ── Page root ─────────────────────────────────────────────────────────── */
+
+.piv-root {
+  min-height: 100vh;
+  background: #f1f5f9;
+  padding: 24px 16px 48px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── Print action bar ─────────────────────────────────────────────────── */
+
+.piv-actions {
+  max-width: 780px;
+  margin: 0 auto 18px;
+  display: flex;
+  justify-content: flex-end;
+}
+.piv-print-btn {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 20px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.piv-print-btn:hover { background: #1d4ed8; }
+
+/* ── Document card ──────────────────────────────────────────────────────── */
+
+.piv-doc {
+  max-width: 780px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  padding: 40px 44px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.piv-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+
+.piv-company {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.piv-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+.piv-logo-placeholder {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.piv-company-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+.piv-company-line {
+  font-size: 12.5px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.piv-doc-meta {
+  text-align: right;
+  flex-shrink: 0;
+}
+.piv-doc-type {
+  font-size: 22px;
+  font-weight: 800;
+  color: #2563eb;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.piv-doc-number {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 10px;
+}
+.piv-meta-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  font-size: 12.5px;
+  color: #475569;
+  margin-bottom: 3px;
+}
+.piv-meta-row span:first-child { color: #94a3b8; }
+
+/* ── Billing ─────────────────────────────────────────────────────────────── */
+
+.piv-bill-row {
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.piv-bill-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 6px;
+}
+.piv-bill-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 3px;
+}
+.piv-bill-line {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+/* ── Line items table ────────────────────────────────────────────────────── */
+
+.piv-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0;
+  font-size: 13.5px;
+}
+.piv-th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 10px 10px;
+  border-bottom: 2px solid #e2e8f0;
+}
+.piv-th--num, .piv-td--num {
+  text-align: right;
+}
+.piv-th--desc { padding-left: 0; }
+.piv-th--unit { text-align: center; }
+.piv-tr { border-bottom: 1px solid #f1f5f9; }
+.piv-tr:last-child { border-bottom: none; }
+.piv-td {
+  padding: 11px 10px;
+  vertical-align: top;
+  color: #334155;
+}
+.piv-td:first-child { padding-left: 0; }
+.piv-td--num { text-align: right; }
+.piv-item-label { font-weight: 500; }
+.piv-item-desc  { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+/* ── Totals ──────────────────────────────────────────────────────────────── */
+
+.piv-totals {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 2px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.piv-total-row {
+  display: flex;
+  gap: 48px;
+  font-size: 13.5px;
+  color: #475569;
+  min-width: 220px;
+  justify-content: space-between;
+}
+.piv-total-row--discount { color: #dc2626; }
+.piv-total-row--grand {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+.piv-paid-badge {
+  margin-top: 12px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 18px;
+  border-radius: 100px;
+  border: 1px solid #86efac;
+  letter-spacing: 0.05em;
+}
+
+/* ── Notes / Terms ───────────────────────────────────────────────────────── */
+
+.piv-section {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #f1f5f9;
+}
+.piv-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+}
+.piv-section-body {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* ── Print styles ────────────────────────────────────────────────────────── */
+
+@media print {
+  .no-print { display: none !important; }
+  .piv-root { background: #fff; padding: 0; }
+  .piv-doc  {
+    box-shadow: none;
+    border-radius: 0;
+    padding: 24px 28px;
+    max-width: 100%;
+  }
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .piv-doc  { padding: 24px 18px; }
+  .piv-header { flex-direction: column; }
+  .piv-doc-meta { text-align: left; }
+  .piv-meta-row { justify-content: flex-start; }
+  .piv-table { font-size: 12px; }
+  .piv-th, .piv-td { padding: 8px 6px; }
+  .piv-th--unit, .piv-td--num { font-size: 11.5px; }
+}

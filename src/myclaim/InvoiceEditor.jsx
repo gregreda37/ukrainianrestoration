@@ -416,6 +416,14 @@ export default function InvoiceEditor() {
   const [payLinkPhones,     setPayLinkPhones]     = useState([])
   const [paymentLinkTodoId, setPaymentLinkTodoId] = useState(null)
 
+  // ── SMS view modal state ──
+  const [showSmsView,    setShowSmsView]    = useState(false)
+  const [smsViewPhones,  setSmsViewPhones]  = useState([])
+  const [smsViewLoading, setSmsViewLoading] = useState(false)
+  const [smsViewData,    setSmsViewData]    = useState(null)
+  const [smsViewError,   setSmsViewError]   = useState('')
+  const [smsViewCopied,  setSmsViewCopied]  = useState(false)
+
   // ── Load ─────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -851,6 +859,79 @@ export default function InvoiceEditor() {
     }
   }
 
+  // ── SMS view link ─────────────────────────────────────────────────────────
+
+  function openSmsView() {
+    const phones = []
+    if (clientPhone) phones.push(clientPhone)
+    secondaryContacts.forEach(c => { if (c.phone) phones.push(c.phone) })
+    setSmsViewPhones(phones)
+    setSmsViewData(null)
+    setSmsViewError('')
+    setShowSmsView(true)
+  }
+
+  async function sendViewLink() {
+    if (!orgId || !clientDocId || isNew) return
+    setSmsViewLoading(true)
+    setSmsViewError('')
+    try {
+      const token = crypto.randomUUID().replace(/-/g, '')
+      const { updatedAt: _u, ...invSnapshot } = buildInvoice()
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+
+      await setDoc(doc(db, 'view_links', token), {
+        orgId,
+        clientDocId,
+        invoiceId,
+        clientUid: clientUid || null,
+        invoice: invSnapshot,
+        expiresAt,
+        createdAt: serverTimestamp(),
+        createdBy: user.uid,
+      })
+
+      const viewUrl = `${window.location.origin}/myclaim/view/${token}`
+      const typeLabel = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
+      const msg = `${companyName || 'Your contractor'}: Your ${typeLabel}${invNumber ? ` #${invNumber}` : ''} (${fmtMoney(totals.total)}) is ready to view: ${viewUrl}`
+
+      let smsSent = []
+      if (smsViewPhones.length > 0) {
+        const [primaryPhone, ...otherPhones] = smsViewPhones
+        const idToken = await user.getIdToken()
+        const r = await fetch(`${BACKEND}/notify-client`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: primaryPhone,
+            type: 'view_invoice',
+            message: msg,
+            secondaryPhones: otherPhones,
+          }),
+        })
+        const data = await r.json()
+        if (!r.ok || data.error) { setSmsViewError(data.error || 'Could not send SMS.'); return }
+        smsSent = [{ phone: primaryPhone }, ...(data.secondary || []).map(p => ({ phone: p }))]
+      }
+
+      if (status === 'draft' && type !== 'receipt') {
+        setStatus('sent')
+        const invDocRef = clientUid
+          ? doc(db, 'users', clientUid, 'invoices', invoiceId)
+          : doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', invoiceId)
+        updateDoc(invDocRef, { status: 'sent', updatedAt: serverTimestamp() }).catch(() => {})
+        writeSummary(invoiceId, 'sent', null).catch(() => {})
+      }
+
+      setSmsViewData({ viewUrl, sms: smsSent })
+    } catch (e) {
+      console.error('sendViewLink:', e)
+      setSmsViewError('Network error. Please try again.')
+    } finally {
+      setSmsViewLoading(false)
+    }
+  }
+
   // ── Mark paid modal ───────────────────────────────────────────────────────
 
   const [showPaid, setShowPaid]           = useState(false)
@@ -939,6 +1020,11 @@ export default function InvoiceEditor() {
             disabled={addingDoc || (!clientUid && !clientDocId)} title="Upload PDF to client's document portal">
             {addingDoc ? 'Uploading…' : docAdded ? '✓ Added to Docs' : '📎 Add to Client Docs'}
           </button>
+          {!isNew && (
+            <button className="ied-btn ied-btn--outline" onClick={openSmsView}>
+              📱 Send via SMS
+            </button>
+          )}
           <button className="ied-btn ied-btn--primary" onClick={() => doSave()} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -1157,6 +1243,11 @@ export default function InvoiceEditor() {
               disabled={addingDoc || (!clientUid && !clientDocId)}>
               {addingDoc ? 'Uploading…' : docAdded ? '✓ Added to Docs' : '📎 Add to Client Docs'}
             </button>
+            {!isNew && (
+              <button className="ied-btn ied-btn--outline ied-btn--block" onClick={openSmsView}>
+                📱 Send via SMS
+              </button>
+            )}
             {isEstimate && status !== 'converted' && (
               <button className="ied-btn ied-btn--amber ied-btn--block" onClick={convertToInvoice} disabled={saving}>
                 → Convert to Invoice
@@ -1262,6 +1353,95 @@ export default function InvoiceEditor() {
               ) : (
                 <button className="ied-btn ied-btn--outline" onClick={generatePayLink} disabled={payLinkLoading}>
                   {payLinkLoading ? 'Sending…' : 'Resend SMS'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Send via SMS modal ── */}
+      {showSmsView && (
+        <div className="ied-overlay" onClick={() => setShowSmsView(false)}>
+          <div className="ied-modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+            <h3 className="ied-modal-title">Send via SMS</h3>
+            <p style={{ fontSize: 13.5, color: '#64748b', margin: '0 0 18px' }}>
+              Share a view link for <strong>{invNumber || 'this document'}</strong> ({fmtMoney(totals.total)}).
+              The recipient can view and print the {type === 'estimate' ? 'estimate' : type === 'receipt' ? 'receipt' : 'invoice'} without logging in.
+              Link expires in 30 days.
+            </p>
+
+            {(clientPhone || secondaryContacts.length > 0) ? (
+              <div style={{ marginBottom: 18 }}>
+                <div className="ied-label" style={{ marginBottom: 8 }}>Send SMS to:</div>
+                {[
+                  clientPhone ? { phone: clientPhone, label: 'Primary' } : null,
+                  ...secondaryContacts.map(c => ({ phone: c.phone, label: c.label || 'Authorized contact' })),
+                ].filter(Boolean).map(c => (
+                  <label key={c.phone} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 13.5, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={smsViewPhones.includes(c.phone)}
+                      onChange={e => {
+                        if (e.target.checked) setSmsViewPhones(p => [...p, c.phone])
+                        else setSmsViewPhones(p => p.filter(x => x !== c.phone))
+                      }}
+                    />
+                    <span>{c.phone}</span>
+                    <span style={{ color: '#94a3b8', fontSize: 12 }}>({c.label})</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 18px' }}>
+                No phone on file — link will be generated but no SMS sent.
+              </p>
+            )}
+
+            {smsViewData && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Link Ready
+                </div>
+                <div style={{ fontSize: 12.5, color: '#065f46', wordBreak: 'break-all', marginBottom: 10, lineHeight: 1.5 }}>
+                  {smsViewData.viewUrl}
+                </div>
+                <button
+                  className="ied-btn ied-btn--outline"
+                  style={{ fontSize: 12.5, padding: '5px 14px' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(smsViewData.viewUrl)
+                    setSmsViewCopied(true)
+                    setTimeout(() => setSmsViewCopied(false), 2000)
+                  }}
+                >
+                  {smsViewCopied ? '✓ Copied!' : 'Copy Link'}
+                </button>
+                {smsViewData.sms?.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#15803d', marginTop: 10 }}>
+                    SMS sent to {smsViewData.sms.length} number{smsViewData.sms.length !== 1 ? 's' : ''}.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {smsViewError && (
+              <div style={{ background: '#fef2f2', color: '#dc2626', padding: '10px 12px', borderRadius: 8, fontSize: 13.5, marginBottom: 14 }}>
+                {smsViewError}
+              </div>
+            )}
+
+            <div className="ied-modal-actions">
+              <button className="ied-btn ied-btn--outline" onClick={() => setShowSmsView(false)}>
+                Close
+              </button>
+              {!smsViewData ? (
+                <button className="ied-btn ied-btn--primary" onClick={sendViewLink} disabled={smsViewLoading}>
+                  {smsViewLoading ? 'Generating…' : smsViewPhones.length > 0 ? 'Generate & Send SMS' : 'Generate Link'}
+                </button>
+              ) : (
+                <button className="ied-btn ied-btn--outline" onClick={sendViewLink} disabled={smsViewLoading}>
+                  {smsViewLoading ? 'Sending…' : 'Resend SMS'}
                 </button>
               )}
             </div>

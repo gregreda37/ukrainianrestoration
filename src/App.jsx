@@ -66,7 +66,8 @@ const Partners      = lazy(() => import('./myclaim/Partners'))
 const PartnerDetail = lazy(() => import('./myclaim/PartnerDetail'))
 const OptInPolicy      = lazy(() => import('./myclaim/OptInPolicy'))
 const PendingApproval  = lazy(() => import('./myclaim/PendingApproval'))
-const PublicPayPage    = lazy(() => import('./myclaim/PublicPayPage'))
+const PublicPayPage        = lazy(() => import('./myclaim/PublicPayPage'))
+const PublicInvoiceView    = lazy(() => import('./myclaim/PublicInvoiceView'))
 
 function PortalFallback() {
   return (
@@ -164,6 +165,11 @@ export default function App() {
         {/* ── Public payment page (no auth required) ── */}
         <Route path="/myclaim/pay/:token" element={
           <Suspense fallback={<PortalFallback />}><PublicPayPage /></Suspense>
+        } />
+
+        {/* ── Public invoice view (no auth required) ── */}
+        <Route path="/myclaim/view/:token" element={
+          <Suspense fallback={<PortalFallback />}><PublicInvoiceView /></Suspense>
         } />
 
         {/* ── Client portal (phone users) ── */}

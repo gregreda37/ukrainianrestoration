@@ -478,7 +478,10 @@ def create_payment_intent_public():
         if existing_pi:
             try:
                 pi = s.PaymentIntent.retrieve(existing_pi)
-                if pi.status in ("requires_payment_method", "requires_confirmation", "requires_action"):
+                # Only reuse if still actionable AND was created with automatic_payment_methods
+                # (older PIs lack this and won't show Apple Pay / Google Pay)
+                apm = (pi.get("automatic_payment_methods") or {}).get("enabled", False)
+                if apm and pi.status in ("requires_payment_method", "requires_confirmation", "requires_action"):
                     return jsonify({
                         "clientSecret": pi.client_secret,
                         "fee":          fee,
@@ -502,6 +505,7 @@ def create_payment_intent_public():
         intent = s.PaymentIntent.create(
             amount=_to_cents(total_charged),
             currency="usd",
+            automatic_payment_methods={"enabled": True},
             description=(
                 f"Invoice {inv.get('invoiceNumber', invoice_id)}"
                 f" — {inv.get('clientName', '')}"

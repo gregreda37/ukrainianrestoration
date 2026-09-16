@@ -92,6 +92,11 @@
 .inv-section {
   margin-bottom: 32px;
 }
+.inv-section--archived {
+  opacity: 0.72;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 24px;
+}
 
 .inv-section-title {
   font-size: 12px;
@@ -100,6 +105,11 @@
   text-transform: uppercase;
   color: #94a3b8;
   margin: 0 0 12px;
+}
+
+.inv-card--archived {
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 
 /* ── Invoice card ── */
@@ -222,6 +232,12 @@
   transition: background 0.15s, border-color 0.15s;
 }
 .inv-action-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+.inv-action-btn--sms {
+  color: #0369a1;
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+.inv-action-btn--sms:hover { background: #e0f2fe; border-color: #7dd3fc; }
 .inv-action-btn--delete {
   color: #dc2626;
   background: #fff;

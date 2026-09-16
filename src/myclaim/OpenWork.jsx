@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, getDoc, getDocs, deleteDoc, collection, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, getDocs, deleteDoc, collection, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import Settlement from './Settlement'
 import './OrgInvoices.css'
@@ -342,6 +342,8 @@ export default function OpenWork() {
   const [confirmDel, setConfirmDel]   = useState(null)
   const [deleting, setDeleting]       = useState(false)
   const [savingStatus, setSavingStatus] = useState(null)
+  const [syncing, setSyncing]         = useState(false)
+  const [syncMsg, setSyncMsg]         = useState('')
 
   useEffect(() => { if (user) load() }, [user])
 
@@ -395,6 +397,65 @@ export default function OpenWork() {
       }))
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function syncSummary() {
+    if (!orgId || syncing) return
+    setSyncing(true)
+    setSyncMsg('')
+    try {
+      const clientsSnap = await getDocs(collection(db, 'organization_data', orgId, 'clients'))
+
+      let synced = 0
+      await Promise.all(clientsSnap.docs.map(async clientDoc => {
+        const cdata       = clientDoc.data()
+        const clientDocId = clientDoc.id
+        const clientUid   = cdata.uid   || null
+        const clientName  = cdata.name  || ''
+        const clientPhone = cdata.phone || ''
+
+        const invSnap = await getDocs(
+          collection(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices')
+        )
+        await Promise.all(invSnap.docs.map(async invDoc => {
+          const inv = invDoc.data()
+          if (!inv.type) return
+          // Always write — this refreshes stale status (e.g. converted estimates)
+          // as well as adding missing entries
+          await setDoc(
+            doc(db, 'organization_data', orgId, 'invoice_summary', invDoc.id),
+            {
+              invoiceId:     invDoc.id,
+              clientUid,
+              clientDocId,
+              clientName,
+              clientPhone,
+              type:          inv.type,
+              status:        inv.status || 'draft',
+              invoiceNumber: inv.invoiceNumber || '',
+              total:         inv.total    || 0,
+              subtotal:      inv.subtotal || 0,
+              issueDate:     inv.issueDate || null,
+              dueDate:       inv.dueDate   || null,
+              updatedAt:     serverTimestamp(),
+            },
+            { merge: true }
+          )
+          synced++
+        }))
+      }))
+
+      // Reload rows after sync
+      const newSnap = await getDocs(collection(db, 'organization_data', orgId, 'invoice_summary'))
+      setRows(newSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setSyncMsg(`Synced ${synced} invoice${synced !== 1 ? 's' : ''}.`)
+      setTimeout(() => setSyncMsg(''), 4000)
+    } catch (e) {
+      console.error('sync:', e)
+      setSyncMsg('Sync failed — check console.')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -515,6 +576,19 @@ export default function OpenWork() {
         <div>
           <h2 className="oil-title">Open Work</h2>
           <p className="oil-sub">All outstanding invoices &amp; estimates across every client</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {syncMsg && (
+            <span style={{ fontSize: 13, color: '#16a34a', fontWeight: 600 }}>{syncMsg}</span>
+          )}
+          <button
+            className="oil-sync-btn"
+            onClick={syncSummary}
+            disabled={syncing}
+            title="Sync any invoices missing from this view"
+          >
+            {syncing ? 'Syncing…' : '🔄 Sync'}
+          </button>
         </div>
       </div>
 

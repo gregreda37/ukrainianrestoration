@@ -126,6 +126,9 @@ const ACTIVITY_ICONS = {
   progress_advanced:   "⏩",
   progress_regressed:  "⏪",
   notification_sent:   "📲",
+  invoice_sent:        "📱",
+  invoice_link_opened: "👁",
+  estimate_approved:   "✅",
 };
 const ACTIVITY_COLORS = {
   login:               { bg: "#eff6ff" },
@@ -149,6 +152,9 @@ const ACTIVITY_COLORS = {
   progress_advanced:   { bg: "#f0fdf4" },
   progress_regressed:  { bg: "#fefce8" },
   notification_sent:   { bg: "#eff6ff" },
+  invoice_sent:        { bg: "#f0f9ff" },
+  invoice_link_opened: { bg: "#fefce8" },
+  estimate_approved:   { bg: "#f0fdf4" },
 };
 const ACTIVITY_LABELS = {
   login:               "Client accessed the portal",
@@ -172,6 +178,9 @@ const ACTIVITY_LABELS = {
   progress_advanced:   "Progress step advanced",
   progress_regressed:  "Progress step moved back",
   notification_sent:   "Notification sent to client",
+  invoice_sent:        "Invoice sent via SMS",
+  invoice_link_opened: "View link opened",
+  estimate_approved:   "Estimate signed & approved",
 };
 
 function CopyLinkTodoBtn({ url }) {

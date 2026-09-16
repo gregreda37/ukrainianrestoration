@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, addDoc, collection, serverTimestamp, increment } from 'firebase/firestore'
+import EstimateApprovalModal from './EstimateApprovalModal'
 import './PublicInvoiceView.css'
+
+const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '')
 
 function fmtMoney(n) {
   return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -16,9 +19,12 @@ function fmtDate(str) {
 
 export default function PublicInvoiceView() {
   const { token } = useParams()
-  const [loading, setLoading] = useState(true)
-  const [inv, setInv]         = useState(null)
-  const [err, setErr]         = useState('')
+  const [loading,     setLoading]     = useState(true)
+  const [inv,         setInv]         = useState(null)
+  const [err,         setErr]         = useState('')
+  const [alreadyApproved, setAlreadyApproved] = useState(null) // { signedDocUrl } if pre-approved
+  const [showApproval,    setShowApproval]    = useState(false)
+  const [approvedDocUrl,  setApprovedDocUrl]  = useState(null)
 
   useEffect(() => {
     if (!token) { setErr('Invalid link.'); setLoading(false); return }
@@ -34,6 +40,27 @@ export default function PublicInvoiceView() {
       const expiresDate = expiresRaw?.toDate ? expiresRaw.toDate() : new Date(expiresRaw)
       if (expiresDate < new Date()) { setErr('This link has expired.'); setLoading(false); return }
       setInv(data.invoice)
+
+      if (data.approvedAt && data.signedDocUrl) {
+        setAlreadyApproved({ signedDocUrl: data.signedDocUrl })
+      }
+
+      // Track open — fire-and-forget, never block rendering
+      const { clientUid, invoice: inv } = data
+      updateDoc(doc(db, 'view_links', token), {
+        openCount: increment(1),
+        lastOpenedAt: serverTimestamp(),
+      }).catch(() => {})
+
+      if (clientUid) {
+        const typeLabel = inv?.type === 'estimate' ? 'Estimate' : inv?.type === 'receipt' ? 'Receipt' : 'Invoice'
+        addDoc(collection(db, 'users', clientUid, 'activity'), {
+          type: 'invoice_link_opened',
+          details: `${typeLabel}${inv?.invoiceNumber ? ` #${inv.invoiceNumber}` : ''} view link opened`,
+          timestamp: serverTimestamp(),
+          actor: 'client',
+        }).catch(() => {})
+      }
     } catch {
       setErr('Could not load the document. Please try again.')
     } finally {
@@ -63,13 +90,39 @@ export default function PublicInvoiceView() {
   const isEstimate = t.type === 'estimate'
   const typeLabel  = isEstimate ? 'ESTIMATE' : isReceipt ? 'RECEIPT' : 'INVOICE'
 
+  const approvedUrl = approvedDocUrl || alreadyApproved?.signedDocUrl
+
   return (
     <div className="piv-root">
       <div className="piv-actions no-print">
         <button className="piv-print-btn" onClick={() => window.print()}>
           🖨 Print / Save as PDF
         </button>
+        {isEstimate && !approvedUrl && (
+          <button className="piv-approve-btn" onClick={() => setShowApproval(true)}>
+            ✍️ Sign &amp; Approve Estimate
+          </button>
+        )}
+        {isEstimate && approvedUrl && (
+          <a
+            href={approvedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="piv-approved-btn"
+          >
+            ✅ Download Signed Estimate
+          </a>
+        )}
       </div>
+
+      {isEstimate && approvedUrl && (
+        <div className="piv-approved-banner no-print">
+          <span>✅ This estimate has been signed and approved.</span>
+          <a href={approvedUrl} target="_blank" rel="noopener noreferrer">
+            Download signed copy ↓
+          </a>
+        </div>
+      )}
 
       <div className="piv-doc">
         {/* Header */}
@@ -179,6 +232,15 @@ export default function PublicInvoiceView() {
           </div>
         )}
       </div>
+
+      {showApproval && (
+        <EstimateApprovalModal
+          inv={inv}
+          viewToken={token}
+          onClose={() => setShowApproval(false)}
+          onApproved={url => { setApprovedDocUrl(url); setShowApproval(false) }}
+        />
+      )}
     </div>
   )
 }

@@ -1,0 +1,180 @@
+.eam-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+  padding: 16px;
+}
+
+.eam-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.18);
+  width: 100%;
+  max-width: 520px;
+  padding: 32px 32px 28px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ── Header ── */
+.eam-header { margin-bottom: 22px; }
+.eam-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.eam-subtitle {
+  margin: 0;
+  font-size: 13.5px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+/* ── Fields ── */
+.eam-field { margin-bottom: 18px; }
+.eam-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.eam-req { color: #dc2626; }
+.eam-input {
+  width: 100%;
+  padding: 10px 13px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 9px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+.eam-input:focus { border-color: #2563eb; }
+.eam-input:disabled { background: #f8fafc; }
+
+/* ── Signature pad ── */
+.eam-sig-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.eam-clear-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-family: inherit;
+}
+.eam-clear-btn:not(:disabled):hover { color: #dc2626; }
+.eam-clear-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.eam-sig-wrap {
+  position: relative;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  overflow: hidden;
+  height: 140px;
+}
+.eam-sig-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+.eam-sig-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #94a3b8;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Legal notice ── */
+.eam-legal {
+  font-size: 11.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 7px;
+}
+
+/* ── Error ── */
+.eam-error {
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 13.5px;
+  padding: 10px 13px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+/* ── Actions ── */
+.eam-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.eam-btn {
+  padding: 10px 22px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: background 0.15s, transform 0.1s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.eam-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.eam-btn:not(:disabled):active { transform: scale(0.97); }
+.eam-btn--primary {
+  background: #2563eb;
+  color: #fff;
+}
+.eam-btn--primary:not(:disabled):hover { background: #1d4ed8; }
+.eam-btn--outline {
+  background: #fff;
+  color: #475569;
+  border: 1.5px solid #e2e8f0;
+}
+.eam-btn--outline:not(:disabled):hover { background: #f8fafc; }
+
+/* ── Success state ── */
+.eam-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 12px 0;
+}
+.eam-success-icon  { font-size: 48px; }
+.eam-success-title { margin: 0; font-size: 20px; font-weight: 800; color: #0f172a; }
+.eam-success-body  { margin: 0; font-size: 14px; color: #64748b; line-height: 1.5; max-width: 340px; }

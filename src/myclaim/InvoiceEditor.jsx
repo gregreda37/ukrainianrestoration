@@ -7,8 +7,7 @@ import {
 } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useAuth } from './useAuth'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import { generatePDF, fmtMoney, fmtDate } from './invoicePdf'
 import './InvoiceEditor.css'
 
 const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '')
@@ -25,10 +24,6 @@ function addDays(dateStr, days) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() + days)
   return d.toISOString().slice(0, 10)
-}
-
-function fmtMoney(n) {
-  return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 }
 
 function calcLine(item) {
@@ -50,220 +45,6 @@ function buildPdfName(clientName, docType, invNumber, { forStorage = false } = {
   const num  = invNumber ? `_(${invNumber})` : ''
   const base = `${name}_${docType}${num}`
   return forStorage ? `${base.replace(/\s+/g, '_')}.pdf` : `${base}.pdf`
-}
-
-// ── PDF generation ────────────────────────────────────────────────────────────
-
-async function generatePDF(inv, logoBase64) {
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
-  const pw = doc.internal.pageSize.getWidth()
-  const margin = 48
-
-  // ── Header band ──
-  doc.setFillColor(37, 99, 235)   // blue-600
-  doc.rect(0, 0, pw, 88, 'F')
-
-  // Logo (pre-loaded as base64 — PNG transparency is preserved over the header band)
-  let headerTextX = margin
-  if (logoBase64) {
-    try {
-      const fmt = /data:image\/jpe?g/i.test(logoBase64) ? 'JPEG' : 'PNG'
-      doc.addImage(logoBase64, fmt, margin, 14, 60, 60, undefined, 'NONE')
-      headerTextX = margin + 72
-    } catch (e) { console.warn('Logo render failed:', e) }
-  }
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(20)
-  doc.setTextColor(255, 255, 255)
-  doc.text(inv.companyName || 'Company', headerTextX, 38)
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(180, 195, 215)
-  const companyLines = [
-    inv.companyAddress,
-    inv.companyPhone,
-    inv.companyLicense ? `License: ${inv.companyLicense}` : null,
-  ].filter(Boolean)
-  doc.text(companyLines.join('  ·  '), headerTextX, 54)
-
-  // Right: doc type + number
-  const typeLabel = inv.type === 'estimate' ? 'ESTIMATE' : inv.type === 'receipt' ? 'RECEIPT' : 'INVOICE'
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(22)
-  doc.setTextColor(255, 255, 255)
-  doc.text(typeLabel, pw - margin, 38, { align: 'right' })
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  doc.setTextColor(180, 195, 215)
-  doc.text(inv.invoiceNumber || '', pw - margin, 54, { align: 'right' })
-
-  let y = 110
-
-  // ── Meta row (issued / due / valid) ──
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(100, 116, 139)
-  doc.text('ISSUED', margin, y)
-  doc.text(inv.type === 'invoice' ? 'DUE DATE' : inv.type === 'receipt' ? 'PAYMENT DATE' : 'VALID UNTIL', margin + 130, y)
-
-  y += 13
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(11)
-  doc.setTextColor(15, 23, 42)
-  doc.text(fmtDate(inv.issueDate), margin, y)
-  doc.text(fmtDate(inv.dueDate || inv.validUntil), margin + 130, y)
-
-  if (inv.claimNumbers?.length) {
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(100, 116, 139)
-    doc.text('CLAIM #', margin + 280, y - 13)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(11)
-    doc.setTextColor(15, 23, 42)
-    doc.text(inv.claimNumbers.join(', '), margin + 280, y)
-  }
-
-  y += 24
-
-  // ── Divider ──
-  doc.setDrawColor(226, 232, 240)
-  doc.setLineWidth(0.5)
-  doc.line(margin, y, pw - margin, y)
-  y += 18
-
-  // ── Bill To ──
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(100, 116, 139)
-  doc.text('BILL TO', margin, y)
-  y += 13
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(12)
-  doc.setTextColor(15, 23, 42)
-  doc.text(inv.clientName || '', margin, y)
-  y += 14
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  doc.setTextColor(71, 85, 105)
-  if (inv.clientAddress) { doc.text(inv.clientAddress, margin, y); y += 13 }
-  if (inv.clientPhone)   { doc.text(inv.clientPhone,   margin, y); y += 13 }
-  if (inv.clientEmail)   { doc.text(inv.clientEmail,   margin, y); y += 13 }
-
-  y += 16
-
-  // ── Line items table ──
-  const rows = (inv.lineItems || []).map(it => [
-    it.label,
-    it.description || '',
-    it.unit === 'total' ? 'lump sum' : `${it.qty} ${it.unit}`,
-    fmtMoney(it.price),
-    fmtMoney(parseFloat(it.total) || 0),
-  ])
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: margin, right: margin },
-    head: [['Item', 'Description', 'Qty / Unit', 'Price', 'Total']],
-    body: rows,
-    styles: { fontSize: 10, cellPadding: 7 },
-    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 9 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: {
-      0: { cellWidth: 130 },
-      1: { cellWidth: 'auto', textColor: [100, 116, 139] },
-      2: { cellWidth: 90, halign: 'center' },
-      3: { cellWidth: 80, halign: 'right' },
-      4: { cellWidth: 80, halign: 'right', fontStyle: 'bold' },
-    },
-  })
-
-  y = doc.lastAutoTable.finalY + 16
-
-  // ── Totals ──
-  const totW = 200
-  const totX = pw - margin - totW
-
-  const totRows = [
-    ['Subtotal', fmtMoney(inv.subtotal)],
-    [`Tax (${inv.taxRate || 0}%)`, fmtMoney(inv.taxAmount)],
-  ]
-  if (inv.discount > 0) totRows.push(['Discount', `– ${fmtMoney(inv.discount)}`])
-
-  doc.setFontSize(10)
-  doc.setTextColor(71, 85, 105)
-  totRows.forEach(([label, val]) => {
-    doc.setFont('helvetica', 'normal')
-    doc.text(label, totX, y)
-    doc.text(val, pw - margin, y, { align: 'right' })
-    y += 16
-  })
-
-  doc.setFontSize(0.5)
-  doc.setDrawColor(226, 232, 240)
-  doc.line(totX, y - 4, pw - margin, y - 4)
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(13)
-  doc.setTextColor(15, 23, 42)
-  doc.text('TOTAL', totX, y + 12)
-  doc.text(fmtMoney(inv.total), pw - margin, y + 12, { align: 'right' })
-  y += 30
-
-  // ── Notes / Terms ──
-  if (inv.notes) {
-    y += 10
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.setTextColor(100, 116, 139)
-    doc.text('NOTES', margin, y)
-    y += 12
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.setTextColor(71, 85, 105)
-    const noteLines = doc.splitTextToSize(inv.notes, pw - 2 * margin)
-    doc.text(noteLines, margin, y)
-    y += noteLines.length * 13
-  }
-
-  if (inv.terms) {
-    y += 10
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.setTextColor(100, 116, 139)
-    doc.text('TERMS', margin, y)
-    y += 12
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.setTextColor(71, 85, 105)
-    const termLines = doc.splitTextToSize(inv.terms, pw - 2 * margin)
-    doc.text(termLines, margin, y)
-  }
-
-  // ── Footer ──
-  const ph = doc.internal.pageSize.getHeight()
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(148, 163, 184)
-  doc.text(inv.companyName || '', pw / 2, ph - 20, { align: 'center' })
-
-  // ── PAID watermark ──
-  if (inv.type === 'receipt' || inv.status === 'paid') {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(110)
-    doc.setTextColor(187, 247, 208) // very light green — visible but non-intrusive
-    doc.text('PAID', pw / 2, ph / 2 + 40, { align: 'center', angle: 40 })
-  }
-
-  return doc
-}
-
-function fmtDate(str) {
-  if (!str) return '—'
-  const d = new Date(str + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 async function loadImageAsBase64(url) {
@@ -684,10 +465,17 @@ export default function InvoiceEditor() {
       }
       setSaveMsg('ok')
       setTimeout(() => setSaveMsg(''), 3000)
+      return true
     } catch (e) {
       console.error(e); setSaveMsg('err')
+      return false
     } finally {
       setSaving(false) }
+  }
+
+  async function saveAndSendSms() {
+    const ok = await doSave()
+    if (ok) openSmsView()
   }
 
   // ── Convert estimate → invoice ────────────────────────────────────────────
@@ -696,12 +484,13 @@ export default function InvoiceEditor() {
     if ((!clientUid && !clientDocId) || !orgId || type !== 'estimate') return
     setSaving(true)
     try {
-      const invNum = await getNextNumber(orgId, 'invoice')
+      const invNum     = await getNextNumber(orgId, 'invoice')
+      const newDueDate = addDays(todayStr(), 30)
       const newInv = buildInvoice({
         invoiceNumber: invNum,
         type: 'invoice',
         status: 'draft',
-        dueDate: addDays(todayStr(), 30),
+        dueDate: newDueDate,
         validUntil: null,
         createdAt: serverTimestamp(),
         createdBy: user.uid,
@@ -712,7 +501,28 @@ export default function InvoiceEditor() {
         : collection(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices')
       const newRef = await addDoc(invColRef, newInv)
 
-      // Mark estimate as converted
+      // Write new invoice to invoice_summary so it appears in OpenWork
+      await setDoc(
+        doc(db, 'organization_data', orgId, 'invoice_summary', newRef.id),
+        {
+          invoiceId:     newRef.id,
+          clientUid:     clientUid || null,
+          clientDocId:   clientDocId || null,
+          clientName,
+          clientPhone,
+          type:          'invoice',
+          status:        'draft',
+          invoiceNumber: invNum,
+          total:         totals.total,
+          subtotal:      totals.subtotal,
+          issueDate,
+          dueDate:       newDueDate,
+          updatedAt:     serverTimestamp(),
+        },
+        { merge: true }
+      )
+
+      // Mark estimate as converted (archive it)
       if (!isNew) {
         const estDocRef = clientUid
           ? doc(db, 'users', clientUid, 'invoices', invoiceId)
@@ -722,6 +532,12 @@ export default function InvoiceEditor() {
           convertedInvoiceId: newRef.id,
           updatedAt: serverTimestamp(),
         })
+        // Archive estimate in invoice_summary so OpenWork no longer shows it as active
+        await setDoc(
+          doc(db, 'organization_data', orgId, 'invoice_summary', invoiceId),
+          { status: 'converted', updatedAt: serverTimestamp() },
+          { merge: true }
+        )
       }
       navigate(`/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${newRef.id}`)
     } catch (e) {
@@ -924,6 +740,17 @@ export default function InvoiceEditor() {
       }
 
       setSmsViewData({ viewUrl, sms: smsSent })
+
+      if (clientUid) {
+        const typeLabel = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
+        const phoneCount = smsSent.length
+        addDoc(collection(db, 'users', clientUid, 'activity'), {
+          type: 'invoice_sent',
+          details: `${typeLabel}${invNumber ? ` #${invNumber}` : ''} (${fmtMoney(totals.total)}) view link sent via SMS${phoneCount > 0 ? ` to ${phoneCount} number${phoneCount !== 1 ? 's' : ''}` : ' — link generated'}`,
+          timestamp: serverTimestamp(),
+          actor: user?.displayName || user?.email || 'contractor',
+        }).catch(() => {})
+      }
     } catch (e) {
       console.error('sendViewLink:', e)
       setSmsViewError('Network error. Please try again.')
@@ -1023,6 +850,11 @@ export default function InvoiceEditor() {
           {!isNew && (
             <button className="ied-btn ied-btn--outline" onClick={openSmsView}>
               📱 Send via SMS
+            </button>
+          )}
+          {!isNew && (
+            <button className="ied-btn ied-btn--outline" onClick={saveAndSendSms} disabled={saving}>
+              💾 Save & Send SMS
             </button>
           )}
           <button className="ied-btn ied-btn--primary" onClick={() => doSave()} disabled={saving}>
@@ -1246,6 +1078,11 @@ export default function InvoiceEditor() {
             {!isNew && (
               <button className="ied-btn ied-btn--outline ied-btn--block" onClick={openSmsView}>
                 📱 Send via SMS
+              </button>
+            )}
+            {!isNew && (
+              <button className="ied-btn ied-btn--outline ied-btn--block" onClick={saveAndSendSms} disabled={saving}>
+                💾 Save &amp; Send SMS
               </button>
             )}
             {isEstimate && status !== 'converted' && (

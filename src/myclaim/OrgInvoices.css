@@ -61,7 +61,28 @@
 
 .oil-page-header {
   margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
+
+.oil-sync-btn {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.oil-sync-btn:hover:not(:disabled) { background: #f1f5f9; border-color: #cbd5e1; }
+.oil-sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .oil-title {
   margin: 0 0 4px;

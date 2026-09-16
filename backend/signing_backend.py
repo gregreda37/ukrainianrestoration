@@ -649,3 +649,161 @@ def contractor_sign():
         resp_body["contractorAudit"] = contractor_audit_record
 
     return jsonify(resp_body)
+
+
+# ── Approve estimate (public token auth) ─────────────────────────────────────
+
+@signing_app.route("/approve-estimate", methods=["POST"])
+def approve_estimate():
+    """
+    Token-authenticated endpoint — no Firebase auth required.
+    Validated via view_links/{viewToken} in Firestore.
+    Accepts: viewToken, pdfBase64, signatureDataUrl, signerName, signerIp, userAgent.
+    """
+    data         = request.json or {}
+    view_token   = data.get("viewToken",        "").strip()
+    pdf_base64   = data.get("pdfBase64",        "").strip()
+    sig_data_url = data.get("signatureDataUrl", "").strip()
+    signer_name  = data.get("signerName",       "").strip()
+    signer_ip    = data.get("signerIp",         "").strip()
+    user_agent   = data.get("userAgent",        "").strip()
+
+    if not view_token:   return jsonify({"error": "viewToken required"}),        400
+    if not pdf_base64:   return jsonify({"error": "pdfBase64 required"}),        400
+    if not sig_data_url: return jsonify({"error": "signatureDataUrl required"}), 400
+    if not signer_name:  return jsonify({"error": "signerName required"}),       400
+
+    # ── Validate view_link token ──────────────────────────────────────────────
+    try:
+        db        = admin_firestore.client()
+        link_ref  = db.collection("view_links").document(view_token)
+        link_snap = link_ref.get()
+    except Exception as exc:
+        return jsonify({"error": f"Token validation error: {exc}"}), 500
+
+    if not link_snap.exists:
+        return jsonify({"error": "Link not found or expired."}), 404
+
+    link_data = link_snap.to_dict()
+
+    expires_raw = link_data.get("expiresAt")
+    if expires_raw:
+        from datetime import timezone as _tz
+        now_utc = datetime.now(_tz.utc)
+        exp_dt  = expires_raw
+        if hasattr(exp_dt, "tzinfo") and exp_dt.tzinfo is None:
+            exp_dt = exp_dt.replace(tzinfo=_tz.utc)
+        if exp_dt < now_utc:
+            return jsonify({"error": "This link has expired."}), 410
+
+    if link_data.get("approvedAt"):
+        return jsonify({"error": "This estimate has already been approved."}), 409
+
+    inv           = link_data.get("invoice") or {}
+    org_id        = (link_data.get("orgId")       or "").strip()
+    client_doc_id = (link_data.get("clientDocId") or "").strip()
+    client_uid    = (link_data.get("clientUid")   or "").strip()
+    invoice_id    = (inv.get("id")                or "").strip()
+    inv_number    = inv.get("invoiceNumber", "")
+    doc_name      = f"Estimate {'#' + inv_number if inv_number else invoice_id or 'Approved'}"
+
+    # ── Build signed PDF ──────────────────────────────────────────────────────
+    try:
+        pdf_bytes = base64.b64decode(pdf_base64)
+        sig_bytes = base64.b64decode(sig_data_url.split(",", 1)[-1])
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        _composite_legacy(doc, sig_bytes, signer_name)
+
+        signed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        cert_data = {
+            "docName":    doc_name,
+            "todoId":     invoice_id or view_token[:12],
+            "signerName": signer_name,
+            "signerIp":   signer_ip,
+            "userAgent":  user_agent,
+            "signedAt":   signed_at,
+            "fields":     [],
+        }
+        _add_certificate_page(doc, cert_data)
+        signed_bytes = doc.tobytes(garbage=4, deflate=True)
+        doc.close()
+    except Exception as exc:
+        return jsonify({"error": f"Could not process PDF: {exc}"}), 500
+
+    # ── Upload to Storage ─────────────────────────────────────────────────────
+    try:
+        bucket    = admin_storage.bucket(BUCKET_NAME)
+        safe_name = doc_name.replace(" ", "_").replace("/", "_")
+
+        if org_id and client_doc_id and invoice_id:
+            blob_path = f"users/{org_id}/documents/clients/{client_doc_id}/signed/{invoice_id}/{safe_name}_approved.pdf"
+        elif org_id and client_doc_id:
+            blob_path = f"users/{org_id}/documents/clients/{client_doc_id}/signed/{view_token[:12]}/{safe_name}_approved.pdf"
+        else:
+            blob_path = f"signed/estimates/{view_token[:12]}/{safe_name}_approved.pdf"
+
+        blob     = bucket.blob(blob_path)
+        dl_token = str(uuid.uuid4())
+        blob.upload_from_string(signed_bytes, content_type="application/pdf")
+        blob.reload()
+        blob.metadata = {"firebaseStorageDownloadTokens": dl_token}
+        blob.patch()
+        signed_doc_url = _firebase_download_url(BUCKET_NAME, blob_path, dl_token)
+    except Exception as exc:
+        return jsonify({"error": f"Could not save signed PDF: {exc}"}), 500
+
+    # ── Write to client portal documents ─────────────────────────────────────
+    if org_id and client_doc_id:
+        try:
+            db.collection("organization_data").document(org_id) \
+              .collection("clients").document(client_doc_id) \
+              .collection("documents").add({
+                  "name":      doc_name,
+                  "type":      "signed_estimate",
+                  "url":       signed_doc_url,
+                  "invoiceId": invoice_id,
+                  "addedAt":   datetime.utcnow().isoformat() + "Z",
+                  "addedBy":   signer_name,
+              })
+        except Exception as exc:
+            print(f"[approve-estimate] portal document write failed: {exc}")
+
+    # ── Update invoice status to 'approved' ───────────────────────────────────
+    if org_id and client_doc_id and invoice_id:
+        for ref_fn in [
+            lambda: db.collection("organization_data").document(org_id)
+                      .collection("clients").document(client_doc_id)
+                      .collection("invoices").document(invoice_id),
+            lambda: db.collection("users").document(org_id)
+                      .collection("clients").document(client_doc_id)
+                      .collection("invoices").document(invoice_id),
+        ]:
+            try:
+                ref_fn().update({"status": "approved"})
+            except Exception as exc:
+                print(f"[approve-estimate] invoice status update failed: {exc}")
+
+    # ── Activity log ──────────────────────────────────────────────────────────
+    if client_uid:
+        try:
+            details = f"Estimate{(' #' + inv_number) if inv_number else ''} signed and approved by {signer_name}"
+            db.collection("users").document(client_uid).collection("activity").add({
+                "type":      "estimate_approved",
+                "details":   details,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "actor":     "client",
+            })
+        except Exception as exc:
+            print(f"[approve-estimate] activity log failed: {exc}")
+
+    # ── Mark view_link approved ───────────────────────────────────────────────
+    try:
+        link_ref.update({
+            "approvedAt":   datetime.utcnow().isoformat() + "Z",
+            "approvedBy":   signer_name,
+            "signedDocUrl": signed_doc_url,
+        })
+    except Exception as exc:
+        print(f"[approve-estimate] view_link update failed: {exc}")
+
+    return jsonify({"signedDocUrl": signed_doc_url, "docName": doc_name})

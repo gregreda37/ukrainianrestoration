@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import {
-  collection, getDocs, doc, getDoc, deleteDoc, orderBy, query
+  collection, getDocs, doc, getDoc, deleteDoc, orderBy, query,
+  setDoc, addDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import './Invoices.css'
+
+const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '')
 
 const STATUS_META = {
   draft:     { label: 'Draft',     color: '#64748b', bg: '#f1f5f9' },
@@ -34,14 +37,24 @@ export default function Invoices() {
   const navigate = useNavigate()
   const { user } = useAuth()
 
-  const [invoices, setInvoices]       = useState([])
-  const [loading, setLoading]         = useState(true)
-  const [clientUid, setClientUid]     = useState(null)
-  const [clientDocId, setClientDocId] = useState('')
-  const [clientName, setClientName]   = useState('')
-  const [orgId, setOrgId]             = useState('')
-  const [deleting, setDeleting]       = useState(null)
-  const [confirmDel, setConfirmDel]   = useState(null)
+  const [invoices, setInvoices]               = useState([])
+  const [loading, setLoading]                 = useState(true)
+  const [clientUid, setClientUid]             = useState(null)
+  const [clientDocId, setClientDocId]         = useState('')
+  const [clientName, setClientName]           = useState('')
+  const [clientPhone, setClientPhone]         = useState('')
+  const [secondaryContacts, setSecondaryContacts] = useState([])
+  const [orgId, setOrgId]                     = useState('')
+  const [deleting, setDeleting]               = useState(null)
+  const [confirmDel, setConfirmDel]           = useState(null)
+
+  // ── SMS view modal state ──
+  const [smsInv,     setSmsInv]     = useState(null)
+  const [smsPhones,  setSmsPhones]  = useState([])
+  const [smsLoading, setSmsLoading] = useState(false)
+  const [smsData,    setSmsData]    = useState(null)
+  const [smsError,   setSmsError]   = useState('')
+  const [smsCopied,  setSmsCopied]  = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -75,6 +88,8 @@ export default function Invoices() {
       setClientUid(uid)
       setClientDocId(docId)
       setClientName(cdata.name || '')
+      setClientPhone(cdata.phone || '')
+      setSecondaryContacts(cdata.secondaryContacts || [])
 
       const orgInvQuery = query(
         collection(db, 'organization_data', oid, 'clients', docId, 'invoices'),
@@ -102,6 +117,80 @@ export default function Invoices() {
     }
   }
 
+  function openSms(inv) {
+    const phones = []
+    if (clientPhone) phones.push(clientPhone)
+    secondaryContacts.forEach(c => { if (c.phone) phones.push(c.phone) })
+    setSmsInv(inv)
+    setSmsPhones(phones)
+    setSmsData(null)
+    setSmsError('')
+    setSmsCopied(false)
+  }
+
+  async function sendViewLink() {
+    if (!orgId || !clientDocId || !smsInv) return
+    setSmsLoading(true)
+    setSmsError('')
+    try {
+      const token = crypto.randomUUID().replace(/-/g, '')
+      const { id: _id, _isOrgInvoice: _f, createdAt: _c, updatedAt: _u, createdBy: _cb, paymentLinkTodoId: _p, ...invSnapshot } = smsInv
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+
+      await setDoc(doc(db, 'view_links', token), {
+        orgId,
+        clientDocId,
+        invoiceId: smsInv.id,
+        clientUid: clientUid || null,
+        invoice: invSnapshot,
+        expiresAt,
+        createdAt: serverTimestamp(),
+        createdBy: user.uid,
+      })
+
+      const viewUrl = `${window.location.origin}/myclaim/view/${token}`
+      const typeLabel = smsInv.type === 'estimate' ? 'Estimate' : smsInv.type === 'receipt' ? 'Receipt' : 'Invoice'
+      const msg = `${invSnapshot.companyName || 'Your contractor'}: Your ${typeLabel}${smsInv.invoiceNumber ? ` #${smsInv.invoiceNumber}` : ''} (${fmtMoney(smsInv.total)}) is ready to view: ${viewUrl}`
+
+      let smsSent = []
+      if (smsPhones.length > 0) {
+        const [primaryPhone, ...otherPhones] = smsPhones
+        const idToken = await user.getIdToken()
+        const r = await fetch(`${BACKEND}/notify-client`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: primaryPhone,
+            type: 'view_invoice',
+            message: msg,
+            secondaryPhones: otherPhones,
+          }),
+        })
+        const data = await r.json()
+        if (!r.ok || data.error) { setSmsError(data.error || 'Could not send SMS.'); return }
+        smsSent = [{ phone: primaryPhone }, ...(data.secondary || []).map(p => ({ phone: p }))]
+      }
+
+      setSmsData({ viewUrl, sms: smsSent })
+
+      if (clientUid) {
+        const typeLabel = smsInv.type === 'estimate' ? 'Estimate' : smsInv.type === 'receipt' ? 'Receipt' : 'Invoice'
+        const phoneCount = smsSent.length
+        addDoc(collection(db, 'users', clientUid, 'activity'), {
+          type: 'invoice_sent',
+          details: `${typeLabel}${smsInv.invoiceNumber ? ` #${smsInv.invoiceNumber}` : ''} (${fmtMoney(smsInv.total)}) view link sent via SMS${phoneCount > 0 ? ` to ${phoneCount} number${phoneCount !== 1 ? 's' : ''}` : ' — link generated'}`,
+          timestamp: serverTimestamp(),
+          actor: user?.displayName || user?.email || 'contractor',
+        }).catch(() => {})
+      }
+    } catch (e) {
+      console.error('sendViewLink:', e)
+      setSmsError('Network error. Please try again.')
+    } finally {
+      setSmsLoading(false)
+    }
+  }
+
   async function doDelete(inv) {
     if (!clientUid && !clientDocId) return
     setDeleting(inv.id)
@@ -125,9 +214,10 @@ export default function Invoices() {
     }
   }
 
-  const estimates = invoices.filter(i => i.type === 'estimate')
-  const invList   = invoices.filter(i => i.type === 'invoice' && i.status !== 'paid')
-  const receipts  = invoices.filter(i => i.type === 'receipt' || (i.type === 'invoice' && i.status === 'paid'))
+  const estimates         = invoices.filter(i => i.type === 'estimate' && i.status !== 'converted')
+  const archivedEstimates = invoices.filter(i => i.type === 'estimate' && i.status === 'converted')
+  const invList           = invoices.filter(i => i.type === 'invoice' && i.status !== 'paid')
+  const receipts          = invoices.filter(i => i.type === 'receipt' || (i.type === 'invoice' && i.status === 'paid'))
 
   const basePath = `/myclaim/clients/${encodeURIComponent(routeParam)}/invoices`
 
@@ -167,17 +257,109 @@ export default function Invoices() {
         <>
           {estimates.length > 0 && (
             <Section title="Estimates" items={estimates} basePath={basePath}
-              onDelete={setConfirmDel} />
+              onDelete={setConfirmDel} onSend={openSms} />
           )}
           {invList.length > 0 && (
             <Section title="Invoices" items={invList} basePath={basePath}
-              onDelete={setConfirmDel} />
+              onDelete={setConfirmDel} onSend={openSms} />
           )}
           {receipts.length > 0 && (
             <Section title="Receipts" items={receipts} basePath={basePath}
-              onDelete={setConfirmDel} isReceipts />
+              onDelete={setConfirmDel} onSend={openSms} isReceipts />
+          )}
+          {archivedEstimates.length > 0 && (
+            <Section title="Archived Estimates" items={archivedEstimates} basePath={basePath}
+              onDelete={setConfirmDel} onSend={openSms} isArchived />
           )}
         </>
+      )}
+
+      {/* SMS view modal */}
+      {smsInv && (
+        <div className="inv-overlay" onClick={() => setSmsInv(null)}>
+          <div className="inv-modal" onClick={e => e.stopPropagation()}>
+            <p className="inv-modal-title">Send via SMS</p>
+            <p style={{ fontSize: 13.5, color: '#64748b', margin: '0 0 18px' }}>
+              Share a view link for <strong>{smsInv.invoiceNumber || 'this document'}</strong> ({fmtMoney(smsInv.total)}).
+              The recipient can view and print without logging in. Link expires in 30 days.
+            </p>
+
+            {(clientPhone || secondaryContacts.length > 0) ? (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  Send SMS to:
+                </div>
+                {[
+                  clientPhone ? { phone: clientPhone, label: 'Primary' } : null,
+                  ...secondaryContacts.map(c => ({ phone: c.phone, label: c.label || 'Authorized contact' })),
+                ].filter(Boolean).map(c => (
+                  <label key={c.phone} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 13.5, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={smsPhones.includes(c.phone)}
+                      onChange={e => {
+                        if (e.target.checked) setSmsPhones(p => [...p, c.phone])
+                        else setSmsPhones(p => p.filter(x => x !== c.phone))
+                      }}
+                    />
+                    <span>{c.phone}</span>
+                    <span style={{ color: '#94a3b8', fontSize: 12 }}>({c.label})</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 18px' }}>
+                No phone on file — link will be generated but no SMS sent.
+              </p>
+            )}
+
+            {smsData && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Link Ready
+                </div>
+                <div style={{ fontSize: 12.5, color: '#065f46', wordBreak: 'break-all', marginBottom: 10, lineHeight: 1.5 }}>
+                  {smsData.viewUrl}
+                </div>
+                <button
+                  className="inv-btn inv-btn--outline"
+                  style={{ fontSize: 12.5, padding: '5px 14px' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(smsData.viewUrl)
+                    setSmsCopied(true)
+                    setTimeout(() => setSmsCopied(false), 2000)
+                  }}
+                >
+                  {smsCopied ? '✓ Copied!' : 'Copy Link'}
+                </button>
+                {smsData.sms?.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#15803d', marginTop: 10 }}>
+                    SMS sent to {smsData.sms.length} number{smsData.sms.length !== 1 ? 's' : ''}.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {smsError && (
+              <div style={{ background: '#fef2f2', color: '#dc2626', padding: '10px 12px', borderRadius: 8, fontSize: 13.5, marginBottom: 14 }}>
+                {smsError}
+              </div>
+            )}
+
+            <div className="inv-modal-actions">
+              <button className="inv-btn inv-btn--outline" onClick={() => setSmsInv(null)}>Close</button>
+              {!smsData ? (
+                <button className="inv-btn inv-btn--primary" onClick={sendViewLink} disabled={smsLoading}>
+                  {smsLoading ? 'Generating…' : smsPhones.length > 0 ? 'Generate & Send SMS' : 'Generate Link'}
+                </button>
+              ) : (
+                <button className="inv-btn inv-btn--outline" onClick={sendViewLink} disabled={smsLoading}>
+                  {smsLoading ? 'Sending…' : 'Resend SMS'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete confirm */}
@@ -200,9 +382,9 @@ export default function Invoices() {
   )
 }
 
-function Section({ title, items, basePath, onDelete, isReceipts }) {
+function Section({ title, items, basePath, onDelete, onSend, isReceipts, isArchived }) {
   return (
-    <div className="inv-section">
+    <div className={`inv-section${isArchived ? ' inv-section--archived' : ''}`}>
       <h3 className="inv-section-title">
         {title}
         {isReceipts && <span className="inv-section-paid-badge">✓ PAID</span>}
@@ -212,7 +394,7 @@ function Section({ title, items, basePath, onDelete, isReceipts }) {
           const meta = STATUS_META[inv.status] || STATUS_META.draft
           const dateLabel = inv.type === 'receipt' ? 'Payment date' : inv.type === 'invoice' ? 'Due' : 'Valid until'
           return (
-            <div key={inv.id} className={`inv-card${isReceipts ? ' inv-card--receipt' : ''}`}>
+            <div key={inv.id} className={`inv-card${isReceipts ? ' inv-card--receipt' : ''}${isArchived ? ' inv-card--archived' : ''}`}>
               <div className="inv-card-left">
                 <div className="inv-card-num">{inv.invoiceNumber || '—'}</div>
                 <div className="inv-card-client">{inv.clientName}</div>
@@ -236,6 +418,11 @@ function Section({ title, items, basePath, onDelete, isReceipts }) {
                   <button className="inv-action-btn" onClick={() => window.location.href = `${basePath}/${inv.id}`}>
                     View
                   </button>
+                  {!isArchived && (
+                    <button className="inv-action-btn inv-action-btn--sms" onClick={() => onSend(inv)}>
+                      📱 Send SMS
+                    </button>
+                  )}
                   <button className="inv-action-btn inv-action-btn--delete" onClick={() => onDelete(inv)}>
                     Delete
                   </button>

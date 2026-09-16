@@ -450,14 +450,20 @@ def create_payment_intent_public():
     now_utc = datetime.now(timezone.utc)
     exp     = link.get("expiresAt")
     if exp:
-        exp_dt = exp if isinstance(exp, datetime) else exp.ToDatetime(tzinfo=timezone.utc)
-        if exp_dt < now_utc:
-            return jsonify({"error": "Payment link has expired"}), 410
+        try:
+            exp_dt = exp if isinstance(exp, datetime) else exp.ToDatetime(tzinfo=timezone.utc)
+            if exp_dt < now_utc:
+                return jsonify({"error": "Payment link has expired"}), 410
+        except Exception:
+            pass  # malformed expiry — allow through rather than 500
 
-    org_id        = link["orgId"]
-    client_doc_id = link["clientDocId"]
-    invoice_id    = link["invoiceId"]
+    org_id        = link.get("orgId",       "").strip()
+    client_doc_id = link.get("clientDocId", "").strip()
+    invoice_id    = link.get("invoiceId",   "").strip()
     client_uid    = link.get("clientUid")
+
+    if not all([org_id, client_doc_id, invoice_id]):
+        return jsonify({"error": "Payment link is missing required fields"}), 400
 
     inv_ref, inv_snap = _resolve_inv(db, org_id, client_doc_id, invoice_id, client_uid)
 
@@ -478,8 +484,6 @@ def create_payment_intent_public():
         if existing_pi:
             try:
                 pi = s.PaymentIntent.retrieve(existing_pi)
-                # Only reuse if still actionable AND was created with automatic_payment_methods
-                # (older PIs lack this and won't show Apple Pay / Google Pay)
                 apm = (pi.get("automatic_payment_methods") or {}).get("enabled", False)
                 if apm and pi.status in ("requires_payment_method", "requires_confirmation", "requires_action"):
                     return jsonify({
@@ -512,15 +516,18 @@ def create_payment_intent_public():
             ),
             metadata=pi_metadata,
         )
+
+        inv_ref.set(
+            {"stripePaymentIntentId": intent.id, "stripeStatus": "pending"},
+            merge=True,
+        )
     except stripe.error.StripeError as e:
         return jsonify({"error": str(e)}), 400
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
-
-    inv_ref.set(
-        {"stripePaymentIntentId": intent.id, "stripeStatus": "pending"},
-        merge=True,
-    )
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
 
     return jsonify({
         "clientSecret": intent.client_secret,

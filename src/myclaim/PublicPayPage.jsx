@@ -47,7 +47,7 @@ function CheckoutForm({ inv, onSuccess }) {
     if (confirmErr) {
       setError(confirmErr.message)
       setPaying(false)
-    } else if (paymentIntent?.status === 'succeeded') {
+    } else if (paymentIntent?.status === 'succeeded' || paymentIntent?.status === 'processing') {
       onSuccess()
     } else {
       setPaying(false)
@@ -105,6 +105,22 @@ export default function PublicPayPage() {
 
   useEffect(() => {
     if (!token) { setErr('Invalid payment link.'); setLoading(false); return }
+
+    // Stripe redirects back here after 3D Secure / redirect-required flows
+    // with ?redirect_status=succeeded|failed&payment_intent=...
+    const params = new URLSearchParams(window.location.search)
+    const redirectStatus = params.get('redirect_status')
+    if (redirectStatus === 'succeeded') {
+      setStep('success')
+      setLoading(false)
+      return
+    }
+    if (redirectStatus === 'failed') {
+      setErr('Payment was not completed. Please try again.')
+      setLoading(false)
+      return
+    }
+
     fetch(`${BACKEND}/stripe/payment-link/${token}`)
       .then(async r => {
         const data = await r.json()
@@ -189,12 +205,12 @@ export default function PublicPayPage() {
       <div className="ppp-shell">
         <div className="ppp-status-card">
           <div className="ppp-status-icon ppp-status-icon--ok">✓</div>
-          <h2 className="ppp-status-title">Payment Successful</h2>
+          <h2 className="ppp-status-title">Payment Received</h2>
           <p className="ppp-status-body">
-            Your payment of {fmtMoney(inv?.totalCharged)} has been received.
+            Your payment of {fmtMoney(inv?.totalCharged)} has been submitted successfully.
           </p>
           <p className="ppp-status-sub">
-            Thank you! A confirmation will be sent once your payment is processed.
+            Thank you! Your contractor will be notified once the payment clears.
           </p>
         </div>
       </div>

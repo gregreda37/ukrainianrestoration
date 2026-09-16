@@ -11,7 +11,9 @@ Two modes:
 import os
 import base64
 import uuid
+import re
 from datetime import datetime
+from urllib.parse import quote
 
 import fitz  # PyMuPDF
 import requests as http_requests
@@ -42,7 +44,7 @@ def _verify_token(req):
 
 
 def _firebase_download_url(bucket_name, blob_name, token):
-    encoded = blob_name.replace("/", "%2F")
+    encoded = quote(blob_name, safe='')
     return (
         f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}"
         f"/o/{encoded}?alt=media&token={token}"
@@ -435,7 +437,7 @@ def sign_document():
     # ── Upload signed PDF ────────────────────────────────────────────────────
     try:
         bucket    = admin_storage.bucket(BUCKET_NAME)
-        safe_name = doc_name.replace(" ", "_").replace("/", "_")
+        safe_name = re.sub(r'[^\w\-]', '_', doc_name)
         # Primary: org-scoped path matching frontend upload convention
         # Fallback: uid-scoped path when org context not provided
         if org_id and client_doc_id:
@@ -587,7 +589,7 @@ def contractor_sign():
     # ── Upload countersigned PDF ─────────────────────────────────────────────
     try:
         bucket = admin_storage.bucket(BUCKET_NAME)
-        safe_name = doc_name.replace(" ", "_").replace("/", "_")
+        safe_name = re.sub(r'[^\w\-]', '_', doc_name)
 
         if org_id and client_doc_id:
             blob_path = f"users/{org_id}/documents/clients/{client_doc_id}/signed/{todo_id}/{safe_name}_countersigned.pdf"
@@ -730,7 +732,7 @@ def approve_estimate():
     # ── Upload to Storage ─────────────────────────────────────────────────────
     try:
         bucket    = admin_storage.bucket(BUCKET_NAME)
-        safe_name = doc_name.replace(" ", "_").replace("/", "_")
+        safe_name = re.sub(r'[^\w\-]', '_', doc_name)
 
         if org_id and client_doc_id and invoice_id:
             blob_path = f"users/{org_id}/documents/clients/{client_doc_id}/signed/{invoice_id}/{safe_name}_approved.pdf"

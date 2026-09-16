@@ -604,15 +604,31 @@ export default function Dashboard() {
           .filter(c => !c.archived && (assignedPhones === null || assignedPhones.includes(c.phone)));
         setTotalClients(all.length)
 
-        // Fetch latest activity for all portal-connected clients (cap at 60) to find truly most-active
-        const withUid = all.filter(c => c.uid).slice(0, 60)
-        const actResults = await Promise.all(
-          withUid.map(c =>
-            getDocs(query(collection(db, 'users', c.uid, 'activity'), orderBy('timestamp', 'desc'), limit(1)))
-              .then(snap => ({ docId: c.id, snap }))
-              .catch(() => null)
-          )
-        )
+        // Mirror Clients page: only open-claim clients in the recent section
+        const openAll = all.filter(c => (c.claimStatus || 'open') !== 'closed')
+
+        // Fetch lastLogin (for sort) + latest activity (for display) for portal clients in parallel
+        const withUid = openAll.filter(c => c.uid).slice(0, 60)
+        const [userResults, actResults] = await Promise.all([
+          Promise.all(
+            withUid.map(c =>
+              getDoc(doc(db, 'users', c.uid))
+                .then(snap => ({ docId: c.id, lastLogin: snap.exists() ? snap.data().lastLogin : null }))
+                .catch(() => null)
+            )
+          ),
+          Promise.all(
+            withUid.map(c =>
+              getDocs(query(collection(db, 'users', c.uid, 'activity'), orderBy('timestamp', 'desc'), limit(1)))
+                .then(snap => ({ docId: c.id, snap }))
+                .catch(() => null)
+            )
+          ),
+        ])
+
+        const lastLoginMap = {}
+        userResults.forEach(r => { if (r?.lastLogin) lastLoginMap[r.docId] = r.lastLogin })
+
         const activityMap = {}
         actResults.forEach(r => {
           if (r && !r.snap.empty) {
@@ -621,17 +637,17 @@ export default function Dashboard() {
           }
         })
 
-        // Sort by most recent activity timestamp, fall back to updatedAt then addedAt
-        all.sort((a, b) => {
-          const aAct = activityMap[a.id]?.timestamp?.toMillis?.() ?? 0
-          const bAct = activityMap[b.id]?.timestamp?.toMillis?.() ?? 0
-          if (aAct !== bAct) return bAct - aAct
+        // Sort by lastLogin desc — same as Clients page active clients sort
+        const loginTs = v => v?.toMillis?.() ?? (v ? new Date(v).getTime() : 0)
+        openAll.sort((a, b) => {
+          const diff = loginTs(lastLoginMap[b.id]) - loginTs(lastLoginMap[a.id])
+          if (diff !== 0) return diff
           const at = Math.max(a.updatedAt?.toMillis?.() ?? 0, a.addedAt?.toMillis?.() ?? 0)
           const bt = Math.max(b.updatedAt?.toMillis?.() ?? 0, b.addedAt?.toMillis?.() ?? 0)
           return bt - at
         })
 
-        const top8 = all.slice(0, 8)
+        const top8 = openAll.slice(0, 8)
         setRecentClients(top8)
         if (!cancelled) setRecentActivities(activityMap)
 

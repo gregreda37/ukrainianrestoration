@@ -480,6 +480,12 @@ export default function InvoiceEditor() {
         await writeSummary(invoiceId, inv.status, null)
         if (statusOverride) setStatus(statusOverride)
       }
+      // Bump client updatedAt so the dashboard recent-clients sort reflects this activity
+      if (clientDocId) {
+        updateDoc(doc(db, 'organization_data', orgId, 'clients', clientDocId), {
+          updatedAt: serverTimestamp(),
+        }).catch(() => {})
+      }
       setSaveMsg('ok')
       setTimeout(() => setSaveMsg(''), 3000)
       return true

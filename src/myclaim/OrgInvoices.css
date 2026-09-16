@@ -68,27 +68,49 @@
   flex-wrap: wrap;
 }
 
-.oil-sync-btn {
-  background: #f8fafc;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.15s, border-color 0.15s;
-  white-space: nowrap;
+.oil-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
 }
-.oil-sync-btn:hover:not(:disabled) { background: #f1f5f9; border-color: #cbd5e1; }
-.oil-sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .oil-title {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 26px;
   font-weight: 800;
   color: #0f172a;
+}
+
+.oil-sync-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: #94a3b8;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.oil-title-wrap:hover .oil-sync-icon,
+.oil-sync-icon--spinning { opacity: 1; }
+.oil-sync-icon svg { width: 14px; height: 14px; }
+.oil-sync-icon:hover:not(:disabled) { color: #2563eb; background: #eff6ff; }
+.oil-sync-icon:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@keyframes oil-spin { to { transform: rotate(360deg); } }
+.oil-sync-icon--spinning svg { animation: oil-spin 0.8s linear infinite; }
+
+.oil-sync-msg {
+  font-size: 12px;
+  color: #16a34a;
+  font-weight: 600;
 }
 
 .oil-sub {

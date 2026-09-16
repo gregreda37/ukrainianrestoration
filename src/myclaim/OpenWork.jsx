@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, getDoc, getDocs, deleteDoc, collection, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, getDocs, deleteDoc, collection, updateDoc, setDoc, serverTimestamp, getCountFromServer } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import Settlement from './Settlement'
 import './OrgInvoices.css'
@@ -344,6 +344,7 @@ export default function OpenWork() {
   const [savingStatus, setSavingStatus] = useState(null)
   const [syncing, setSyncing]         = useState(false)
   const [syncMsg, setSyncMsg]         = useState('')
+  const [hasMissing, setHasMissing]   = useState(false)
 
   useEffect(() => { if (user) load() }, [user])
 
@@ -359,7 +360,22 @@ export default function OpenWork() {
         getDocs(collection(db, 'organization_data', oid, 'settlement_summary')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'organization_data', oid, 'clients')).catch(() => ({ docs: [] })),
       ])
-      setRows(invSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const summaryRows = invSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setRows(summaryRows)
+
+      // Background check: count actual invoices across client sub-collections.
+      // If the total exceeds invoice_summary count, entries are missing.
+      const summaryCount = summaryRows.length
+      Promise.all(
+        clientsSnap.docs.map(cd =>
+          getCountFromServer(collection(db, 'organization_data', oid, 'clients', cd.id, 'invoices'))
+            .then(s => s.data().count)
+            .catch(() => 0)
+        )
+      ).then(counts => {
+        const total = counts.reduce((a, b) => a + b, 0)
+        setHasMissing(total > summaryCount)
+      }).catch(() => {})
 
       const uidToDocId = {}, nameToDocId = {}
       clientsSnap.docs.forEach(d => {
@@ -449,6 +465,7 @@ export default function OpenWork() {
       // Reload rows after sync
       const newSnap = await getDocs(collection(db, 'organization_data', orgId, 'invoice_summary'))
       setRows(newSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setHasMissing(false)
       setSyncMsg(`Synced ${synced} invoice${synced !== 1 ? 's' : ''}.`)
       setTimeout(() => setSyncMsg(''), 4000)
     } catch (e) {
@@ -574,21 +591,26 @@ export default function OpenWork() {
     <div className="oil-root" style={{ maxWidth: 1100 }}>
       <div className="oil-page-header">
         <div>
-          <h2 className="oil-title">Open Work</h2>
+          <div className="oil-title-wrap">
+            <h2 className="oil-title">Open Work</h2>
+            {hasMissing && (
+              <button
+                className={`oil-sync-icon${syncing ? ' oil-sync-icon--spinning' : ''}`}
+                onClick={syncSummary}
+                disabled={syncing}
+                title="Some invoices are missing from this view — click to sync"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5"/>
+                  <path d="M8 2.5 10.5 5 8 7.5"/>
+                </svg>
+              </button>
+            )}
+            {syncMsg && (
+              <span className="oil-sync-msg">{syncMsg}</span>
+            )}
+          </div>
           <p className="oil-sub">All outstanding invoices &amp; estimates across every client</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {syncMsg && (
-            <span style={{ fontSize: 13, color: '#16a34a', fontWeight: 600 }}>{syncMsg}</span>
-          )}
-          <button
-            className="oil-sync-btn"
-            onClick={syncSummary}
-            disabled={syncing}
-            title="Sync any invoices missing from this view"
-          >
-            {syncing ? 'Syncing…' : '🔄 Sync'}
-          </button>
         </div>
       </div>
 

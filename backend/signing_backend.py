@@ -699,7 +699,8 @@ def approve_estimate():
     org_id        = (link_data.get("orgId")       or "").strip()
     client_doc_id = (link_data.get("clientDocId") or "").strip()
     client_uid    = (link_data.get("clientUid")   or "").strip()
-    invoice_id    = (inv.get("id")                or "").strip()
+    # invoiceId is stored at the top level of view_links (not inside the invoice snapshot)
+    invoice_id    = (link_data.get("invoiceId") or inv.get("id") or "").strip()
     inv_number    = inv.get("invoiceNumber", "")
     doc_name      = f"Estimate {'#' + inv_number if inv_number else invoice_id or 'Approved'}"
 

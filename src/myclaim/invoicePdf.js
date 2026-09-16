@@ -106,18 +106,22 @@ export async function generatePDF(inv, logoBase64) {
 
   y += 16
 
-  const rows = (inv.lineItems || []).map(it => [
-    it.label,
-    it.description || '',
-    it.unit === 'total' ? 'lump sum' : `${it.qty} ${it.unit}`,
-    fmtMoney(it.price),
-    fmtMoney(parseFloat(it.total) || 0),
-  ])
+  const rows = (inv.lineItems || []).map(it => {
+    const qty   = parseFloat(it.qty)   || 0
+    const price = parseFloat(it.price) || 0
+    return [
+      it.label,
+      it.description || '',
+      String(qty),
+      fmtMoney(price),
+      fmtMoney(qty * price),
+    ]
+  })
 
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
-    head: [['Item', 'Description', 'Qty / Unit', 'Price', 'Total']],
+    head: [['Item', 'Description', 'Qty', 'Unit Price', 'Total']],
     body: rows,
     styles: { fontSize: 10, cellPadding: 7 },
     headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 9 },

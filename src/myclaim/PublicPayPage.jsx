@@ -23,11 +23,12 @@ function fmtDate(str) {
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
-function CheckoutForm({ inv, onSuccess }) {
+function CheckoutForm({ invoiceTotal, fee, totalCharged, paymentType, onSuccess }) {
   const stripe   = useStripe()
   const elements = useElements()
+  const [ready,  setReady]  = useState(false)
   const [paying, setPaying] = useState(false)
-  const [error, setError]   = useState('')
+  const [error,  setError]  = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -54,26 +55,30 @@ function CheckoutForm({ inv, onSuccess }) {
     }
   }
 
+  const amountLabel = paymentType === 'deposit' ? 'Deposit amount'
+    : paymentType === 'balance' ? 'Remaining balance'
+    : 'Invoice total'
+
   return (
     <form onSubmit={handleSubmit} className="ppp-checkout-form">
       <div className="ppp-fee-breakdown">
         <div className="ppp-fee-row">
-          <span>Invoice total</span>
-          <span>{fmtMoney(inv.total)}</span>
+          <span>{amountLabel}</span>
+          <span>{fmtMoney(invoiceTotal)}</span>
         </div>
         <div className="ppp-fee-row ppp-fee-row--fee">
           <span>Processing fee (2.9% + $0.30)</span>
-          <span>{fmtMoney(inv.fee)}</span>
+          <span>{fmtMoney(fee)}</span>
         </div>
         <div className="ppp-fee-divider" />
         <div className="ppp-fee-row ppp-fee-row--total">
           <span>Amount charged</span>
-          <span>{fmtMoney(inv.totalCharged)}</span>
+          <span>{fmtMoney(totalCharged)}</span>
         </div>
       </div>
 
       <div className="ppp-elements-wrap">
-        <PaymentElement />
+        <PaymentElement onReady={() => setReady(true)} />
       </div>
 
       {error && <div className="ppp-form-error">{error}</div>}
@@ -81,9 +86,9 @@ function CheckoutForm({ inv, onSuccess }) {
       <button
         type="submit"
         className="ppp-pay-btn"
-        disabled={!stripe || !elements || paying}
+        disabled={!ready || paying}
       >
-        {paying ? 'Processing…' : `Pay ${fmtMoney(inv.totalCharged)}`}
+        {paying ? 'Processing…' : `Pay ${fmtMoney(totalCharged)}`}
       </button>
       <p className="ppp-secure-note">🔒 Payments processed securely by Stripe</p>
     </form>
@@ -102,6 +107,8 @@ export default function PublicPayPage() {
   const [clientSecret,  setClientSecret]  = useState(null)
   const [secretLoading, setSecretLoading] = useState(false)
   const [secretErr,     setSecretErr]     = useState('')
+  const [paymentType,   setPaymentType]   = useState('full') // 'deposit' | 'full' | 'balance'
+  const [paymentAmounts, setPaymentAmounts] = useState(null) // { invoiceTotal, fee, totalCharged }
 
   useEffect(() => {
     if (!token) { setErr('Invalid payment link.'); setLoading(false); return }
@@ -127,6 +134,7 @@ export default function PublicPayPage() {
         if (!r.ok || data.error) { setErr(data.error || 'Could not load invoice.'); return }
         if (data.alreadyPaid) { setAlreadyPaid(true); setPaidMeta(data); return }
         setInv(data)
+        setPaymentType(data.depositPaid ? 'balance' : data.depositAmount > 0 ? 'deposit' : 'full')
       })
       .catch(() => setErr('Could not load this payment link. Please try again.'))
       .finally(() => setLoading(false))
@@ -139,10 +147,11 @@ export default function PublicPayPage() {
       const r = await fetch(`${BACKEND}/stripe/payment-intent-public`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ token }),
+        body:    JSON.stringify({ token, paymentType }),
       })
       const data = await r.json()
       if (!r.ok || data.error) { setSecretErr(data.error || 'Could not start payment.'); return }
+      setPaymentAmounts({ invoiceTotal: data.invoiceTotal, fee: data.fee, totalCharged: data.totalCharged })
       setClientSecret(data.clientSecret)
       setStep('pay')
     } catch {
@@ -201,16 +210,21 @@ export default function PublicPayPage() {
 
   // ── Payment success ──
   if (step === 'success') {
+    const chargedAmt = paymentAmounts?.totalCharged ?? inv?.totalCharged
+    const isDeposit  = paymentType === 'deposit'
+    const remaining  = inv && paymentAmounts ? inv.total - paymentAmounts.invoiceTotal : null
     return (
       <div className="ppp-shell">
         <div className="ppp-status-card">
           <div className="ppp-status-icon ppp-status-icon--ok">✓</div>
-          <h2 className="ppp-status-title">Payment Received</h2>
+          <h2 className="ppp-status-title">{isDeposit ? 'Deposit Received' : 'Payment Received'}</h2>
           <p className="ppp-status-body">
-            Your payment of {fmtMoney(inv?.totalCharged)} has been submitted successfully.
+            Your {isDeposit ? 'deposit' : 'payment'}{chargedAmt ? ` of ${fmtMoney(chargedAmt)}` : ''} has been submitted successfully.
           </p>
           <p className="ppp-status-sub">
-            Thank you! Your contractor will be notified once the payment clears.
+            {isDeposit && remaining != null
+              ? `Remaining balance of ${fmtMoney(remaining)} will be due upon completion.`
+              : 'Thank you! Your contractor will be notified once the payment clears.'}
           </p>
         </div>
       </div>
@@ -313,6 +327,44 @@ export default function PublicPayPage() {
           <div className="ppp-pay-section">
             {step === 'invoice' && (
               <>
+                {inv.depositAmount > 0 && (
+                  <div className="ppp-pay-options">
+                    {inv.depositPaid ? (
+                      <div className="ppp-deposit-paid-banner">
+                        <span className="ppp-deposit-paid-check">✓</span>
+                        <div>
+                          <div className="ppp-deposit-paid-title">Deposit paid — {fmtMoney(inv.depositPaidAmount)}</div>
+                          <div className="ppp-deposit-paid-sub">Remaining balance: {fmtMoney(inv.total - inv.depositPaidAmount)}</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={`ppp-pay-option${paymentType === 'deposit' ? ' ppp-pay-option--active' : ''}`}
+                          onClick={() => setPaymentType('deposit')}
+                        >
+                          <div>
+                            <div className="ppp-pay-option-label">Pay deposit</div>
+                            <div className="ppp-pay-option-hint">Due now</div>
+                          </div>
+                          <span className="ppp-pay-option-amount">{fmtMoney(inv.depositAmount)}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`ppp-pay-option${paymentType === 'full' ? ' ppp-pay-option--active' : ''}`}
+                          onClick={() => setPaymentType('full')}
+                        >
+                          <div>
+                            <div className="ppp-pay-option-label">Pay in full</div>
+                            <div className="ppp-pay-option-hint">Invoice total</div>
+                          </div>
+                          <span className="ppp-pay-option-amount">{fmtMoney(inv.total)}</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="ppp-fee-hint">
                   A 2.9% + $0.30 processing fee will be added at checkout.
                 </div>
@@ -322,14 +374,23 @@ export default function PublicPayPage() {
                   onClick={startPayment}
                   disabled={secretLoading}
                 >
-                  {secretLoading ? 'Preparing…' : 'Pay with Card'}
+                  {secretLoading ? 'Preparing…'
+                    : paymentType === 'deposit' ? 'Pay Deposit'
+                    : paymentType === 'balance' ? 'Pay Remaining Balance'
+                    : 'Pay in Full'}
                 </button>
               </>
             )}
 
             {step === 'pay' && clientSecret && (
               <Elements stripe={getStripe()} options={{ clientSecret, appearance }}>
-                <CheckoutForm inv={inv} onSuccess={() => setStep('success')} />
+                <CheckoutForm
+                  invoiceTotal={paymentAmounts?.invoiceTotal ?? inv.total}
+                  fee={paymentAmounts?.fee ?? inv.fee}
+                  totalCharged={paymentAmounts?.totalCharged ?? inv.totalCharged}
+                  paymentType={paymentType}
+                  onSuccess={() => setStep('success')}
+                />
               </Elements>
             )}
           </div>

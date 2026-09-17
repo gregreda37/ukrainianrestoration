@@ -163,6 +163,7 @@ def stripe_webhook():
 
 
 def _on_payment_succeeded(intent):
+    intent        = intent.to_dict() if hasattr(intent, "to_dict") else intent
     meta          = intent.get("metadata", {})
     org_id        = meta.get("orgId")
     client_doc_id = meta.get("clientDocId")
@@ -170,6 +171,7 @@ def _on_payment_succeeded(intent):
     invoice_total = float(meta.get("invoiceTotal", 0))
     fee           = float(meta.get("fee", 0))
     client_uid    = meta.get("clientUid") or None
+    payment_type  = meta.get("paymentType", "full")
     amount_recv   = intent.get("amount_received", 0) / 100
 
     if not all([org_id, client_doc_id, invoice_id]):
@@ -178,35 +180,45 @@ def _on_payment_succeeded(intent):
     db  = admin_firestore.client()
     fst = admin_firestore.SERVER_TIMESTAMP
 
-    update = {
-        "status":               "paid",
-        "stripeStatus":         "succeeded",
-        "stripePaymentIntentId": intent.get("id"),
-        "paidAt":               fst,
-        "paidAmount":           invoice_total,
-        "paymentMethod":        "credit_card",
-        "paymentNotes": (
-            f"Paid via Stripe | "
-            f"Processing fee: ${fee:.2f} | "
-            f"Total charged: ${amount_recv:.2f}"
-        ),
-    }
+    if payment_type == "deposit":
+        update = {
+            "depositPaid":           True,
+            "depositPaidAmount":     invoice_total,
+            "depositPaidAt":         fst,
+            "stripeStatus":          "deposit_paid",
+            "stripePaymentIntentId": intent.get("id"),
+        }
+    else:
+        update = {
+            "status":               "paid",
+            "stripeStatus":         "succeeded",
+            "stripePaymentIntentId": intent.get("id"),
+            "paidAt":               fst,
+            "paidAmount":           invoice_total,
+            "paymentMethod":        "credit_card",
+            "paymentNotes": (
+                f"Paid via Stripe | "
+                f"Processing fee: ${fee:.2f} | "
+                f"Total charged: ${amount_recv:.2f}"
+            ),
+        }
 
     # Resolve correct primary path (users/ or org/)
     inv_ref, inv_snap = _resolve_inv(db, org_id, client_doc_id, invoice_id, client_uid)
     inv_ref.set(update, merge=True)
 
-    # Auto-complete the pay_invoice todo if one was linked to this invoice
-    inv_data           = inv_snap.to_dict() if inv_snap.exists else {}
-    payment_link_todo  = inv_data.get("paymentLinkTodoId")
-    if payment_link_todo:
-        (db.collection("organization_data")
-           .document(org_id)
-           .collection("clients")
-           .document(client_doc_id)
-           .collection("todos")
-           .document(payment_link_todo)
-           .set({"completed": True, "completedAt": fst}, merge=True))
+    if payment_type != "deposit":
+        # Auto-complete the pay_invoice todo if one was linked to this invoice
+        inv_data          = inv_snap.to_dict() if inv_snap.exists else {}
+        payment_link_todo = inv_data.get("paymentLinkTodoId")
+        if payment_link_todo:
+            (db.collection("organization_data")
+               .document(org_id)
+               .collection("clients")
+               .document(client_doc_id)
+               .collection("todos")
+               .document(payment_link_todo)
+               .set({"completed": True, "completedAt": fst}, merge=True))
 
     # invoice_summary mirror
     summary_ref  = (db.collection("organization_data")
@@ -215,24 +227,32 @@ def _on_payment_succeeded(intent):
                       .document(invoice_id))
     summary_snap = summary_ref.get()
     if summary_snap.exists:
-        summary_ref.set({
-            "status":       "paid",
-            "paidAmount":   invoice_total,
-            "stripeStatus": "succeeded",
-        }, merge=True)
+        if payment_type == "deposit":
+            summary_ref.set({
+                "depositPaid":       True,
+                "depositPaidAmount": invoice_total,
+                "stripeStatus":      "deposit_paid",
+            }, merge=True)
+        else:
+            summary_ref.set({
+                "status":       "paid",
+                "paidAmount":   invoice_total,
+                "stripeStatus": "succeeded",
+            }, merge=True)
 
-        # Also update users/{clientUid}/invoices if discovered via summary
-        summary_uid = summary_snap.to_dict().get("clientUid")
-        if summary_uid and summary_uid != client_uid:
-            user_inv = (db.collection("users")
-                          .document(summary_uid)
-                          .collection("invoices")
-                          .document(invoice_id))
-            if user_inv.get().exists:
-                user_inv.set(update, merge=True)
+            # Also update users/{clientUid}/invoices if discovered via summary
+            summary_uid = summary_snap.to_dict().get("clientUid")
+            if summary_uid and summary_uid != client_uid:
+                user_inv = (db.collection("users")
+                              .document(summary_uid)
+                              .collection("invoices")
+                              .document(invoice_id))
+                if user_inv.get().exists:
+                    user_inv.set(update, merge=True)
 
 
 def _on_payment_failed(intent):
+    intent        = intent.to_dict() if hasattr(intent, "to_dict") else intent
     meta          = intent.get("metadata", {})
     org_id        = meta.get("orgId")
     client_doc_id = meta.get("clientDocId")
@@ -413,21 +433,24 @@ def get_payment_link(token):
     fee           = _calc_fee(invoice_total)
 
     return jsonify({
-        "invoiceNumber": inv.get("invoiceNumber"),
-        "clientName":    inv.get("clientName"),
-        "companyName":   inv.get("companyName"),
-        "companyPhone":  inv.get("companyPhone"),
-        "issueDate":     inv.get("issueDate"),
-        "dueDate":       inv.get("dueDate"),
-        "lineItems":     inv.get("lineItems", []),
-        "subtotal":      inv.get("subtotal"),
-        "taxAmount":     inv.get("taxAmount"),
-        "discount":      inv.get("discount"),
-        "total":         invoice_total,
-        "fee":           fee,
-        "totalCharged":  round(invoice_total + fee, 2),
-        "notes":         inv.get("notes"),
-        "status":        inv.get("status"),
+        "invoiceNumber":     inv.get("invoiceNumber"),
+        "clientName":        inv.get("clientName"),
+        "companyName":       inv.get("companyName"),
+        "companyPhone":      inv.get("companyPhone"),
+        "issueDate":         inv.get("issueDate"),
+        "dueDate":           inv.get("dueDate"),
+        "lineItems":         inv.get("lineItems", []),
+        "subtotal":          inv.get("subtotal"),
+        "taxAmount":         inv.get("taxAmount"),
+        "discount":          inv.get("discount"),
+        "total":             invoice_total,
+        "fee":               fee,
+        "totalCharged":      round(invoice_total + fee, 2),
+        "notes":             inv.get("notes"),
+        "status":            inv.get("status"),
+        "depositAmount":     float(inv.get("depositAmount") or 0) or None,
+        "depositPaid":       inv.get("depositPaid", False),
+        "depositPaidAmount": float(inv.get("depositPaidAmount") or 0),
     })
 
 
@@ -474,7 +497,22 @@ def create_payment_intent_public():
     if inv.get("status") in ("paid", "cancelled"):
         return jsonify({"error": "Invoice already paid or cancelled"}), 400
 
-    invoice_total = float(inv.get("total", 0))
+    payment_type = (data.get("paymentType") or "full").strip()
+    inv_total    = float(inv.get("total", 0))
+
+    if payment_type == "deposit":
+        deposit_amt = float(inv.get("depositAmount") or 0)
+        if deposit_amt <= 0:
+            return jsonify({"error": "No deposit amount configured for this invoice"}), 400
+        invoice_total = deposit_amt
+    elif payment_type == "balance":
+        deposit_paid_amt = float(inv.get("depositPaidAmount") or 0)
+        invoice_total    = round(inv_total - deposit_paid_amt, 2)
+        if invoice_total <= 0:
+            return jsonify({"error": "Remaining balance is zero"}), 400
+    else:
+        invoice_total = inv_total
+
     fee           = _calc_fee(invoice_total)
     total_charged = round(invoice_total + fee, 2)
 
@@ -486,7 +524,9 @@ def create_payment_intent_public():
                 pi = s.PaymentIntent.retrieve(existing_pi)
                 apm_obj = getattr(pi, "automatic_payment_methods", None)
                 apm = bool(apm_obj and getattr(apm_obj, "enabled", False))
-                if apm and pi.status in ("requires_payment_method", "requires_confirmation", "requires_action"):
+                pi_dict       = pi.to_dict() if hasattr(pi, "to_dict") else {}
+                existing_type = (pi_dict.get("metadata") or {}).get("paymentType", "full")
+                if apm and existing_type == payment_type and pi.status in ("requires_payment_method", "requires_confirmation", "requires_action"):
                     return jsonify({
                         "clientSecret": pi.client_secret,
                         "fee":          fee,
@@ -503,6 +543,7 @@ def create_payment_intent_public():
             "invoiceTotal":     str(invoice_total),
             "fee":              str(fee),
             "paymentLinkToken": token,
+            "paymentType":      payment_type,
         }
         if client_uid:
             pi_metadata["clientUid"] = client_uid

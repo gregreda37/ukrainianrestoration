@@ -160,7 +160,8 @@ export default function InvoiceEditor() {
   const [lineItems, setLineItems] = useState([DEFAULT_LINE()])
   const [taxRate,   setTaxRate]   = useState('')
   const [taxState,  setTaxState]  = useState('')
-  const [discount,  setDiscount]  = useState('')
+  const [discount,      setDiscount]      = useState('')
+  const [depositAmount, setDepositAmount] = useState('')
   const [notes,       setNotes]       = useState('')
   const [showNotesAI, setShowNotesAI] = useState(false)
   const [terms,     setTerms]     = useState(DEFAULT_TERMS)
@@ -326,6 +327,7 @@ export default function InvoiceEditor() {
           setTaxRate(inv.taxRate != null ? String(inv.taxRate) : '')
           setTaxState(inv.taxState || '')
           setDiscount(inv.discount != null ? String(inv.discount) : '')
+          setDepositAmount(inv.depositAmount != null ? String(inv.depositAmount) : '')
           setNotes(inv.notes || '')
           setTerms(inv.terms || DEFAULT_TERMS)
           if (inv.stripePaymentIntentId) setStripePaymentIntentId(inv.stripePaymentIntentId)
@@ -375,6 +377,7 @@ export default function InvoiceEditor() {
       taxState:      taxState || '',
       taxAmount:     totals.taxAmount,
       discount:      parseFloat(discount) || 0,
+      depositAmount: type === 'invoice' ? (parseFloat(depositAmount) || 0) : 0,
       subtotal:      totals.subtotal,
       total:         totals.total,
       notes:         notes.trim(),
@@ -1023,6 +1026,13 @@ export default function InvoiceEditor() {
                 <input className="ied-input" type="number" min="0" step="0.01"
                   placeholder="0.00" value={discount} onChange={e => setDiscount(e.target.value)} />
               </div>
+              {type === 'invoice' && (
+                <div className="ied-field">
+                  <label className="ied-label">Deposit ($)</label>
+                  <input className="ied-input" type="number" min="0" step="0.01"
+                    placeholder="0.00" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -1070,6 +1080,12 @@ export default function InvoiceEditor() {
               <span>Total</span>
               <span>{fmtMoney(totals.total)}</span>
             </div>
+            {type === 'invoice' && (parseFloat(depositAmount) || 0) > 0 && (
+              <div className="ied-summary-row" style={{ marginTop: 8, color: '#2563eb', fontSize: 13 }}>
+                <span>Deposit required</span>
+                <span>{fmtMoney(parseFloat(depositAmount))}</span>
+              </div>
+            )}
             <div className="ied-summary-count">{lineItems.length} line item{lineItems.length !== 1 ? 's' : ''}</div>
           </div>
 

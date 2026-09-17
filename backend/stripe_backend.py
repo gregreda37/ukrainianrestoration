@@ -501,6 +501,8 @@ def create_payment_intent_public():
     inv_total    = float(inv.get("total", 0))
 
     if payment_type == "deposit":
+        if inv.get("depositPaid"):
+            return jsonify({"error": "Deposit has already been paid for this invoice"}), 400
         deposit_amt = float(inv.get("depositAmount") or 0)
         if deposit_amt <= 0:
             return jsonify({"error": "No deposit amount configured for this invoice"}), 400

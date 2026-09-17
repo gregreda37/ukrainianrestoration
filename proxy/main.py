@@ -122,6 +122,11 @@ def backend_proxy(path):
     firebase_auth = request.headers.get("Authorization", "")
     if firebase_auth:
         headers["X-Firebase-ID-Token"] = firebase_auth
+    # Stripe webhook signature — must be forwarded byte-for-byte or construct_event
+    # will always throw SignatureVerificationError.
+    stripe_sig = request.headers.get("Stripe-Signature", "")
+    if stripe_sig:
+        headers["Stripe-Signature"] = stripe_sig
 
     body = request.get_data()
     upstream = http_requests.request(

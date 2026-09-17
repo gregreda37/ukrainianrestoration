@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { db, storage } from '../firebase'
 import {
   doc, getDoc, setDoc, addDoc, updateDoc,
-  collection, getDocs, serverTimestamp, increment
+  collection, getDocs, serverTimestamp, increment, onSnapshot
 } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useAuth } from './useAuth'
@@ -189,7 +189,11 @@ export default function InvoiceEditor() {
   const [addingDoc,              setAddingDoc]              = useState(false)
   const [docAdded,               setDocAdded]               = useState(false)
   const [stripePaymentIntentId,  setStripePaymentIntentId]  = useState(null)
+  const [depositPaid,            setDepositPaid]            = useState(false)
+  const [depositPaidAmount,      setDepositPaidAmount]      = useState(0)
   const [secondaryContacts,      setSecondaryContacts]      = useState([])
+  const liveInvRef  = useRef(null)
+  const unsubPayRef = useRef(null)
 
   // ── Pay-link modal state ──
   const [showPayLink,       setShowPayLink]       = useState(false)
@@ -222,6 +226,21 @@ export default function InvoiceEditor() {
       openSmsView()
       navigate(location.pathname, { replace: true, state: {} })
     }
+  }, [loading])
+
+  // Real-time listener for payment status — only updates payment fields, never form content
+  useEffect(() => {
+    if (loading || !liveInvRef.current) return
+    if (unsubPayRef.current) unsubPayRef.current()
+    unsubPayRef.current = onSnapshot(liveInvRef.current, snap => {
+      if (!snap.exists()) return
+      const d = snap.data()
+      if (d.status !== undefined) setStatus(d.status || 'draft')
+      if (d.stripePaymentIntentId) setStripePaymentIntentId(d.stripePaymentIntentId)
+      setDepositPaid(!!d.depositPaid)
+      setDepositPaidAmount(parseFloat(d.depositPaidAmount) || 0)
+    })
+    return () => { if (unsubPayRef.current) unsubPayRef.current() }
   }, [loading])
 
   async function load() {
@@ -314,6 +333,7 @@ export default function InvoiceEditor() {
         const invRef = uid
           ? doc(db, 'users', uid, 'invoices', invoiceId)
           : doc(db, 'organization_data', oid, 'clients', docId, 'invoices', invoiceId)
+        liveInvRef.current = invRef
         const invSnap = await getDoc(invRef)
         if (invSnap.exists()) {
           const inv = invSnap.data()
@@ -332,6 +352,8 @@ export default function InvoiceEditor() {
           setTerms(inv.terms || DEFAULT_TERMS)
           if (inv.stripePaymentIntentId) setStripePaymentIntentId(inv.stripePaymentIntentId)
           if (inv.paymentLinkTodoId)    setPaymentLinkTodoId(inv.paymentLinkTodoId)
+          setDepositPaid(!!inv.depositPaid)
+          setDepositPaidAmount(parseFloat(inv.depositPaidAmount) || 0)
         }
       }
     } finally {
@@ -871,6 +893,17 @@ export default function InvoiceEditor() {
 
       {saveMsg === 'ok'  && <div className="ied-banner ied-banner--ok">Saved.</div>}
       {saveMsg === 'err' && <div className="ied-banner ied-banner--err">Could not save. Try again.</div>}
+      {status === 'paid' && type !== 'receipt' && (
+        <div className="ied-banner ied-banner--paid">
+          ✓ Payment received{stripePaymentIntentId ? ' via Stripe' : ''}
+        </div>
+      )}
+      {depositPaid && status !== 'paid' && (
+        <div className="ied-banner ied-banner--deposit">
+          Deposit received: {fmtMoney(depositPaidAmount)}
+          {' · '}Balance remaining: {fmtMoney(Math.max(0, totals.total - depositPaidAmount))}
+        </div>
+      )}
 
       <div className="ied-body">
         {/* ── Left column: form ── */}

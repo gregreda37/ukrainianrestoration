@@ -97,8 +97,10 @@
   font-size: 13.5px;
   font-weight: 600;
 }
-.ied-banner--ok  { background: #f0fdf4; color: #15803d; }
-.ied-banner--err { background: #fef2f2; color: #dc2626; }
+.ied-banner--ok      { background: #f0fdf4; color: #15803d; }
+.ied-banner--err     { background: #fef2f2; color: #dc2626; }
+.ied-banner--paid    { background: #dcfce7; color: #14532d; border-left: 4px solid #16a34a; }
+.ied-banner--deposit { background: #eff6ff; color: #1e3a8a; border-left: 4px solid #2563eb; }
 
 /* ── Layout ── */
 .ied-body {

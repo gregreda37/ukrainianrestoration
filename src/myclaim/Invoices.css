@@ -186,6 +186,17 @@
   border-radius: 20px;
 }
 
+.inv-badge--deposit-paid {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  margin-top: 2px;
+}
+
 .inv-badge--paid-large {
   font-size: 12px;
   font-weight: 800;

@@ -302,7 +302,14 @@ function Section({ title, accent, accentBg, items, onRowClick, onDelete, onStatu
                 <tr key={r.id} className="oil-row" onClick={() => onRowClick(r)}>
                   <td className="oil-td oil-td--client">{r.clientName || '—'}</td>
                   <td className="oil-td oil-td--num">{r.invoiceNumber || '—'}</td>
-                  <td className="oil-td oil-td--amount">{fmtMoney(r.total)}</td>
+                  <td className="oil-td oil-td--amount">
+                    {fmtMoney(r.total)}
+                    {r.depositPaid && r.status !== 'paid' && (
+                      <div className="oil-deposit-chip">
+                        Deposit paid · {fmtMoney(parseFloat(r.depositPaidAmount) || 0)}
+                      </div>
+                    )}
+                  </td>
                   <td className="oil-td oil-td--date">{fmtDate(r[dateKey])}</td>
                   <td className="oil-td" onClick={e => e.stopPropagation()}>
                     <select

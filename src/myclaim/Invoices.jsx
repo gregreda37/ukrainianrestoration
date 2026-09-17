@@ -173,7 +173,23 @@ export default function Invoices() {
 
       const viewUrl = `${window.location.origin}/myclaim/view/${token}`
       const typeLabel = smsInv.type === 'estimate' ? 'Estimate' : smsInv.type === 'receipt' ? 'Receipt' : 'Invoice'
-      const msg = `${invSnapshot.companyName || 'Your contractor'}: Your ${typeLabel}${smsInv.invoiceNumber ? ` #${smsInv.invoiceNumber}` : ''} (${fmtMoney(smsInv.total)}) is ready to view: ${viewUrl}`
+
+      // Compute deposit-aware amount for SMS
+      const _depositAmt  = parseFloat(smsInv.depositAmount) || 0
+      const _depositPaid = !!smsInv.depositPaid
+      const _fullTotal   = parseFloat(smsInv.total) || 0
+      let amountLabel
+      if (_depositAmt > 0 && !_depositPaid) {
+        amountLabel = `deposit due: ${fmtMoney(_depositAmt)}`
+      } else if (_depositAmt > 0 && _depositPaid) {
+        const _paidAmt    = parseFloat(smsInv.depositPaidAmount) || _depositAmt
+        const _remaining  = Math.max(0, _fullTotal - _paidAmt)
+        amountLabel = `remaining balance: ${fmtMoney(_remaining)}`
+      } else {
+        amountLabel = fmtMoney(_fullTotal)
+      }
+
+      const msg = `${invSnapshot.companyName || 'Your contractor'}: Your ${typeLabel}${smsInv.invoiceNumber ? ` #${smsInv.invoiceNumber}` : ''} (${amountLabel}) is ready to view: ${viewUrl}`
 
       let smsSent = []
       if (smsPhones.length > 0) {
@@ -197,11 +213,10 @@ export default function Invoices() {
       setSmsData({ viewUrl, sms: smsSent })
 
       if (clientUid) {
-        const typeLabel = smsInv.type === 'estimate' ? 'Estimate' : smsInv.type === 'receipt' ? 'Receipt' : 'Invoice'
         const phoneCount = smsSent.length
         addDoc(collection(db, 'users', clientUid, 'activity'), {
           type: 'invoice_sent',
-          details: `${typeLabel}${smsInv.invoiceNumber ? ` #${smsInv.invoiceNumber}` : ''} (${fmtMoney(smsInv.total)}) view link sent via SMS${phoneCount > 0 ? ` to ${phoneCount} number${phoneCount !== 1 ? 's' : ''}` : ' — link generated'}`,
+          details: `${typeLabel}${smsInv.invoiceNumber ? ` #${smsInv.invoiceNumber}` : ''} (${amountLabel}) view link sent via SMS${phoneCount > 0 ? ` to ${phoneCount} number${phoneCount !== 1 ? 's' : ''}` : ' — link generated'}`,
           timestamp: serverTimestamp(),
           actor: user?.displayName || user?.email || 'contractor',
         }).catch(() => {})
@@ -303,7 +318,19 @@ export default function Invoices() {
           <div className="inv-modal" onClick={e => e.stopPropagation()}>
             <p className="inv-modal-title">Send via SMS</p>
             <p style={{ fontSize: 13.5, color: '#64748b', margin: '0 0 18px' }}>
-              Share a view link for <strong>{smsInv.invoiceNumber || 'this document'}</strong> ({fmtMoney(smsInv.total)}).
+              Share a view link for <strong>{smsInv.invoiceNumber || 'this document'}</strong> ({
+                (() => {
+                  const _da = parseFloat(smsInv.depositAmount) || 0
+                  const _dp = !!smsInv.depositPaid
+                  const _ft = parseFloat(smsInv.total) || 0
+                  if (_da > 0 && !_dp) return `deposit due: ${fmtMoney(_da)}`
+                  if (_da > 0 && _dp) {
+                    const _pa = parseFloat(smsInv.depositPaidAmount) || _da
+                    return `remaining: ${fmtMoney(Math.max(0, _ft - _pa))}`
+                  }
+                  return fmtMoney(_ft)
+                })()
+              }).
               The recipient can view and print without logging in. Link expires in 30 days.
             </p>
 
@@ -435,6 +462,11 @@ function Section({ title, items, basePath, onDelete, onSend, isReceipts, isArchi
                 ) : (
                   <span className="inv-badge" style={{ color: meta.color, background: meta.bg }}>
                     {meta.label}
+                  </span>
+                )}
+                {inv.depositPaid && inv.status !== 'paid' && (
+                  <span className="inv-badge inv-badge--deposit-paid">
+                    Deposit paid · {fmtMoney(parseFloat(inv.depositPaidAmount) || 0)} received
                   </span>
                 )}
                 <div className="inv-card-actions">

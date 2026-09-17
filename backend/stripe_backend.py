@@ -337,11 +337,26 @@ def _payment_url(token: str) -> str:
 
 def _send_payment_sms(inv: dict, payment_url: str, phones: list):
     """Send payment link SMS to one or more phones."""
-    invoice_num = inv.get("invoiceNumber", "your invoice")
-    company     = inv.get("companyName", "Ukrainian Restoration")
-    total       = float(inv.get("total", 0))
-    message     = (
-        f"{company}: Invoice {invoice_num} for ${total:,.2f} is ready. "
+    invoice_num  = inv.get("invoiceNumber", "your invoice")
+    company      = inv.get("companyName", "Ukrainian Restoration")
+    total        = float(inv.get("total") or 0)
+    deposit_amt  = float(inv.get("depositAmount") or 0)
+    deposit_paid = bool(inv.get("depositPaid"))
+
+    def _fmt(n: float) -> str:
+        return "${:,.2f}".format(n)
+
+    if deposit_amt > 0 and not deposit_paid:
+        amount_label = f"deposit due: {_fmt(deposit_amt)}"
+    elif deposit_amt > 0 and deposit_paid:
+        paid_amt     = float(inv.get("depositPaidAmount") or deposit_amt)
+        remaining    = max(0.0, total - paid_amt)
+        amount_label = f"remaining balance: {_fmt(remaining)}"
+    else:
+        amount_label = f"total: {_fmt(total)}"
+
+    message = (
+        f"{company}: Invoice {invoice_num} ({amount_label}) is ready. "
         f"Pay securely online: {payment_url}"
     )
     results = []

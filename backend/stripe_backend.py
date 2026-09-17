@@ -253,6 +253,37 @@ def _on_payment_succeeded(intent):
                 if user_inv.get().exists:
                     user_inv.set(update, merge=True)
 
+    # SMS receipt — best-effort, never fails the webhook
+    try:
+        inv_data       = inv_snap.to_dict() if inv_snap.exists else {}
+        raw_phone      = inv_data.get("clientPhone") or ""
+        company_name   = inv_data.get("companyName") or ""
+        invoice_number = inv_data.get("invoiceNumber") or invoice_id
+        full_total     = float(inv_data.get("total") or 0)
+
+        def _fmt(n):
+            return "${:,.2f}".format(n)
+
+        if raw_phone:
+            e164 = _normalise_phone(raw_phone)
+            if payment_type == "deposit":
+                remaining = max(0.0, full_total - invoice_total)
+                body = (
+                    f"✓ Deposit received — Invoice #{invoice_number}\n"
+                    f"Deposit: {_fmt(invoice_total)}\n"
+                    f"Remaining balance: {_fmt(remaining)}\n"
+                    f"— {company_name}"
+                )
+            else:
+                body = (
+                    f"✓ Payment received — Invoice #{invoice_number}\n"
+                    f"Amount paid: {_fmt(invoice_total)}\n"
+                    f"Thank you! — {company_name}"
+                )
+            _send_sms(e164, body)
+    except Exception:
+        pass
+
 
 def _on_payment_failed(intent):
     intent        = intent.to_dict() if hasattr(intent, "to_dict") else intent

@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, getDoc, getDocs, deleteDoc, collection, updateDoc, setDoc, serverTimestamp, getCountFromServer } from 'firebase/firestore'
+import { doc, getDoc, getDocs, onSnapshot, deleteDoc, collection, updateDoc, setDoc, serverTimestamp, getCountFromServer } from 'firebase/firestore'
 import { useAuth } from './useAuth'
 import Settlement from './Settlement'
 import './OrgInvoices.css'
@@ -345,8 +345,12 @@ export default function OpenWork() {
   const [syncing, setSyncing]         = useState(false)
   const [syncMsg, setSyncMsg]         = useState('')
   const [hasMissing, setHasMissing]   = useState(false)
+  const unsubInvRef                   = useRef(null)
 
-  useEffect(() => { if (user) load() }, [user])
+  useEffect(() => {
+    if (user) load()
+    return () => { if (unsubInvRef.current) unsubInvRef.current() }
+  }, [user])
 
   async function load() {
     setLoading(true)
@@ -376,6 +380,13 @@ export default function OpenWork() {
         const total = counts.reduce((a, b) => a + b, 0)
         setHasMissing(total > summaryCount)
       }).catch(() => {})
+
+      // Real-time listener so Stripe webhook payments update the list without a refresh.
+      if (unsubInvRef.current) unsubInvRef.current()
+      unsubInvRef.current = onSnapshot(
+        collection(db, 'organization_data', oid, 'invoice_summary'),
+        snap => setRows(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      )
 
       const uidToDocId = {}, nameToDocId = {}
       clientsSnap.docs.forEach(d => {

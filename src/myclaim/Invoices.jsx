@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import {
-  collection, getDocs, doc, getDoc, deleteDoc, orderBy, query,
+  collection, getDocs, onSnapshot, doc, getDoc, deleteDoc, orderBy, query,
   setDoc, addDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { useAuth } from './useAuth'
@@ -47,6 +47,7 @@ export default function Invoices() {
   const [orgId, setOrgId]                     = useState('')
   const [deleting, setDeleting]               = useState(null)
   const [confirmDel, setConfirmDel]           = useState(null)
+  const unsubRef                              = useRef(null)
 
   // ── SMS view modal state ──
   const [smsInv,     setSmsInv]     = useState(null)
@@ -59,6 +60,7 @@ export default function Invoices() {
   useEffect(() => {
     if (!user) return
     load()
+    return () => { if (unsubRef.current) unsubRef.current() }
   }, [user, routeParam])
 
   async function load() {
@@ -99,6 +101,11 @@ export default function Invoices() {
       if (!uid) {
         const snap = await getDocs(orgInvQuery).catch(() => null)
         setInvoices(snap?.docs.map(d => ({ id: d.id, _isOrgInvoice: true, ...d.data() })) || [])
+        // Live listener for org-only clients — updates on Stripe payment via webhook
+        if (unsubRef.current) unsubRef.current()
+        unsubRef.current = onSnapshot(orgInvQuery, s =>
+          setInvoices(s.docs.map(d => ({ id: d.id, _isOrgInvoice: true, ...d.data() })))
+        )
         return
       }
 
@@ -110,6 +117,18 @@ export default function Invoices() {
       const orgInvs  = orgInvSnap?.docs.map(d => ({ id: d.id, _isOrgInvoice: true, ...d.data() })) || []
       const seenIds  = new Set(userInvs.map(i => i.id))
       setInvoices([...userInvs, ...orgInvs.filter(i => !seenIds.has(i.id))])
+      // Live listener on user path — webhook writes paid status here for clients with uid
+      if (unsubRef.current) unsubRef.current()
+      unsubRef.current = onSnapshot(
+        query(collection(db, 'users', uid, 'invoices'), orderBy('createdAt', 'desc')),
+        snap => {
+          const liveUserInvs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          setInvoices(prev => {
+            const orgOnly = prev.filter(i => i._isOrgInvoice && !liveUserInvs.some(u => u.id === i.id))
+            return [...liveUserInvs, ...orgOnly]
+          })
+        }
+      )
     } catch (e) {
       console.error(e)
     } finally {

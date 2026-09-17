@@ -418,6 +418,313 @@
 
 @keyframes ppp-spin { to { transform: rotate(360deg); } }
 
+/* ── View Invoice link (inside meta section) ── */
+.ppp-preview-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  cursor: pointer;
+  text-align: right;
+  align-self: flex-end;
+  margin-top: 4px;
+  opacity: 0.85;
+  transition: opacity 0.12s;
+}
+.ppp-preview-link:hover { opacity: 1; text-decoration: underline; }
+
+/* ── View Invoice button on success page ── */
+.ppp-view-invoice-btn {
+  margin-top: 20px;
+  padding: 10px 24px;
+  background: none;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #2563eb;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.ppp-view-invoice-btn:hover { background: #eff6ff; border-color: #93c5fd; }
+
+/* ── Invoice Preview Modal ── */
+.ppp-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px 48px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-sizing: border-box;
+}
+
+.ppp-modal-doc {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 48px rgba(15,23,42,.2);
+  width: 100%;
+  max-width: 600px;
+  padding: 36px 40px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+/* Document header */
+.ppp-modal-doc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 28px;
+}
+
+.ppp-modal-doc-company {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.ppp-modal-doc-phone {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 3px;
+}
+
+.ppp-modal-doc-title-block { text-align: right; }
+
+.ppp-modal-doc-title {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #1e3a8a;
+}
+
+.ppp-modal-doc-num {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 3px;
+}
+
+/* Bill-to + dates */
+.ppp-modal-doc-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.ppp-modal-doc-meta-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.ppp-modal-doc-meta-val {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ppp-modal-doc-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: right;
+}
+
+.ppp-modal-doc-date-row {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #64748b;
+  justify-content: flex-end;
+}
+
+.ppp-modal-doc-date-row span:last-child {
+  font-weight: 600;
+  color: #334155;
+  min-width: 110px;
+  text-align: right;
+}
+
+.ppp-modal-doc-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 0 0 20px;
+}
+
+/* Line items table */
+.ppp-modal-doc-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 20px;
+}
+
+.ppp-modal-doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.ppp-modal-doc-th {
+  padding: 8px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.ppp-modal-doc-th--right { text-align: right; }
+
+.ppp-modal-doc-tr:not(:last-child) td {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ppp-modal-doc-td {
+  padding: 10px 10px;
+  color: #334155;
+  vertical-align: top;
+}
+
+.ppp-modal-doc-td--right {
+  text-align: right;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.ppp-modal-doc-item-label {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ppp-modal-doc-item-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+/* Totals */
+.ppp-modal-doc-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 280px;
+  margin-left: auto;
+  margin-bottom: 20px;
+}
+
+.ppp-modal-doc-total-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13.5px;
+  color: #64748b;
+  gap: 24px;
+}
+
+.ppp-modal-doc-total-row--discount { color: #16a34a; }
+.ppp-modal-doc-total-row--deposit  { color: #7c3aed; }
+
+.ppp-modal-doc-total-row--grand {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+/* Notes */
+.ppp-modal-doc-notes {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 28px;
+}
+
+.ppp-modal-doc-notes-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.ppp-modal-doc-notes-body {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* Action buttons */
+.ppp-modal-doc-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 20px;
+}
+
+.ppp-modal-doc-print-btn {
+  padding: 9px 18px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ppp-modal-doc-print-btn:hover { background: #1d4ed8; }
+
+.ppp-modal-doc-close-btn {
+  padding: 9px 18px;
+  background: none;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.ppp-modal-doc-close-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+/* ── Print styles ── */
+@media print {
+  .ppp-shell, .ppp-card, body { background: #fff !important; }
+  .ppp-modal-overlay {
+    position: static;
+    background: none;
+    padding: 0;
+    display: block;
+  }
+  .ppp-modal-doc {
+    box-shadow: none;
+    border-radius: 0;
+    padding: 24px;
+    max-width: none;
+  }
+  .ppp-no-print { display: none !important; }
+}
+
 /* ── Responsive ── */
 @media (max-width: 560px) {
   .ppp-shell { padding: 0; align-items: stretch; }
@@ -426,6 +733,17 @@
   .ppp-body { padding: 20px; }
   .ppp-footer { padding: 14px 20px; }
   .ppp-status-card { border-radius: 0; min-height: 100vh; padding: 64px 24px; }
+  .ppp-modal-overlay { padding: 0; align-items: stretch; }
+  .ppp-modal-doc { border-radius: 0; min-height: 100vh; padding: 24px 20px; }
+  .ppp-modal-doc-header { flex-direction: column; gap: 12px; }
+  .ppp-modal-doc-title-block { text-align: left; }
+  .ppp-modal-doc-meta { flex-direction: column; }
+  .ppp-modal-doc-dates { text-align: left; }
+  .ppp-modal-doc-date-row { justify-content: flex-start; }
+  .ppp-modal-doc-date-row span:last-child { text-align: left; min-width: 0; }
+  .ppp-modal-doc-totals { max-width: none; margin-left: 0; }
+  .ppp-modal-doc-actions { justify-content: stretch; }
+  .ppp-modal-doc-print-btn, .ppp-modal-doc-close-btn { flex: 1; text-align: center; }
 }
 
 /* ── Dark mode ── */
@@ -463,4 +781,27 @@
   .ppp-status-card { background: #1e293b; }
   .ppp-status-title { color: #f1f5f9; }
   .ppp-status-body { color: #94a3b8; }
+  .ppp-view-invoice-btn { border-color: #334155; color: #93c5fd; }
+  .ppp-view-invoice-btn:hover { background: #1e3a5f; border-color: #3b82f6; }
+  .ppp-modal-doc { background: #1e293b; }
+  .ppp-modal-doc-company { color: #f1f5f9; }
+  .ppp-modal-doc-phone { color: #94a3b8; }
+  .ppp-modal-doc-title { color: #93c5fd; }
+  .ppp-modal-doc-num { color: #94a3b8; }
+  .ppp-modal-doc-meta-val { color: #f1f5f9; }
+  .ppp-modal-doc-date-row span:last-child { color: #cbd5e1; }
+  .ppp-modal-doc-divider { background: #334155; }
+  .ppp-modal-doc-th { background: #0f172a; color: #64748b; border-color: #334155; }
+  .ppp-modal-doc-tr:not(:last-child) td { border-color: #1e293b; }
+  .ppp-modal-doc-td { color: #cbd5e1; }
+  .ppp-modal-doc-item-label { color: #f1f5f9; }
+  .ppp-modal-doc-item-desc { color: #64748b; }
+  .ppp-modal-doc-td--right { color: #f1f5f9; }
+  .ppp-modal-doc-total-row { color: #94a3b8; }
+  .ppp-modal-doc-total-row--grand { color: #f1f5f9; }
+  .ppp-modal-doc-notes { background: #0f172a; }
+  .ppp-modal-doc-notes-body { color: #94a3b8; }
+  .ppp-modal-doc-actions { border-color: #334155; }
+  .ppp-modal-doc-close-btn { border-color: #334155; color: #94a3b8; }
+  .ppp-modal-doc-close-btn:hover { background: #0f172a; border-color: #475569; }
 }

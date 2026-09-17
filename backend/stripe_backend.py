@@ -179,6 +179,7 @@ def _on_payment_succeeded(intent):
 
     db  = admin_firestore.client()
     fst = admin_firestore.SERVER_TIMESTAMP
+    paid_date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
     if payment_type == "deposit":
         update = {
@@ -194,6 +195,7 @@ def _on_payment_succeeded(intent):
             "stripeStatus":         "succeeded",
             "stripePaymentIntentId": intent.get("id"),
             "paidAt":               fst,
+            "paidDate":             paid_date_str,
             "paidAmount":           invoice_total,
             "paymentMethod":        "credit_card",
             "paymentNotes": (
@@ -238,6 +240,7 @@ def _on_payment_succeeded(intent):
                 "status":       "paid",
                 "paidAmount":   invoice_total,
                 "stripeStatus": "succeeded",
+                "paidDate":     paid_date_str,
             }, merge=True)
 
             # Also update users/{clientUid}/invoices if discovered via summary

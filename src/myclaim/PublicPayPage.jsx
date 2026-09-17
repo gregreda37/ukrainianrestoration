@@ -112,6 +112,7 @@ export default function PublicPayPage() {
   const [secretErr,     setSecretErr]     = useState('')
   const [paymentType,   setPaymentType]   = useState('full') // 'deposit' | 'full' | 'balance'
   const [paymentAmounts, setPaymentAmounts] = useState(null) // { invoiceTotal, fee, totalCharged }
+  const [showPreview,   setShowPreview]   = useState(false)
 
   useEffect(() => {
     if (!token) { setErr('Invalid payment link.'); setLoading(false); return }
@@ -229,7 +230,13 @@ export default function PublicPayPage() {
               ? `Remaining balance of ${fmtMoney(remaining)} will be due upon completion.`
               : 'Thank you! Your contractor will be notified once the payment clears.'}
           </p>
+          {inv && (
+            <button className="ppp-view-invoice-btn" onClick={() => setShowPreview(true)}>
+              View Invoice
+            </button>
+          )}
         </div>
+        {showPreview && inv && <InvoicePreviewModal inv={inv} onClose={() => setShowPreview(false)} />}
       </div>
     )
   }
@@ -270,6 +277,9 @@ export default function PublicPayPage() {
                 <span className="ppp-meta-value">{fmtDate(inv.dueDate)}</span>
               </div>
             )}
+            <button className="ppp-preview-link" onClick={() => setShowPreview(true)}>
+              View Invoice ↗
+            </button>
           </div>
 
           {/* Line items */}
@@ -401,6 +411,124 @@ export default function PublicPayPage() {
 
         <div className="ppp-footer">
           Secured by Stripe &nbsp;·&nbsp; {inv.companyName}
+        </div>
+      </div>
+      {showPreview && <InvoicePreviewModal inv={inv} onClose={() => setShowPreview(false)} />}
+    </div>
+  )
+}
+
+function InvoicePreviewModal({ inv, onClose }) {
+  return (
+    <div className="ppp-modal-overlay" onClick={onClose}>
+      <div className="ppp-modal-doc" onClick={e => e.stopPropagation()}>
+
+        {/* Document header */}
+        <div className="ppp-modal-doc-header">
+          <div>
+            <div className="ppp-modal-doc-company">{inv.companyName}</div>
+            {inv.companyPhone && <div className="ppp-modal-doc-phone">{inv.companyPhone}</div>}
+          </div>
+          <div className="ppp-modal-doc-title-block">
+            <div className="ppp-modal-doc-title">INVOICE</div>
+            {inv.invoiceNumber && <div className="ppp-modal-doc-num">#{inv.invoiceNumber}</div>}
+          </div>
+        </div>
+
+        {/* Bill-to + dates */}
+        <div className="ppp-modal-doc-meta">
+          <div>
+            <div className="ppp-modal-doc-meta-label">Billed To</div>
+            <div className="ppp-modal-doc-meta-val">{inv.clientName || '—'}</div>
+          </div>
+          <div className="ppp-modal-doc-dates">
+            {inv.issueDate && (
+              <div className="ppp-modal-doc-date-row">
+                <span>Issue Date</span><span>{fmtDate(inv.issueDate)}</span>
+              </div>
+            )}
+            {inv.dueDate && (
+              <div className="ppp-modal-doc-date-row">
+                <span>Due Date</span><span>{fmtDate(inv.dueDate)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="ppp-modal-doc-divider" />
+
+        {/* Line items */}
+        {inv.lineItems?.length > 0 && (
+          <div className="ppp-modal-doc-table-wrap">
+            <table className="ppp-modal-doc-table">
+              <thead>
+                <tr>
+                  <th className="ppp-modal-doc-th">Description</th>
+                  <th className="ppp-modal-doc-th ppp-modal-doc-th--right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inv.lineItems.map((it, i) => (
+                  <tr key={i} className="ppp-modal-doc-tr">
+                    <td className="ppp-modal-doc-td">
+                      <div className="ppp-modal-doc-item-label">{it.label}</div>
+                      {it.description && <div className="ppp-modal-doc-item-desc">{it.description}</div>}
+                    </td>
+                    <td className="ppp-modal-doc-td ppp-modal-doc-td--right">
+                      {fmtMoney(parseFloat(it.total) || 0)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Totals */}
+        <div className="ppp-modal-doc-totals">
+          {inv.subtotal != null && (
+            <div className="ppp-modal-doc-total-row">
+              <span>Subtotal</span><span>{fmtMoney(inv.subtotal)}</span>
+            </div>
+          )}
+          {(inv.taxAmount || 0) > 0 && (
+            <div className="ppp-modal-doc-total-row">
+              <span>Tax</span><span>{fmtMoney(inv.taxAmount)}</span>
+            </div>
+          )}
+          {(inv.discount || 0) > 0 && (
+            <div className="ppp-modal-doc-total-row ppp-modal-doc-total-row--discount">
+              <span>Discount</span><span>– {fmtMoney(inv.discount)}</span>
+            </div>
+          )}
+          {inv.depositPaid && inv.depositPaidAmount > 0 && (
+            <div className="ppp-modal-doc-total-row ppp-modal-doc-total-row--deposit">
+              <span>Deposit Paid</span><span>– {fmtMoney(inv.depositPaidAmount)}</span>
+            </div>
+          )}
+          <div className="ppp-modal-doc-divider" />
+          <div className="ppp-modal-doc-total-row ppp-modal-doc-total-row--grand">
+            <span>{inv.depositPaid ? 'Remaining Balance' : 'Total Due'}</span>
+            <span>{fmtMoney(inv.depositPaid ? inv.total - inv.depositPaidAmount : inv.total)}</span>
+          </div>
+        </div>
+
+        {/* Notes */}
+        {inv.notes && (
+          <div className="ppp-modal-doc-notes">
+            <div className="ppp-modal-doc-notes-label">Notes</div>
+            <p className="ppp-modal-doc-notes-body">{inv.notes}</p>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="ppp-modal-doc-actions ppp-no-print">
+          <button className="ppp-modal-doc-print-btn" onClick={() => window.print()}>
+            Print / Save PDF
+          </button>
+          <button className="ppp-modal-doc-close-btn" onClick={onClose}>
+            Close
+          </button>
         </div>
       </div>
     </div>

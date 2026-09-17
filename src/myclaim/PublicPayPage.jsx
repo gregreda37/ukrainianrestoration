@@ -26,9 +26,12 @@ function fmtDate(str) {
 function CheckoutForm({ invoiceTotal, fee, totalCharged, paymentType, onSuccess }) {
   const stripe   = useStripe()
   const elements = useElements()
-  const [ready,  setReady]  = useState(false)
   const [paying, setPaying] = useState(false)
   const [error,  setError]  = useState('')
+
+  // Enable the button as soon as the Stripe context resolves — works even if
+  // onReady fires before this component finishes mounting.
+  const ready = !!(stripe && elements)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -78,7 +81,7 @@ function CheckoutForm({ invoiceTotal, fee, totalCharged, paymentType, onSuccess 
       </div>
 
       <div className="ppp-elements-wrap">
-        <PaymentElement onReady={() => setReady(true)} />
+        <PaymentElement />
       </div>
 
       {error && <div className="ppp-form-error">{error}</div>}

@@ -96,6 +96,8 @@ jobs:
             --update-env-vars "OPENSIGN_APP_ID=${{ secrets.OPENSIGN_APP_ID }}" \
             --update-env-vars "OPENSIGN_REST_KEY=${{ secrets.OPENSIGN_REST_KEY }}" \
             --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
+            --update-env-vars "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}" \
+            --update-env-vars "STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}" \
             --update-env-vars "FIREBASE_PROJECT_ID=ukrainianrestoration-50993" \
             --update-env-vars "FIREBASE_STORAGE_BUCKET=ukrainianrestoration-50993.firebasestorage.app" \
             --remove-env-vars "ANTHROPIC_API_KEY" \
@@ -161,6 +163,8 @@ jobs:
             --update-env-vars "OPENSIGN_APP_ID=${{ secrets.OPENSIGN_APP_ID }}" \
             --update-env-vars "OPENSIGN_REST_KEY=${{ secrets.OPENSIGN_REST_KEY }}" \
             --update-env-vars "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" \
+            --update-env-vars "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}" \
+            --update-env-vars "STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}" \
             --update-env-vars "FIREBASE_PROJECT_ID=ukrainianrestoration-50993" \
             --update-env-vars "FIREBASE_STORAGE_BUCKET=ukrainianrestoration-50993.firebasestorage.app" \
             --remove-env-vars "ANTHROPIC_API_KEY" \

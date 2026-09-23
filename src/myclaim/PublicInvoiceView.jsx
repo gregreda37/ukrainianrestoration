@@ -40,6 +40,7 @@ export default function PublicInvoiceView() {
   const [contractorSignedAt,     setContractorSignedAt]     = useState('')
   const [contractorSignerName,   setContractorSignerName]   = useState('')
   const [contractorSignatureUrl, setContractorSignatureUrl] = useState('')
+  const [signedDocUrl,           setSignedDocUrl]           = useState('')
 
   // Signature pad
   const sigCanvasRef  = useRef(null)
@@ -130,10 +131,14 @@ export default function PublicInvoiceView() {
       if (data.approvedAt && data.signedDocUrl) setAlreadyApproved({ signedDocUrl: data.signedDocUrl })
 
       // Invoice signing state
-      if (data.clientSignedAt) {
+      // top-level clientSignedAt written by backend (original flow);
+      // invoice.clientSignedAt written by InvoiceEditor submitCountersign (signed view link)
+      const clientSignedAtVal   = data.clientSignedAt   || invoice.clientSignedAt   || ''
+      const clientSignerNameVal = data.clientSignerName || invoice.clientSignerName || ''
+      if (clientSignedAtVal) {
         setClientSigned(true)
-        setClientSignedAt(data.clientSignedAt)
-        setClientSignerName(data.clientSignerName || '')
+        setClientSignedAt(clientSignedAtVal)
+        setClientSignerName(clientSignerNameVal)
       }
       if (invoice.clientSignatureUrl)     setClientSignatureUrl(invoice.clientSignatureUrl)
       if (invoice.contractorSigned) {
@@ -142,6 +147,7 @@ export default function PublicInvoiceView() {
         setContractorSignerName(invoice.contractorSignerName || '')
         setContractorSignatureUrl(invoice.contractorSignatureUrl || '')
       }
+      if (invoice.signedDocUrl) setSignedDocUrl(invoice.signedDocUrl)
 
       // Track open
       updateDoc(doc(db, 'view_links', token), {
@@ -293,13 +299,13 @@ export default function PublicInvoiceView() {
           <a className="piv-prog-step" href="#piv-invoice">Invoice</a>
           {isInvoice && <><span className="piv-prog-sep">›</span><a className="piv-prog-step" href="#piv-terms">Agreement</a></>}
           {attachedDocUrl && <><span className="piv-prog-sep">›</span><a className="piv-prog-step" href="#piv-attachment">Reference Doc</a></>}
-          {isInvoice && <><span className="piv-prog-sep">›</span><a className="piv-prog-step" href="#piv-sign">{clientSigned ? '✅ Signed' : 'Sign'}</a></>}
+          {isInvoice && !(clientSigned && contractorSigned) && <><span className="piv-prog-sep">›</span><a className="piv-prog-step" href="#piv-sign">{clientSigned ? '✅ Signed' : 'Sign'}</a></>}
         </div>
         <div className="piv-prog-actions">
           <button className="piv-download-btn" onClick={downloadPDF} disabled={exporting}>
             {exporting ? 'Generating…' : '↓ Download PDF'}
           </button>
-          {isInvoice && !clientSigned && (
+          {isInvoice && !clientSigned && !(clientSigned && contractorSigned) && (
             <a className="piv-sign-nav-btn" href="#piv-sign">✍️ Sign</a>
           )}
           {isEstimate && !approvedUrl && (
@@ -525,6 +531,11 @@ export default function PublicInvoiceView() {
                     {contractorSignedAt && <div className="piv-sig-party-date">{contractorSignedAt}</div>}
                   </div>
                 </div>
+                {signedDocUrl && (
+                  <a href={signedDocUrl} target="_blank" rel="noopener noreferrer" className="piv-download-signed-btn">
+                    ↓ Download Signed PDF
+                  </a>
+                )}
               </div>
             ) : clientSigned ? (
               <div className="piv-signed-confirm">

@@ -646,6 +646,21 @@
   margin-top: 3px;
 }
 
+/* Download signed PDF button */
+.piv-download-signed-btn {
+  display: inline-block;
+  margin-top: 28px;
+  padding: 10px 22px;
+  background: #15803d;
+  color: #fff;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.piv-download-signed-btn:hover { background: #166534; }
+
 /* Sign form */
 .piv-sign-header {
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);

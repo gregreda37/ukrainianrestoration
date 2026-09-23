@@ -723,7 +723,7 @@ export default function InvoiceEditor() {
       canvas.removeEventListener('touchmove',  onMove)
       canvas.removeEventListener('touchend',   onUp)
     }
-  }, [showCtrSignModal])
+  }, [showCtrSignModal, usingSavedCtrSig])
 
   async function submitCountersign() {
     if (!usingSavedCtrSig && ctrSigEmpty) return
@@ -864,6 +864,9 @@ export default function InvoiceEditor() {
           contractorSignatureUrl,
           signedDocUrl,
         },
+        // top-level fields so PublicInvoiceView.load() can detect clientSigned
+        clientSignedAt,
+        clientSignerName,
         attachedDocUrl: claimDocRef?.downloadURL || null,
         expiresAt:      new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         createdAt:      serverTimestamp(),

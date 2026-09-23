@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { db, storage } from "../firebase";
 import {
   doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, setDoc,
-  collection, query, orderBy, serverTimestamp, where, arrayUnion, arrayRemove,
+  collection, query, orderBy, onSnapshot, serverTimestamp, where, arrayUnion, arrayRemove,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "./useAuth";
@@ -153,8 +153,9 @@ const ACTIVITY_COLORS = {
   progress_regressed:  { bg: "#fefce8" },
   notification_sent:   { bg: "#eff6ff" },
   invoice_sent:        { bg: "#f0f9ff" },
-  invoice_link_opened: { bg: "#fefce8" },
-  estimate_approved:   { bg: "#f0fdf4" },
+  invoice_link_opened:    { bg: "#fefce8" },
+  estimate_approved:      { bg: "#f0fdf4" },
+  invoice_client_signed:  { bg: "#f0fdf4" },
 };
 const ACTIVITY_LABELS = {
   login:               "Client accessed the portal",
@@ -179,8 +180,9 @@ const ACTIVITY_LABELS = {
   progress_regressed:  "Progress step moved back",
   notification_sent:   "Notification sent to client",
   invoice_sent:        "Invoice sent via SMS",
-  invoice_link_opened: "View link opened",
-  estimate_approved:   "Estimate signed & approved",
+  invoice_link_opened:    "View link opened",
+  estimate_approved:      "Estimate signed & approved",
+  invoice_client_signed:  "Invoice signed by client — countersign needed",
 };
 
 function CopyLinkTodoBtn({ url }) {
@@ -279,6 +281,7 @@ export default function ClientDetail() {
   // Address autocomplete
   const addressInputRef       = useRef(null);
   const addressAutoRef        = useRef(null);
+  const todoUnsubRef          = useRef(null);
 
   // Documents
   const fileInputRef          = useRef(null);
@@ -519,14 +522,21 @@ export default function ClientDetail() {
         }
 
         // Always load all subcollections from org path — single source of truth
-        const [uDoc, todosSnap, docsSnap, selSnap, budgetSnap, activitySnap] = await Promise.all([
+        const [uDoc, docsSnap, selSnap, budgetSnap, activitySnap] = await Promise.all([
           uid ? getDoc(doc(db, "users", uid)).catch(() => null) : Promise.resolve(null),
-          getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "todos"), orderBy("createdAt", "asc"))).catch(() => null),
           getDocs(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "documents")).catch(() => null),
           getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "selections"), orderBy("addedAt", "asc"))).catch(() => null),
           getDocs(query(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "budget"), orderBy("addedAt", "asc"))).catch(() => null),
           uid ? getDocs(query(collection(db, "users", uid, "activity"), orderBy("timestamp", "desc"))).catch(() => null) : Promise.resolve(null),
         ]);
+
+        // Real-time todos listener
+        if (todoUnsubRef.current) todoUnsubRef.current();
+        todoUnsubRef.current = onSnapshot(
+          query(collection(db, "organization_data", orgId, "clients", clientDocSnap.id, "todos"), orderBy("createdAt", "asc")),
+          snap => setTodos(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+          err => console.error("[todos onSnapshot]", err)
+        );
         if (cancelled) return;
 
         if (uDoc?.exists()) setUserDoc({ uid, ...uDoc.data() });
@@ -577,7 +587,6 @@ export default function ClientDetail() {
         const allDocs = docsSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || [];
         allDocs.sort((a, b) => (b.uploadedAt?.seconds ?? 0) - (a.uploadedAt?.seconds ?? 0));
         setDocs(prev => allDocs.length > 0 ? allDocs : prev);
-        setTodos(todosSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || []);
         setSelections(selSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || []);
         setBudgetItems(budgetSnap?.docs.map(d => ({ id: d.id, ...d.data() })) || []);
 
@@ -601,7 +610,10 @@ export default function ClientDetail() {
         }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (todoUnsubRef.current) { todoUnsubRef.current(); todoUnsubRef.current = null; }
+    };
   }, [orgId, routeParam]);
 
   // Close notify dropdown on outside click
@@ -2157,13 +2169,15 @@ export default function ClientDetail() {
                         </div>
                         {todo.type && todo.type !== "general" && (
                           <span className={`cd-todo-type-badge cd-todo-type-${
-                            todo.type === "upload_file" ? "upload"  :
-                            todo.type === "sign_forms"  ? "sign"    :
-                            todo.type === "pay_invoice" ? "payment" : "selection"
+                            todo.type === "upload_file"        ? "upload"  :
+                            todo.type === "sign_forms"         ? "sign"    :
+                            todo.type === "pay_invoice"        ? "payment" :
+                            todo.type === "countersign_invoice" ? "sign"   : "selection"
                           }`}>
-                            {todo.type === "upload_file" ? "Upload" :
-                             todo.type === "sign_forms"  ? (todo.completed ? "Signed ✓" : "Signature Pending") :
-                             todo.type === "pay_invoice" ? (todo.completed ? "Paid ✓" : "Payment Pending") :
+                            {todo.type === "upload_file"         ? "Upload" :
+                             todo.type === "sign_forms"          ? (todo.completed ? "Signed ✓" : "Signature Pending") :
+                             todo.type === "pay_invoice"         ? (todo.completed ? "Paid ✓" : "Payment Pending") :
+                             todo.type === "countersign_invoice" ? (todo.completed ? "Countersigned ✓" : "Countersign Needed") :
                              `Selection${todo.selectionCategory ? ` · ${todo.selectionCategory}` : ""}`}
                           </span>
                         )}
@@ -2177,6 +2191,15 @@ export default function ClientDetail() {
                             onClick={e => e.stopPropagation()}
                           >
                             View Invoice
+                          </Link>
+                        )}
+                        {todo.type === "countersign_invoice" && todo.invoiceId && (
+                          <Link
+                            to={`/myclaim/clients/${encodeURIComponent(routeParam)}/invoices/${todo.invoiceId}`}
+                            className="cd-todo-approve-btn"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            Open & Countersign →
                           </Link>
                         )}
                         {/* Client-first: contractor counter-signs after client */}

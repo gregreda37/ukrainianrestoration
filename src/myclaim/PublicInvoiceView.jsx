@@ -316,6 +316,9 @@ export default function PublicInvoiceView() {
           <button className="piv-download-btn" onClick={downloadPDF} disabled={exporting}>
             {exporting ? 'Generating…' : '↓ Download PDF'}
           </button>
+          {isInvoice && !clientSigned && (
+            <a className="piv-sign-nav-btn" href="#piv-sign">✍️ Sign</a>
+          )}
           {isEstimate && !approvedUrl && (
             <button className="piv-approve-btn" onClick={() => setShowApproval(true)}>
               ✍️ Approve

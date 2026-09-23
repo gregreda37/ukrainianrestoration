@@ -108,8 +108,9 @@ export default function Settings() {
   const [companyLicense,   setCompanyLicense]   = useState('')
   const [companyLogoUrl,   setCompanyLogoUrl]   = useState('')
   const [defaultTaxState,  setDefaultTaxState]  = useState('')
-  const [googleReviewUrl,  setGoogleReviewUrl]  = useState('')
-  const [uploadingLogo,    setUploadingLogo]    = useState(false)
+  const [googleReviewUrl,       setGoogleReviewUrl]       = useState('')
+  const [insuranceDisclaimer,   setInsuranceDisclaimer]   = useState('')
+  const [uploadingLogo,         setUploadingLogo]         = useState(false)
   const [savingCompany,    setSavingCompany]    = useState(false)
   const [companyMsg,       setCompanyMsg]       = useState('')
   const logoInputRef = useRef(null)
@@ -213,6 +214,7 @@ export default function Settings() {
           setCompanyLogoUrl(od.companyLogoUrl || '')
           setDefaultTaxState(od.defaultTaxState || '')
           setGoogleReviewUrl(od.googleReviewUrl || '')
+          setInsuranceDisclaimer(od.insuranceDisclaimer || '')
           setCcApiKey(od.companyCamAPI || '')
         }
 
@@ -283,6 +285,7 @@ export default function Settings() {
         companyName: companyName.trim(), companyAddress: companyAddress.trim(),
         companyPhone: companyPhone.trim(), companyLicense: companyLicense.trim(),
         defaultTaxState, googleReviewUrl: googleReviewUrl.trim(),
+        insuranceDisclaimer: insuranceDisclaimer.trim(),
       }, { merge: true })
       setCompanyMsg('ok')
     } catch { setCompanyMsg('err') }
@@ -648,6 +651,17 @@ export default function Settings() {
                       <input className="st-input" type="url" value={googleReviewUrl}
                         onChange={e => setGoogleReviewUrl(e.target.value)} placeholder="https://g.page/r/…/review" />
                       <span className="st-hint">Included in the "Request Google review" SMS sent from a client's page.</span>
+                    </div>
+                    <div className="st-field">
+                      <label className="st-label">Insurance Invoice Disclaimer</label>
+                      <textarea
+                        className="st-input st-textarea"
+                        rows={6}
+                        value={insuranceDisclaimer}
+                        onChange={e => setInsuranceDisclaimer(e.target.value)}
+                        placeholder="Leave blank to use the default disclaimer…"
+                      />
+                      <span className="st-hint">Printed at the bottom of invoices created from an insurance settlement. Leave blank to restore the default.</span>
                     </div>
                     <div className="st-actions">
                       <button className="st-btn st-btn--primary" type="submit" disabled={savingCompany || !orgId}>

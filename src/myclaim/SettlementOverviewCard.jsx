@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
-import { doc, collection, getDocs, addDoc, deleteDoc, setDoc, updateDoc, serverTimestamp, query, orderBy } from 'firebase/firestore'
+import { doc, getDoc, collection, getDocs, addDoc, deleteDoc, setDoc, updateDoc, serverTimestamp, query, orderBy } from 'firebase/firestore'
 import InsurerCombobox from './InsurerCombobox'
 import PartnerCombobox from './PartnerCombobox'
 import './SettlementOverviewCard.css'
@@ -97,17 +97,24 @@ function computePartnerFee(form, companyRecoup) {
   return type === 'fixed' ? val : companyRecoup * val / 100
 }
 
+const DEFAULT_INSURANCE_DISCLAIMER =
+  'All work will be completed within the approved insurance scope at no additional cost to you beyond your deductible. ' +
+  'If supplemental work, additional damage, or code-compliance requirements are identified during restoration, we will document and submit those items directly to your insurance carrier for approval — you will not be billed for anything outside the approved scope without your written authorization via a signed change order. ' +
+  'We will negotiate any supplements or additional scope on your behalf with your insurance company. ' +
+  'Nothing beyond the agreed insurance-covered scope will be charged to the client unless mutually approved in writing.'
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function SettlementOverviewCard({ clientUid, clientDocId, clientName, orgId, phone, prefill = {}, insurers = [], onAddInsurer, onRemoveInsurer, onOpenModal, refreshKey = 0 }) {
   const navigate = useNavigate()
   const prevPrefillRef = useRef(null)
 
-  const [loading,         setLoading]         = useState(true)
-  const [settlements,     setSettlements]     = useState([])
-  const [partners,        setPartners]        = useState([])
-  const [showForm,        setShowForm]        = useState(false)
-  const [openCreateMenu,  setOpenCreateMenu]  = useState(null) // settlement id | null
+  const [loading,             setLoading]             = useState(true)
+  const [settlements,         setSettlements]         = useState([])
+  const [partners,            setPartners]            = useState([])
+  const [showForm,            setShowForm]            = useState(false)
+  const [insuranceDisclaimer, setInsuranceDisclaimer] = useState(DEFAULT_INSURANCE_DISCLAIMER)
+  const [openCreateMenu,      setOpenCreateMenu]      = useState(null) // settlement id | null
   const createMenuRef = useRef(null)
   const [form,            setForm]            = useState(() => buildEmptyForm(prefill))
   const [saving,          setSaving]          = useState(false)
@@ -155,8 +162,14 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
     setLoading(true)
     try {
       if (orgId) {
-        const partnerSnap = await getDocs(query(collection(db, 'organization_data', orgId, 'partners'), orderBy('name', 'asc'))).catch(() => ({ docs: [] }))
+        const [partnerSnap, orgSnap] = await Promise.all([
+          getDocs(query(collection(db, 'organization_data', orgId, 'partners'), orderBy('name', 'asc'))).catch(() => ({ docs: [] })),
+          getDoc(doc(db, 'organization_data', orgId)).catch(() => null),
+        ])
         setPartners(partnerSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+        if (orgSnap?.exists()) {
+          setInsuranceDisclaimer(orgSnap.data().insuranceDisclaimer || DEFAULT_INSURANCE_DISCLAIMER)
+        }
       }
       if (clientUid) {
         // Post-login: load from user path + merge any pre-login org-path settlements
@@ -166,9 +179,9 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
             ? getDocs(query(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'settlements'), orderBy('createdAt', 'desc'))).catch(() => null)
             : Promise.resolve(null),
         ]
-        const [userSnap, orgSnap] = await Promise.all(promises)
+        const [userSnap, clientOrgSnap] = await Promise.all(promises)
         const userSets = userSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        const orgSets  = orgSnap?.docs.map(d => ({ id: d.id, _isOrgSettlement: true, ...d.data() })) || []
+        const orgSets  = clientOrgSnap?.docs.map(d => ({ id: d.id, _isOrgSettlement: true, ...d.data() })) || []
         const seenIds  = new Set(userSets.map(s => s.id))
         setSettlements([...userSets, ...orgSets.filter(s => !seenIds.has(s.id))])
       } else {
@@ -290,9 +303,6 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
     { key: 'packoutSettled',        label: 'Packout'                  },
   ]
 
-  const INSURANCE_DISCLAIMER =
-    'The line items and pricing referenced in this invoice reflect the scope of work as outlined in the attached insurance carrier\'s estimate or report. These amounts represent the insurance company\'s assessment and do not necessarily reflect the final agreed-upon contract price for services rendered. Actual costs may differ due to supplemental work identified during restoration, existing site conditions, code compliance requirements, or items not included in the original estimate. The scope of work described herein is for reference purposes only and is subject to modification upon mutual agreement. We reserve the right to invoice separately for any additional work, materials, or services required beyond what is covered in the insurance carrier\'s estimate. Please refer to the attached insurance report for full scope and line-item details.'
-
   function navigateToInvoice(s, selectedKeys) {
     const items = SETTLED_CATS
       .filter(c => selectedKeys.has(c.key) && n(s[c.key]) > 0)
@@ -303,7 +313,7 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
       { state: {
         prefillType:               'invoice',
         prefillNotes:              'See attached document and review the disclaimer below.',
-        prefillDisclaimer:         INSURANCE_DISCLAIMER,
+        prefillDisclaimer:         insuranceDisclaimer,
         prefillItems:              items,
         prefillClaimCoveredAmount: totalSettled,
       }}

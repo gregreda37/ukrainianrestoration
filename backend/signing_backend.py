@@ -947,6 +947,29 @@ def sign_invoice_view():
         except Exception as exc:
             print(f"[sign-invoice-view] activity log failed: {exc}")
 
+    # ── Contractor todo — countersign needed ─────────────────────────────────
+    if org_id and client_doc_id and invoice_id:
+        try:
+            client_name = inv.get("clientName") or link_data.get("clientName") or ""
+            todo_label  = (
+                f"Countersign: Invoice{(' #' + inv_number) if inv_number else ''}"
+                + (f" — {client_name}" if client_name else "")
+                + f" (signed by {signer_name})"
+            )
+            ref, ts = db.collection("organization_data").document(org_id) \
+              .collection("clients").document(client_doc_id) \
+              .collection("todos").add({
+                "label":      todo_label,
+                "type":       "countersign_invoice",
+                "invoiceId":  invoice_id,
+                "assignedTo": "contractor",
+                "completed":  False,
+                "createdAt":  admin_firestore.SERVER_TIMESTAMP,
+            })
+            print(f"[sign-invoice-view] countersign todo created: {ref.id} for org={org_id} client={client_doc_id}")
+        except Exception as exc:
+            print(f"[sign-invoice-view] countersign todo failed: {exc}")
+
     # ── Mark view_link client-signed ──────────────────────────────────────────
     try:
         link_ref.update({

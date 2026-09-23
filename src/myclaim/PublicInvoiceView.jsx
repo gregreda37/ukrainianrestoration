@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { db } from '../firebase'
 import { doc, getDoc, updateDoc, addDoc, collection, serverTimestamp, increment } from 'firebase/firestore'
 import { CONTRACT_CLAUSES } from './contractClauses'
+import { generatePDF } from './invoicePdf'
 import EstimateApprovalModal from './EstimateApprovalModal'
 import './PublicInvoiceView.css'
 
@@ -155,61 +156,31 @@ export default function PublicInvoiceView() {
     if (exporting) return
     setExporting(true)
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ])
-
-      const pdf    = new jsPDF({ unit: 'pt', format: 'letter' })
-      const pageW  = pdf.internal.pageSize.getWidth()   // 612
-      const pageH  = pdf.internal.pageSize.getHeight()  // 792
-      const margin = 28
-      const imgW   = pageW - margin * 2
-
-      // Captures one element and appends it to the PDF, paginating if it's taller than one page.
-      async function appendSection(el, isFirstSection) {
-        const canvas   = await html2canvas(el, {
-          scale:           2,
-          useCORS:         true,
-          allowTaint:      false,
-          backgroundColor: '#ffffff',
-          logging:         false,
-          windowWidth:     840,
-        })
-        const scale   = imgW / canvas.width          // pt per canvas-pixel
-        const slicePx = (pageH - margin * 2) / scale // canvas pixels that fit one page
-        let srcY = 0
-        let chunksAdded = 0
-
-        while (srcY < canvas.height) {
-          const needsNewPage = !isFirstSection || chunksAdded > 0
-          if (needsNewPage) pdf.addPage()
-
-          const chunkPx = Math.min(slicePx, canvas.height - srcY)
-          const tmp     = document.createElement('canvas')
-          tmp.width     = canvas.width
-          tmp.height    = chunkPx
-          tmp.getContext('2d').drawImage(
-            canvas, 0, srcY, canvas.width, chunkPx,
-            0,      0, canvas.width, chunkPx,
-          )
-          pdf.addImage(tmp.toDataURL('image/jpeg', 0.93), 'JPEG', margin, margin, imgW, chunkPx * scale)
-          srcY += slicePx
-          chunksAdded++
-        }
+      // Try to load the company logo as base64 for the PDF header
+      let logoBase64 = null
+      if (inv.companyLogoUrl) {
+        try {
+          const r = await fetch(inv.companyLogoUrl)
+          const blob = await r.blob()
+          logoBase64 = await new Promise((res, rej) => {
+            const reader = new FileReader()
+            reader.onload  = () => res(reader.result)
+            reader.onerror = rej
+            reader.readAsDataURL(blob)
+          })
+        } catch { /* skip logo if fetch fails */ }
       }
 
-      const invoiceEl = document.querySelector('.piv-doc')
-      if (invoiceEl) await appendSection(invoiceEl, true)
-
-      const termsEl = document.querySelector('.piv-terms-card')
-      if (termsEl) await appendSection(termsEl, false)
-
-      if (clientSigned) {
-        const signEl = document.querySelector('.piv-sign-card')
-        if (signEl) await appendSection(signEl, false)
+      // Fetch attached reference document bytes via backend proxy (avoids CORS)
+      let attachedBytes = null
+      if (attachedDocUrl) {
+        try {
+          const r = await fetch(`${BACKEND}/signing/fetch-pdf?url=${encodeURIComponent(attachedDocUrl)}`)
+          if (r.ok) attachedBytes = await r.arrayBuffer()
+        } catch { /* skip attached doc if proxy fetch fails */ }
       }
 
+      const pdf = await generatePDF(inv, logoBase64, { attachedBytes, includeSignature: true })
       const docType  = inv.type === 'estimate' ? 'Estimate' : inv.type === 'receipt' ? 'Receipt' : 'Invoice'
       const filename = `${docType}${inv.invoiceNumber ? `_${inv.invoiceNumber}` : ''}.pdf`
       pdf.save(filename)

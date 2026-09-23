@@ -179,6 +179,17 @@ export default function InvoiceEditor() {
   const [clientSignedAt,   setClientSignedAt]   = useState('')
   const [clientSignerName, setClientSignerName] = useState('')
 
+  // ── Contractor countersign state ──
+  const [contractorSigned,    setContractorSigned]    = useState(false)
+  const [contractorSignedAt,  setContractorSignedAt]  = useState('')
+  const [showCtrSignModal,    setShowCtrSignModal]    = useState(false)
+  const [ctrSigEmpty,         setCtrSigEmpty]         = useState(true)
+  const [ctrSigning,          setCtrSigning]          = useState(false)
+  const [ctrSigError,         setCtrSigError]         = useState('')
+  const ctrSigCanvasRef = useRef(null)
+  const ctrDrawingRef   = useRef(false)
+  const ctrLastPosRef   = useRef(null)
+
   // ── Client / company snapshot ──
   const [clientUid,     setClientUid]     = useState(null)
   const [clientDocId,   setClientDocId]   = useState('')
@@ -377,6 +388,10 @@ export default function InvoiceEditor() {
             setClientSigned(true)
             setClientSignedAt(inv.clientSignedAt || '')
             setClientSignerName(inv.clientSignerName || '')
+          }
+          if (inv.contractorSigned) {
+            setContractorSigned(true)
+            setContractorSignedAt(inv.contractorSignedAt || '')
           }
         }
       }
@@ -644,10 +659,122 @@ export default function InvoiceEditor() {
 
   // ── Export PDF ────────────────────────────────────────────────────────────
 
+  // ── Countersign canvas drawing ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!showCtrSignModal) return
+    const canvas = ctrSigCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    ctx.strokeStyle = '#1e293b'
+    ctx.lineWidth = 2.2
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    function getPos(e) {
+      const rect = canvas.getBoundingClientRect()
+      const scale = canvas.width / rect.width
+      const src = e.touches ? e.touches[0] : e
+      return { x: (src.clientX - rect.left) * scale, y: (src.clientY - rect.top) * scale }
+    }
+    function onDown(e) {
+      e.preventDefault()
+      ctrDrawingRef.current = true
+      const p = getPos(e)
+      ctrLastPosRef.current = p
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1, 0, Math.PI * 2); ctx.fill()
+      setCtrSigEmpty(false)
+    }
+    function onMove(e) {
+      e.preventDefault()
+      if (!ctrDrawingRef.current) return
+      const p = getPos(e)
+      ctx.beginPath()
+      ctx.moveTo(ctrLastPosRef.current.x, ctrLastPosRef.current.y)
+      ctx.lineTo(p.x, p.y)
+      ctx.stroke()
+      ctrLastPosRef.current = p
+    }
+    function onUp() { ctrDrawingRef.current = false }
+    canvas.addEventListener('mousedown',  onDown)
+    canvas.addEventListener('mousemove',  onMove)
+    canvas.addEventListener('mouseup',    onUp)
+    canvas.addEventListener('mouseleave', onUp)
+    canvas.addEventListener('touchstart', onDown, { passive: false })
+    canvas.addEventListener('touchmove',  onMove, { passive: false })
+    canvas.addEventListener('touchend',   onUp)
+    return () => {
+      canvas.removeEventListener('mousedown',  onDown)
+      canvas.removeEventListener('mousemove',  onMove)
+      canvas.removeEventListener('mouseup',    onUp)
+      canvas.removeEventListener('mouseleave', onUp)
+      canvas.removeEventListener('touchstart', onDown)
+      canvas.removeEventListener('touchmove',  onMove)
+      canvas.removeEventListener('touchend',   onUp)
+    }
+  }, [showCtrSignModal])
+
+  async function submitCountersign() {
+    if (ctrSigEmpty) return
+    setCtrSigning(true)
+    setCtrSigError('')
+    try {
+      const blob = await new Promise(res => ctrSigCanvasRef.current.toBlob(res, 'image/png'))
+      const sigPath = `users/${orgId}/documents/clients/${clientDocId}/signatures/${invoiceId}/contractor_sig.png`
+      const sRef = storageRef(storage, sigPath)
+      await uploadBytes(sRef, blob, { contentType: 'image/png' })
+      const sigUrl = await getDownloadURL(sRef)
+
+      const signedAt = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+      const update = {
+        contractorSigned: true,
+        contractorSignedAt: signedAt,
+        contractorSignerName: companyName || user.displayName || '',
+        contractorSignatureUrl: sigUrl,
+        status: 'signed',
+      }
+
+      // Update both possible invoice paths
+      const paths = [
+        clientUid ? doc(db, 'users', clientUid, 'invoices', invoiceId) : null,
+        doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', invoiceId),
+      ].filter(Boolean)
+      await Promise.all(paths.map(r => updateDoc(r, update).catch(() => {})))
+
+      // Mark the countersign todo completed
+      try {
+        const todosSnap = await getDocs(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'todos'))
+        const pending = todosSnap.docs.find(d => {
+          const t = d.data()
+          return t.type === 'countersign_invoice' && t.invoiceId === invoiceId && !t.completed
+        })
+        if (pending) {
+          await updateDoc(
+            doc(db, 'organization_data', orgId, 'clients', clientDocId, 'todos', pending.id),
+            { completed: true, completedAt: serverTimestamp() }
+          )
+        }
+      } catch {}
+
+      setContractorSigned(true)
+      setContractorSignedAt(signedAt)
+      setShowCtrSignModal(false)
+    } catch (e) {
+      console.error('countersign error:', e)
+      setCtrSigError('Could not save signature. Please try again.')
+    } finally {
+      setCtrSigning(false)
+    }
+  }
+
   async function resolveAttachedBytes() {
     if (claimDocFile) return claimDocFile.arrayBuffer()
     if (claimDocRef?.downloadURL) {
-      const resp = await fetch(claimDocRef.downloadURL)
+      const idToken = await user.getIdToken()
+      const resp = await fetch(`${BACKEND}/signing/proxy-pdf`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: claimDocRef.downloadURL }),
+      })
+      if (!resp.ok) return null
       return resp.arrayBuffer()
     }
     return null
@@ -969,7 +1096,12 @@ export default function InvoiceEditor() {
       {clientSigned && (
         <div className="ied-banner ied-banner--client-signed">
           <span>✍️ Client signed — <strong>{clientSignerName}</strong>{clientSignedAt ? ` on ${clientSignedAt}` : ''}</span>
-          <span className="ied-banner-countersign-note">Countersign to finalize the agreement.</span>
+          {contractorSigned
+            ? <span className="ied-banner-countersign-note">✅ Countersigned {contractorSignedAt ? `on ${contractorSignedAt}` : ''}</span>
+            : <button className="ied-countersign-btn" onClick={() => { setCtrSigEmpty(true); setCtrSigError(''); setShowCtrSignModal(true) }}>
+                ✍️ Countersign
+              </button>
+          }
         </div>
       )}
 
@@ -1598,6 +1730,41 @@ export default function InvoiceEditor() {
         </div>
       )}
     </div>
+
+    {showCtrSignModal && (
+      <div className="ied-overlay" onClick={() => setShowCtrSignModal(false)}>
+        <div className="ied-modal ied-ctr-sign-modal" onClick={e => e.stopPropagation()}>
+          <h2 className="ied-modal-title">Countersign Invoice</h2>
+          <p className="ied-ctr-sign-meta">
+            Client <strong>{clientSignerName}</strong> signed this invoice{clientSignedAt ? ` on ${clientSignedAt}` : ''}.
+            Add your signature below to finalize the agreement.
+          </p>
+          <div className="ied-ctr-sig-wrap">
+            <canvas ref={ctrSigCanvasRef} className="ied-ctr-sig-canvas" width={560} height={160} />
+            {ctrSigEmpty && <span className="ied-ctr-sig-placeholder">Sign here</span>}
+          </div>
+          <button
+            className="ied-ctr-sig-clear"
+            onClick={() => {
+              const c = ctrSigCanvasRef.current
+              c.getContext('2d').clearRect(0, 0, c.width, c.height)
+              setCtrSigEmpty(true)
+            }}
+          >
+            Clear
+          </button>
+          {ctrSigError && <p className="ied-ctr-sig-error">{ctrSigError}</p>}
+          <div className="ied-modal-actions" style={{ marginTop: 20 }}>
+            <button className="ied-btn ied-btn--ghost" onClick={() => setShowCtrSignModal(false)} disabled={ctrSigning}>
+              Cancel
+            </button>
+            <button className="ied-btn ied-btn--primary" onClick={submitCountersign} disabled={ctrSigEmpty || ctrSigning}>
+              {ctrSigning ? 'Saving…' : '✍️ Sign & Finalize'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {showNotesAI && (
       <NotesAIModal

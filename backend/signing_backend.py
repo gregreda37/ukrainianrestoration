@@ -798,16 +798,19 @@ def approve_estimate():
 
     # ── Update invoice status to 'approved' ───────────────────────────────────
     if org_id and client_doc_id and invoice_id:
-        for ref_fn in [
-            lambda: db.collection("organization_data").document(org_id)
-                      .collection("clients").document(client_doc_id)
-                      .collection("invoices").document(invoice_id),
-            lambda: db.collection("users").document(org_id)
-                      .collection("clients").document(client_doc_id)
-                      .collection("invoices").document(invoice_id),
-        ]:
+        approve_refs = [
+            db.collection("organization_data").document(org_id)
+              .collection("clients").document(client_doc_id)
+              .collection("invoices").document(invoice_id),
+        ]
+        if client_uid:
+            approve_refs.append(
+                db.collection("users").document(client_uid)
+                  .collection("invoices").document(invoice_id)
+            )
+        for ref in approve_refs:
             try:
-                ref_fn().update({"status": "approved"})
+                ref.update({"status": "approved"})
             except Exception as exc:
                 print(f"[approve-estimate] invoice status update failed: {exc}")
 
@@ -921,16 +924,19 @@ def sign_invoice_view():
             "clientSignatureUrl": client_sig_url,
             "status":             "client_signed",
         }
-        for ref_fn in [
-            lambda: db.collection("organization_data").document(org_id)
-                      .collection("clients").document(client_doc_id)
-                      .collection("invoices").document(invoice_id),
-            lambda: db.collection("users").document(org_id)
-                      .collection("clients").document(client_doc_id)
-                      .collection("invoices").document(invoice_id),
-        ]:
+        inv_refs = [
+            db.collection("organization_data").document(org_id)
+              .collection("clients").document(client_doc_id)
+              .collection("invoices").document(invoice_id),
+        ]
+        if client_uid:
+            inv_refs.append(
+                db.collection("users").document(client_uid)
+                  .collection("invoices").document(invoice_id)
+            )
+        for ref in inv_refs:
             try:
-                ref_fn().update(update_payload)
+                ref.update(update_payload)
             except Exception as exc:
                 print(f"[sign-invoice-view] invoice update failed: {exc}")
 

@@ -103,12 +103,16 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
   const navigate = useNavigate()
   const prevPrefillRef = useRef(null)
 
-  const [loading,      setLoading]      = useState(true)
-  const [settlements,  setSettlements]  = useState([])
-  const [partners,     setPartners]     = useState([])
-  const [showForm,     setShowForm]     = useState(false)
-  const [form,         setForm]         = useState(() => buildEmptyForm(prefill))
-  const [saving,       setSaving]       = useState(false)
+  const [loading,         setLoading]         = useState(true)
+  const [settlements,     setSettlements]     = useState([])
+  const [partners,        setPartners]        = useState([])
+  const [showForm,        setShowForm]        = useState(false)
+  const [openCreateMenu,  setOpenCreateMenu]  = useState(null) // settlement id | null
+  const createMenuRef = useRef(null)
+  const [form,            setForm]            = useState(() => buildEmptyForm(prefill))
+  const [saving,          setSaving]          = useState(false)
+  const [pickerSettlement, setPickerSettlement] = useState(null)  // settlement obj | null
+  const [pickerSelected,   setPickerSelected]   = useState(new Set())
   // When adjuster/claim data loads asynchronously in the parent, update blank form fields
   useEffect(() => {
     const prev = prevPrefillRef.current
@@ -135,6 +139,17 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
     if (clientUid || (orgId && clientDocId)) load()
     else setLoading(false)
   }, [clientUid, clientDocId, orgId, refreshKey])
+
+  useEffect(() => {
+    if (!openCreateMenu) return
+    function handleOutside(e) {
+      if (createMenuRef.current && !createMenuRef.current.contains(e.target)) {
+        setOpenCreateMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [openCreateMenu])
 
   async function load() {
     setLoading(true)
@@ -268,6 +283,81 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
   const encoded = encodeURIComponent(phone)
   const fullPage = `/myclaim/clients/${encoded}/settlement`
 
+  const SETTLED_CATS = [
+    { key: 'dryCleanSettled',       label: 'Dry Cleaning / Contents' },
+    { key: 'mitigationSettled',     label: 'Mitigation'               },
+    { key: 'reconstructionSettled', label: 'Reconstruction'           },
+    { key: 'packoutSettled',        label: 'Packout'                  },
+  ]
+
+  const INSURANCE_DISCLAIMER =
+    'The line items and pricing referenced in this invoice reflect the scope of work as outlined in the attached insurance carrier\'s estimate or report. These amounts represent the insurance company\'s assessment and do not necessarily reflect the final agreed-upon contract price for services rendered. Actual costs may differ due to supplemental work identified during restoration, existing site conditions, code compliance requirements, or items not included in the original estimate. The scope of work described herein is for reference purposes only and is subject to modification upon mutual agreement. We reserve the right to invoice separately for any additional work, materials, or services required beyond what is covered in the insurance carrier\'s estimate. Please refer to the attached insurance report for full scope and line-item details.'
+
+  function navigateToInvoice(s, selectedKeys) {
+    const items = SETTLED_CATS
+      .filter(c => selectedKeys.has(c.key) && n(s[c.key]) > 0)
+      .map(c => ({ label: c.label, unit: 'total', price: n(s[c.key]) }))
+    const totalSettled = items.reduce((sum, it) => sum + (it.price || 0), 0)
+    navigate(
+      `/myclaim/clients/${encodeURIComponent(phone)}/invoices/new`,
+      { state: {
+        prefillType:               'invoice',
+        prefillNotes:              'See attached document and review the disclaimer below.',
+        prefillDisclaimer:         INSURANCE_DISCLAIMER,
+        prefillItems:              items,
+        prefillClaimCoveredAmount: totalSettled,
+      }}
+    )
+  }
+
+  function navigateToReceipt(s) {
+    const items = SETTLED_CATS
+      .filter(c => n(s[c.key]) > 0)
+      .map(c => ({ label: c.label, unit: 'total', price: n(s[c.key]) }))
+    const totalSettled = items.reduce((sum, it) => sum + (it.price || 0), 0)
+    navigate(
+      `/myclaim/clients/${encodeURIComponent(phone)}/invoices/new`,
+      { state: {
+        prefillType:    'receipt',
+        prefillNotes:   `Insurance settlement receipt — Claim ${s.claimNumber || ''}${s.insuranceCompany ? ` (${s.insuranceCompany})` : ''}`,
+        prefillItems:   items,
+        prefillClaimCoveredAmount: totalSettled,
+      }}
+    )
+  }
+
+  function navigateToEstimate(s) {
+    const items = SETTLED_CATS
+      .filter(c => n(s[c.key]) > 0)
+      .map(c => ({ label: c.label, unit: 'total', price: n(s[c.key]) }))
+    navigate(
+      `/myclaim/clients/${encodeURIComponent(phone)}/invoices/new`,
+      { state: {
+        prefillType:  'estimate',
+        prefillNotes: `Insurance estimate — Claim ${s.claimNumber || ''}${s.insuranceCompany ? ` (${s.insuranceCompany})` : ''}`,
+        prefillItems: items,
+      }}
+    )
+  }
+
+  function handleCreateInvoice(s) {
+    const eligible = SETTLED_CATS.filter(c => n(s[c.key]) > 0)
+    if (eligible.length <= 1) {
+      navigateToInvoice(s, new Set(eligible.map(c => c.key)))
+    } else {
+      setPickerSettlement(s)
+      setPickerSelected(new Set(eligible.map(c => c.key)))
+    }
+  }
+
+  function togglePickerCat(key) {
+    setPickerSelected(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -313,24 +403,42 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
                   </div>
                   <div className="sovc-row-right">
                     <span className="sovc-badge" style={{ color: sm.color, background: sm.bg }}>{sm.label}</span>
-                    {(n(s.dryCleanSettled) > 0 || n(s.mitigationSettled) > 0 || n(s.reconstructionSettled) > 0 || n(s.packoutSettled) > 0) && (
-                      <button className="sovc-receipt-btn" onClick={() => {
-                        const items = [
-                          n(s.dryCleanSettled)       > 0 && { label: 'Dry Cleaning / Contents', unit: 'total', price: n(s.dryCleanSettled) },
-                          n(s.mitigationSettled)     > 0 && { label: 'Mitigation',               unit: 'total', price: n(s.mitigationSettled) },
-                          n(s.reconstructionSettled) > 0 && { label: 'Reconstruction',            unit: 'total', price: n(s.reconstructionSettled) },
-                          n(s.packoutSettled)        > 0 && { label: 'Packout',                   unit: 'total', price: n(s.packoutSettled) },
-                        ].filter(Boolean)
-                        navigate(
-                          `/myclaim/clients/${encodeURIComponent(phone)}/invoices/new`,
-                          { state: {
-                            prefillType:  'receipt',
-                            prefillNotes: `Insurance settlement receipt — Claim ${s.claimNumber || ''}${s.insuranceCompany ? ` (${s.insuranceCompany})` : ''}`,
-                            prefillItems: items,
-                          }}
-                        )
-                      }}>🧾 Receipt</button>
-                    )}
+                    <div className="sovc-create-wrap" ref={openCreateMenu === s.id ? createMenuRef : null}>
+                      <button
+                        className="sovc-create-btn"
+                        onClick={() => setOpenCreateMenu(v => v === s.id ? null : s.id)}
+                      >
+                        + Create
+                        <svg className={`sovc-create-chevron${openCreateMenu === s.id ? ' sovc-create-chevron--open' : ''}`} viewBox="0 0 16 16" fill="none">
+                          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                      {openCreateMenu === s.id && (
+                        <div className="sovc-create-dropdown">
+                          <button className="sovc-create-option" onClick={() => { setOpenCreateMenu(null); handleCreateInvoice(s) }}>
+                            <span className="sovc-create-option-icon">🧾</span>
+                            <div>
+                              <div className="sovc-create-option-label">Invoice</div>
+                              <div className="sovc-create-option-desc">Bill client with settlement amounts</div>
+                            </div>
+                          </button>
+                          <button className="sovc-create-option" onClick={() => { setOpenCreateMenu(null); navigateToReceipt(s) }}>
+                            <span className="sovc-create-option-icon">✅</span>
+                            <div>
+                              <div className="sovc-create-option-label">Receipt</div>
+                              <div className="sovc-create-option-desc">Record settlement as paid</div>
+                            </div>
+                          </button>
+                          <button className="sovc-create-option" onClick={() => { setOpenCreateMenu(null); navigateToEstimate(s) }}>
+                            <span className="sovc-create-option-icon">📋</span>
+                            <div>
+                              <div className="sovc-create-option-label">Estimate</div>
+                              <div className="sovc-create-option-desc">Create a quote from this claim</div>
+                            </div>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     <button className="sovc-text-btn" onClick={() => onOpenModal?.()}>Details →</button>
                   </div>
                 </div>
@@ -384,6 +492,51 @@ export default function SettlementOverviewCard({ clientUid, clientDocId, clientN
       )}
 
       {/* ── New claim inline form ── */}
+      {/* ── Category picker modal ── */}
+      {pickerSettlement && (
+        <div className="sovc-picker-overlay" onClick={() => setPickerSettlement(null)}>
+          <div className="sovc-picker-modal" onClick={e => e.stopPropagation()}>
+            <div className="sovc-picker-title">Select Items for Invoice</div>
+            <div className="sovc-picker-subtitle">
+              {pickerSettlement.claimNumber || 'No claim #'}
+              {pickerSettlement.insuranceCompany ? ` · ${pickerSettlement.insuranceCompany}` : ''}
+            </div>
+            <div className="sovc-picker-list">
+              {SETTLED_CATS.filter(c => n(pickerSettlement[c.key]) > 0).map(c => (
+                <label key={c.key} className={`sovc-picker-check-row${pickerSelected.has(c.key) ? ' sovc-picker-check-row--on' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={pickerSelected.has(c.key)}
+                    onChange={() => togglePickerCat(c.key)}
+                  />
+                  <span className="sovc-picker-cat-label">{c.label}</span>
+                  <span className="sovc-picker-amt">{fmtMoney(n(pickerSettlement[c.key]))}</span>
+                </label>
+              ))}
+            </div>
+            <div className="sovc-picker-footer">
+              <span className="sovc-picker-total">
+                Total: {fmtMoney(
+                  SETTLED_CATS
+                    .filter(c => pickerSelected.has(c.key))
+                    .reduce((sum, c) => sum + n(pickerSettlement[c.key]), 0)
+                )}
+              </span>
+              <div className="sovc-picker-btns">
+                <button className="sovc-picker-cancel" onClick={() => setPickerSettlement(null)}>Cancel</button>
+                <button
+                  className="sovc-picker-confirm"
+                  disabled={pickerSelected.size === 0}
+                  onClick={() => { setPickerSettlement(null); navigateToInvoice(pickerSettlement, pickerSelected) }}
+                >
+                  Create Invoice
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <div className="sovc-form">
           <div className="sovc-form-section-label">Prefilled from claim info — edit as needed</div>

@@ -469,6 +469,11 @@ function Section({ title, items, basePath, onDelete, onSend, isReceipts, isArchi
                     Deposit paid · {fmtMoney(parseFloat(inv.depositPaidAmount) || 0)} received
                   </span>
                 )}
+                {(parseFloat(inv.claimCoveredAmount) || 0) > 0 && (
+                  <span className="inv-badge inv-badge--insurance">
+                    Insurance: {fmtMoney(parseFloat(inv.claimCoveredAmount))} covered
+                  </span>
+                )}
                 <div className="inv-card-actions">
                   <button className="inv-action-btn" onClick={() => window.location.href = `${basePath}/${inv.id}`}>
                     View

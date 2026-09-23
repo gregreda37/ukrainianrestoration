@@ -55,6 +55,65 @@
 }
 .sovc-receipt-btn:hover { background: #bbf7d0; }
 
+/* ── Create dropdown on settlement row ── */
+.sovc-create-wrap {
+  position: relative;
+}
+.sovc-create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.13s;
+}
+.sovc-create-btn:hover { background: #1d4ed8; }
+.sovc-create-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  transition: transform 0.16s;
+}
+.sovc-create-chevron--open { transform: rotate(180deg); }
+.sovc-create-dropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.11);
+  min-width: 220px;
+  z-index: 300;
+  padding: 6px;
+}
+.sovc-create-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.11s;
+}
+.sovc-create-option:hover { background: #f1f5f9; }
+.sovc-create-option-icon { font-size: 18px; line-height: 1; flex-shrink: 0; }
+.sovc-create-option-label { font-size: 13px; font-weight: 600; color: #0f172a; }
+.sovc-create-option-desc  { font-size: 11.5px; color: #64748b; margin-top: 1px; }
+
 .sovc-add-btn {
   padding: 7px 14px;
   border-radius: 9px;
@@ -71,6 +130,143 @@
 .sovc-add-btn:hover { background: #dbeafe; }
 .sovc-add-btn--cancel { border-color: #e2e8f0; background: #f8fafc; color: #64748b; }
 .sovc-add-btn--cancel:hover { background: #f1f5f9; }
+
+.sovc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Settlement picker modal ── */
+.sovc-picker-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.sovc-picker-modal {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 440px;
+  width: 92%;
+  box-shadow: 0 8px 40px rgba(15,23,42,.18);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sovc-picker-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sovc-picker-subtitle {
+  font-size: 12.5px;
+  color: #64748b;
+  margin-top: -8px;
+}
+
+.sovc-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sovc-picker-check-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.sovc-picker-check-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sovc-picker-check-row--on {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.sovc-picker-check-row:hover {
+  border-color: #93c5fd;
+}
+
+.sovc-picker-cat-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  flex: 1;
+}
+
+.sovc-picker-amt {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #15803d;
+  white-space: nowrap;
+}
+
+.sovc-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.sovc-picker-total {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sovc-picker-btns {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sovc-picker-cancel {
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-family: inherit;
+}
+.sovc-picker-cancel:hover { color: #0f172a; }
+
+.sovc-picker-confirm {
+  padding: 8px 18px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.sovc-picker-confirm:hover:not(:disabled) { background: #1d4ed8; }
+.sovc-picker-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Empty state ── */
 .sovc-empty {

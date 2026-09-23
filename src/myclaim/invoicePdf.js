@@ -84,7 +84,7 @@ function addPageFooters(doc, inv) {
   }
 }
 
-function addContractSection(doc, inv) {
+function addContractSection(doc, inv, sigs = {}) {
   const pw          = doc.internal.pageSize.getWidth()
   const ph          = doc.internal.pageSize.getHeight()
   const margin      = 48
@@ -202,7 +202,8 @@ function addContractSection(doc, inv) {
   }
 
   // ── Signature block ──────────────────────────────────────────────────────────
-  y = checkBreak(y, 160)
+  const hasSigImages = !!(sigs.clientSigBase64 || sigs.contractorSigBase64)
+  y = checkBreak(y, hasSigImages ? 350 : 160)
   y += 8
 
   doc.setDrawColor(226, 232, 240)
@@ -222,10 +223,18 @@ function addContractSection(doc, inv) {
   doc.text(ackLines, margin, y)
   y += ackLines.length * 12 + 28
 
-  const sigW  = 220
-  const dateX = pw - margin - 130
+  const sigW    = 220
+  const dateX   = pw - margin - 130
+  const SIG_H   = 44   // vertical space reserved for an embedded signature image
 
   // Client signature
+  if (sigs.clientSigBase64) {
+    y += SIG_H
+    try {
+      const fmt = /data:image\/jpe?g/i.test(sigs.clientSigBase64) ? 'JPEG' : 'PNG'
+      doc.addImage(sigs.clientSigBase64, fmt, margin, y - SIG_H, sigW, SIG_H - 4, undefined, 'NONE')
+    } catch {}
+  }
   doc.setDrawColor(15, 23, 42)
   doc.setLineWidth(0.6)
   doc.line(margin, y, margin + sigW, y)
@@ -234,12 +243,22 @@ function addContractSection(doc, inv) {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(100, 116, 139)
-  doc.text('Client Signature', margin, y)
-  doc.text('Date', dateX, y)
+  doc.text("Client's Signature", margin, y)
+  doc.text(sigs.clientSignedAt || 'Date', dateX, y)
 
+  // Print Name — write the actual name on the line in italic if provided
   y += 40
+  if (sigs.clientSignerName) {
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(11)
+    doc.setTextColor(15, 23, 42)
+    doc.text(sigs.clientSignerName, margin + 4, y - 3)
+  }
   doc.line(margin, y, margin + sigW, y)
   y += 13
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(100, 116, 139)
   doc.text('Print Name', margin, y)
 
   // Contractor signature
@@ -249,6 +268,13 @@ function addContractSection(doc, inv) {
   doc.setTextColor(71, 85, 105)
   doc.text('Authorized Representative:', margin, y)
   y += 18
+  if (sigs.contractorSigBase64) {
+    y += SIG_H
+    try {
+      const fmt = /data:image\/jpe?g/i.test(sigs.contractorSigBase64) ? 'JPEG' : 'PNG'
+      doc.addImage(sigs.contractorSigBase64, fmt, margin, y - SIG_H, sigW, SIG_H - 4, undefined, 'NONE')
+    } catch {}
+  }
   doc.setLineWidth(0.6)
   doc.setDrawColor(15, 23, 42)
   doc.line(margin, y, margin + sigW, y)
@@ -258,14 +284,16 @@ function addContractSection(doc, inv) {
   doc.setFontSize(8)
   doc.setTextColor(100, 116, 139)
   doc.text(inv.companyName || 'Company', margin, y)
-  doc.text('Date', dateX, y)
+  doc.text(sigs.contractorSignedAt || 'Date', dateX, y)
 }
 
 // Main PDF generator.
-// opts.attachedBytes  — ArrayBuffer of a PDF to insert after the invoice pages.
-// opts.includeSignature — add a signature page at the very end (default true).
+// opts.attachedBytes     — ArrayBuffer of a PDF to insert after the invoice pages.
+// opts.includeSignature  — add a signature page at the very end (default true).
+// opts.sigs              — { clientSigBase64, clientSignerName, clientSignedAt,
+//                            contractorSigBase64, contractorSignerName, contractorSignedAt }
 export async function generatePDF(inv, logoBase64, opts = {}) {
-  const { attachedBytes = null, includeSignature = true } = opts
+  const { attachedBytes = null, includeSignature = true, sigs = {} } = opts
 
   const doc    = new jsPDF({ unit: 'pt', format: 'letter' })
   const pw     = doc.internal.pageSize.getWidth()
@@ -509,7 +537,7 @@ export async function generatePDF(inv, logoBase64, opts = {}) {
 
   // ── Contract agreement & terms (page 2+, ends with client/contractor sig lines) ──
   if (includeSignature) {
-    addContractSection(doc, inv)
+    addContractSection(doc, inv, sigs)
   }
 
   // ── Attached reference document (after contract section) ──

@@ -175,9 +175,10 @@ export default function InvoiceEditor() {
   const [terms,     setTerms]     = useState(DEFAULT_TERMS)
 
   // ── Client signing state ──
-  const [clientSigned,     setClientSigned]     = useState(false)
-  const [clientSignedAt,   setClientSignedAt]   = useState('')
-  const [clientSignerName, setClientSignerName] = useState('')
+  const [clientSigned,        setClientSigned]        = useState(false)
+  const [clientSignedAt,      setClientSignedAt]      = useState('')
+  const [clientSignerName,    setClientSignerName]    = useState('')
+  const [clientSignatureUrl,  setClientSignatureUrl]  = useState('')
 
   // ── Contractor countersign state ──
   const [contractorSigned,    setContractorSigned]    = useState(false)
@@ -186,6 +187,8 @@ export default function InvoiceEditor() {
   const [ctrSigEmpty,         setCtrSigEmpty]         = useState(true)
   const [ctrSigning,          setCtrSigning]          = useState(false)
   const [ctrSigError,         setCtrSigError]         = useState('')
+  const [orgContractorSig,    setOrgContractorSig]    = useState(null)  // saved org signature
+  const [usingSavedCtrSig,    setUsingSavedCtrSig]    = useState(false)
   const ctrSigCanvasRef = useRef(null)
   const ctrDrawingRef   = useRef(false)
   const ctrLastPosRef   = useRef(null)
@@ -236,6 +239,14 @@ export default function InvoiceEditor() {
   const [smsViewError,   setSmsViewError]   = useState('')
   const [smsViewCopied,  setSmsViewCopied]  = useState(false)
 
+  // ── Signed notification SMS state ──
+  const [showSignedSms,      setShowSignedSms]      = useState(false)
+  const [signedSmsPhones,    setSignedSmsPhones]    = useState([])
+  const [signedSmsLoading,   setSignedSmsLoading]   = useState(false)
+  const [signedSmsSent,      setSignedSmsSent]      = useState(false)
+  const [signedSmsError,     setSignedSmsError]     = useState('')
+  const [pendingSignedDocUrl,setPendingSignedDocUrl] = useState('')
+
   // ── Load ─────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -285,6 +296,7 @@ export default function InvoiceEditor() {
         setCompanyLicense(od.companyLicense || '')
         setCompanyLogoUrl(od.companyLogoUrl || '')
         setLogoBase64(od.companyLogoBase64 || null)
+        setOrgContractorSig(od.contractorSignatureBase64 || null)
 
         // Default tax state on new invoices: explicit org setting first, then address fallback
         if (isNew) {
@@ -388,6 +400,7 @@ export default function InvoiceEditor() {
             setClientSigned(true)
             setClientSignedAt(inv.clientSignedAt || '')
             setClientSignerName(inv.clientSignerName || '')
+            setClientSignatureUrl(inv.clientSignatureUrl || '')
           }
           if (inv.contractorSigned) {
             setContractorSigned(true)
@@ -713,33 +726,110 @@ export default function InvoiceEditor() {
   }, [showCtrSignModal])
 
   async function submitCountersign() {
-    if (ctrSigEmpty) return
+    if (!usingSavedCtrSig && ctrSigEmpty) return
     setCtrSigning(true)
     setCtrSigError('')
     try {
-      const blob = await new Promise(res => ctrSigCanvasRef.current.toBlob(res, 'image/png'))
-      const sigPath = `users/${orgId}/documents/clients/${clientDocId}/signatures/${invoiceId}/contractor_sig.png`
-      const sRef = storageRef(storage, sigPath)
-      await uploadBytes(sRef, blob, { contentType: 'image/png' })
-      const sigUrl = await getDownloadURL(sRef)
+      const signedAt             = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+      const contractorSignerName = companyName || user.displayName || ''
 
-      const signedAt = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
-      const update = {
-        contractorSigned: true,
-        contractorSignedAt: signedAt,
-        contractorSignerName: companyName || user.displayName || '',
-        contractorSignatureUrl: sigUrl,
-        status: 'signed',
+      // 1. Resolve contractor sig base64 — from saved org sig or fresh canvas draw
+      const contractorSigBase64 = usingSavedCtrSig
+        ? orgContractorSig
+        : ctrSigCanvasRef.current.toDataURL('image/png')
+
+      // Upload contractor signature PNG
+      const sigBlob = await fetch(contractorSigBase64).then(r => r.blob())
+      const sigPath = `users/${orgId}/documents/clients/${clientDocId}/signatures/${invoiceId}/contractor_sig.png`
+      const ctrSigRef = storageRef(storage, sigPath)
+      await uploadBytes(ctrSigRef, sigBlob, { contentType: 'image/png' })
+      const contractorSignatureUrl = await getDownloadURL(ctrSigRef)
+
+      // If a new signature was drawn, save it to org for future re-use
+      if (!usingSavedCtrSig) {
+        setDoc(doc(db, 'organization_data', orgId), { contractorSignatureBase64: contractorSigBase64 }, { merge: true })
+          .then(() => setOrgContractorSig(contractorSigBase64))
+          .catch(() => {})
       }
 
-      // Update both possible invoice paths
+      // 2. Fetch client signature as base64 (via backend proxy to avoid CORS)
+      let clientSigBase64 = null
+      if (clientSignatureUrl) {
+        try {
+          const idToken = await user.getIdToken()
+          const resp = await fetch(`${BACKEND}/signing/proxy-pdf`, {
+            method:  'POST',
+            headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ url: clientSignatureUrl }),
+          })
+          if (resp.ok) {
+            const buf   = await resp.arrayBuffer()
+            const bytes = new Uint8Array(buf)
+            let bin = ''
+            bytes.forEach(b => { bin += String.fromCharCode(b) })
+            clientSigBase64 = 'data:image/png;base64,' + btoa(bin)
+          }
+        } catch {}
+      }
+
+      // 3. Generate combined signed PDF with both signature images embedded
+      const inv           = buildInvoice()
+      const attachedBytes = await resolveAttachedBytes()
+      const sigs = {
+        clientSigBase64,
+        clientSignerName,
+        clientSignedAt,
+        contractorSigBase64,
+        contractorSignerName,
+        contractorSignedAt: signedAt,
+      }
+      const pdf     = await generatePDF(inv, logoBase64, { attachedBytes, includeSignature: true, sigs })
+      const pdfBlob = pdf.output('blob')
+
+      // 4. Upload signed PDF to Storage
+      const docType     = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
+      const storeName   = buildPdfName(clientName, `Signed_${docType}`, invNumber, { forStorage: true })
+      const storagePath = clientUid
+        ? `users/${clientUid}/documents/${storeName}`
+        : `users/${orgId}/documents/clients/${clientDocId}/${storeName}`
+      const pdfSRef = storageRef(storage, storagePath)
+      await uploadBytes(pdfSRef, pdfBlob, { contentType: 'application/pdf' })
+      const signedDocUrl = await getDownloadURL(pdfSRef)
+
+      // 5. Save document record — always write to org path (shown in ClientDetail);
+      //    also write to user path when uid exists (shown in client portal)
+      const docRecord = {
+        name:        storeName,
+        storagePath,
+        downloadURL: signedDocUrl,
+        size:        pdfBlob.size,
+        folder:      'client',
+        uploadedAt:  serverTimestamp(),
+        uploadedBy:  user.email || 'contractor',
+        source:      'firebase_storage',
+      }
+      const orgDocsRef = collection(db, 'organization_data', orgId, 'clients', clientDocId, 'documents')
+      await addDoc(orgDocsRef, docRecord)
+      if (clientUid) {
+        addDoc(collection(db, 'users', clientUid, 'documents'), docRecord).catch(() => {})
+      }
+
+      // 6. Update invoice on both paths
+      const update = {
+        contractorSigned:      true,
+        contractorSignedAt:    signedAt,
+        contractorSignerName,
+        contractorSignatureUrl,
+        signedDocUrl,
+        status: 'signed',
+      }
       const paths = [
         clientUid ? doc(db, 'users', clientUid, 'invoices', invoiceId) : null,
         doc(db, 'organization_data', orgId, 'clients', clientDocId, 'invoices', invoiceId),
       ].filter(Boolean)
       await Promise.all(paths.map(r => updateDoc(r, update).catch(() => {})))
 
-      // Mark the countersign todo completed
+      // 7. Mark countersign todo completed
       try {
         const todosSnap = await getDocs(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'todos'))
         const pending = todosSnap.docs.find(d => {
@@ -757,11 +847,44 @@ export default function InvoiceEditor() {
       setContractorSigned(true)
       setContractorSignedAt(signedAt)
       setShowCtrSignModal(false)
+
+      // Prompt to notify client
+      const phones = []
+      if (clientPhone) phones.push(clientPhone)
+      secondaryContacts.forEach(c => { if (c.phone) phones.push(c.phone) })
+      setSignedSmsPhones(phones)
+      setPendingSignedDocUrl(signedDocUrl)
+      setSignedSmsSent(false)
+      setSignedSmsError('')
+      setShowSignedSms(true)
     } catch (e) {
       console.error('countersign error:', e)
       setCtrSigError('Could not save signature. Please try again.')
     } finally {
       setCtrSigning(false)
+    }
+  }
+
+  async function sendSignedNotification() {
+    setSignedSmsLoading(true)
+    setSignedSmsError('')
+    try {
+      const typeLabel = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
+      const msg = `${companyName || 'Your contractor'}: Your ${typeLabel}${invNumber ? ` #${invNumber}` : ''} has been fully signed and approved. View your signed document: ${pendingSignedDocUrl}`
+      const [primaryPhone, ...otherPhones] = signedSmsPhones
+      const idToken = await user.getIdToken()
+      const r = await fetch(`${BACKEND}/notify-client`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ phone: primaryPhone, type: 'signed_invoice', message: msg, secondaryPhones: otherPhones }),
+      })
+      const data = await r.json()
+      if (!r.ok || data.error) { setSignedSmsError(data.error || 'Could not send SMS.'); return }
+      setSignedSmsSent(true)
+    } catch {
+      setSignedSmsError('Network error. Please try again.')
+    } finally {
+      setSignedSmsLoading(false)
     }
   }
 
@@ -1093,15 +1216,18 @@ export default function InvoiceEditor() {
           {' · '}Balance remaining: {fmtMoney(Math.max(0, totals.total - depositPaidAmount))}
         </div>
       )}
-      {clientSigned && (
+      {clientSigned && !contractorSigned && (
         <div className="ied-banner ied-banner--client-signed">
           <span>✍️ Client signed — <strong>{clientSignerName}</strong>{clientSignedAt ? ` on ${clientSignedAt}` : ''}</span>
-          {contractorSigned
-            ? <span className="ied-banner-countersign-note">✅ Countersigned {contractorSignedAt ? `on ${contractorSignedAt}` : ''}</span>
-            : <button className="ied-countersign-btn" onClick={() => { setCtrSigEmpty(true); setCtrSigError(''); setShowCtrSignModal(true) }}>
-                ✍️ Countersign
-              </button>
-          }
+          <button className="ied-countersign-btn" onClick={() => { setCtrSigEmpty(true); setCtrSigError(''); setUsingSavedCtrSig(!!orgContractorSig); setShowCtrSignModal(true) }}>
+            ✍️ Countersign
+          </button>
+        </div>
+      )}
+      {clientSigned && contractorSigned && (
+        <div className="ied-banner ied-banner--fully-signed">
+          <span>✅ Fully Signed — Client: <strong>{clientSignerName}</strong>{clientSignedAt ? ` on ${clientSignedAt}` : ''}</span>
+          <span>Countersigned by <strong>{companyName || 'contractor'}</strong>{contractorSignedAt ? ` on ${contractorSignedAt}` : ''}</span>
         </div>
       )}
 
@@ -1739,28 +1865,111 @@ export default function InvoiceEditor() {
             Client <strong>{clientSignerName}</strong> signed this invoice{clientSignedAt ? ` on ${clientSignedAt}` : ''}.
             Add your signature below to finalize the agreement.
           </p>
-          <div className="ied-ctr-sig-wrap">
-            <canvas ref={ctrSigCanvasRef} className="ied-ctr-sig-canvas" width={560} height={160} />
-            {ctrSigEmpty && <span className="ied-ctr-sig-placeholder">Sign here</span>}
-          </div>
-          <button
-            className="ied-ctr-sig-clear"
-            onClick={() => {
-              const c = ctrSigCanvasRef.current
-              c.getContext('2d').clearRect(0, 0, c.width, c.height)
-              setCtrSigEmpty(true)
-            }}
-          >
-            Clear
-          </button>
+          {usingSavedCtrSig ? (
+            <div className="ied-ctr-saved-sig-wrap">
+              <img src={orgContractorSig} alt="Saved signature" className="ied-ctr-saved-sig-img" />
+              <button className="ied-ctr-sig-clear" onClick={() => { setUsingSavedCtrSig(false); setCtrSigEmpty(true) }}>
+                Draw a new signature instead
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="ied-ctr-sig-wrap">
+                <canvas ref={ctrSigCanvasRef} className="ied-ctr-sig-canvas" width={560} height={160} />
+                {ctrSigEmpty && <span className="ied-ctr-sig-placeholder">Sign here</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <button
+                  className="ied-ctr-sig-clear"
+                  onClick={() => {
+                    const c = ctrSigCanvasRef.current
+                    c.getContext('2d').clearRect(0, 0, c.width, c.height)
+                    setCtrSigEmpty(true)
+                  }}
+                >
+                  Clear
+                </button>
+                {orgContractorSig && (
+                  <button className="ied-ctr-sig-clear" onClick={() => setUsingSavedCtrSig(true)}>
+                    Use saved signature
+                  </button>
+                )}
+              </div>
+            </>
+          )}
           {ctrSigError && <p className="ied-ctr-sig-error">{ctrSigError}</p>}
           <div className="ied-modal-actions" style={{ marginTop: 20 }}>
             <button className="ied-btn ied-btn--ghost" onClick={() => setShowCtrSignModal(false)} disabled={ctrSigning}>
               Cancel
             </button>
-            <button className="ied-btn ied-btn--primary" onClick={submitCountersign} disabled={ctrSigEmpty || ctrSigning}>
+            <button className="ied-btn ied-btn--primary" onClick={submitCountersign}
+              disabled={(!usingSavedCtrSig && ctrSigEmpty) || ctrSigning}>
               {ctrSigning ? 'Saving…' : '✍️ Sign & Finalize'}
             </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {showSignedSms && (
+      <div className="ied-overlay" onClick={() => setShowSignedSms(false)}>
+        <div className="ied-modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+          <h3 className="ied-modal-title">Notify Client — Invoice Signed</h3>
+          <p style={{ fontSize: 13.5, color: '#64748b', margin: '0 0 18px' }}>
+            Let <strong>{clientName || 'the client'}</strong> know their{' '}
+            {type === 'estimate' ? 'estimate' : 'invoice'}{invNumber ? ` #${invNumber}` : ''} has been fully signed.
+            They'll receive a link to download the signed document.
+          </p>
+
+          {(clientPhone || secondaryContacts.length > 0) ? (
+            <div style={{ marginBottom: 18 }}>
+              <div className="ied-label" style={{ marginBottom: 8 }}>Send SMS to:</div>
+              {[
+                clientPhone ? { phone: clientPhone, label: 'Primary' } : null,
+                ...secondaryContacts.map(c => ({ phone: c.phone, label: c.label || 'Authorized contact' })),
+              ].filter(Boolean).map(c => (
+                <label key={c.phone} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 13.5, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={signedSmsPhones.includes(c.phone)}
+                    onChange={e => {
+                      if (e.target.checked) setSignedSmsPhones(p => [...p, c.phone])
+                      else setSignedSmsPhones(p => p.filter(x => x !== c.phone))
+                    }}
+                  />
+                  <span>{c.phone}</span>
+                  <span style={{ color: '#94a3b8', fontSize: 12 }}>({c.label})</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 18px' }}>No phone on file — no SMS will be sent.</p>
+          )}
+
+          {signedSmsSent && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '12px 14px', marginBottom: 16, fontSize: 13.5, color: '#15803d', fontWeight: 600 }}>
+              ✓ Notification sent!
+            </div>
+          )}
+          {signedSmsError && (
+            <div style={{ background: '#fef2f2', color: '#dc2626', padding: '10px 12px', borderRadius: 8, fontSize: 13.5, marginBottom: 14 }}>
+              {signedSmsError}
+            </div>
+          )}
+
+          <div className="ied-modal-actions">
+            <button className="ied-btn ied-btn--outline" onClick={() => setShowSignedSms(false)}>
+              {signedSmsSent ? 'Done' : 'Skip'}
+            </button>
+            {!signedSmsSent && (
+              <button
+                className="ied-btn ied-btn--primary"
+                onClick={sendSignedNotification}
+                disabled={signedSmsLoading || signedSmsPhones.length === 0}
+              >
+                {signedSmsLoading ? 'Sending…' : '📱 Send Notification'}
+              </button>
+            )}
           </div>
         </div>
       </div>

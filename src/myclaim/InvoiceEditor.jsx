@@ -844,6 +844,33 @@ export default function InvoiceEditor() {
         }
       } catch {}
 
+      // 8. Create a view link so the client sees the signed agreement on web/mobile
+      const signedToken = crypto.randomUUID().replace(/-/g, '')
+      const { updatedAt: _u2, ...baseInv } = buildInvoice()
+      await setDoc(doc(db, 'view_links', signedToken), {
+        orgId,
+        clientDocId,
+        invoiceId,
+        clientUid:      clientUid || null,
+        invoice: {
+          ...baseInv,
+          clientSigned:           true,
+          clientSignedAt,
+          clientSignerName,
+          clientSignatureUrl,
+          contractorSigned:       true,
+          contractorSignedAt:     signedAt,
+          contractorSignerName,
+          contractorSignatureUrl,
+          signedDocUrl,
+        },
+        attachedDocUrl: claimDocRef?.downloadURL || null,
+        expiresAt:      new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        createdAt:      serverTimestamp(),
+        createdBy:      user.uid,
+      })
+      const signedViewUrl = `${window.location.origin}/myclaim/view/${signedToken}`
+
       setContractorSigned(true)
       setContractorSignedAt(signedAt)
       setShowCtrSignModal(false)
@@ -853,7 +880,7 @@ export default function InvoiceEditor() {
       if (clientPhone) phones.push(clientPhone)
       secondaryContacts.forEach(c => { if (c.phone) phones.push(c.phone) })
       setSignedSmsPhones(phones)
-      setPendingSignedDocUrl(signedDocUrl)
+      setPendingSignedDocUrl(signedViewUrl)
       setSignedSmsSent(false)
       setSignedSmsError('')
       setShowSignedSms(true)
@@ -870,7 +897,7 @@ export default function InvoiceEditor() {
     setSignedSmsError('')
     try {
       const typeLabel = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
-      const msg = `${companyName || 'Your contractor'}: Your ${typeLabel}${invNumber ? ` #${invNumber}` : ''} has been fully signed and approved. View your signed document: ${pendingSignedDocUrl}`
+      const msg = `${companyName || 'Your contractor'}: Your ${typeLabel}${invNumber ? ` #${invNumber}` : ''} has been fully signed and approved. View your signed agreement: ${pendingSignedDocUrl}`
       const [primaryPhone, ...otherPhones] = signedSmsPhones
       const idToken = await user.getIdToken()
       const r = await fetch(`${BACKEND}/notify-client`, {

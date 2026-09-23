@@ -586,6 +586,66 @@
   line-height: 1.6;
 }
 
+/* Fully executed (both signatures) */
+.piv-fully-signed {
+  text-align: center;
+  padding: 44px 36px 52px;
+}
+.piv-fully-signed-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #15803d;
+}
+.piv-fully-signed-sub {
+  margin: 0 0 36px;
+  font-size: 14px;
+  color: #64748b;
+}
+.piv-sig-row {
+  display: flex;
+  gap: 32px;
+  justify-content: center;
+  flex-wrap: wrap;
+  text-align: left;
+}
+.piv-sig-party {
+  flex: 1;
+  min-width: 160px;
+  max-width: 240px;
+}
+.piv-sig-party-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+.piv-sig-img {
+  width: 100%;
+  height: 56px;
+  object-fit: contain;
+  object-position: left center;
+  display: block;
+  margin-bottom: 4px;
+}
+.piv-sig-underline {
+  height: 1.5px;
+  background: #0f172a;
+  margin-bottom: 7px;
+}
+.piv-sig-party-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.piv-sig-party-date {
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 3px;
+}
+
 /* Sign form */
 .piv-sign-header {
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);

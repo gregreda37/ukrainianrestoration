@@ -32,9 +32,14 @@ export default function PublicInvoiceView() {
   const [approvedDocUrl,  setApprovedDocUrl]  = useState(null)
 
   // Invoice signing state
-  const [clientSigned,    setClientSigned]    = useState(false)
-  const [clientSignedAt,  setClientSignedAt]  = useState('')
-  const [clientSignerName, setClientSignerName] = useState('')
+  const [clientSigned,           setClientSigned]           = useState(false)
+  const [clientSignedAt,         setClientSignedAt]         = useState('')
+  const [clientSignerName,       setClientSignerName]       = useState('')
+  const [clientSignatureUrl,     setClientSignatureUrl]     = useState('')
+  const [contractorSigned,       setContractorSigned]       = useState(false)
+  const [contractorSignedAt,     setContractorSignedAt]     = useState('')
+  const [contractorSignerName,   setContractorSignerName]   = useState('')
+  const [contractorSignatureUrl, setContractorSignatureUrl] = useState('')
 
   // Signature pad
   const sigCanvasRef  = useRef(null)
@@ -129,6 +134,13 @@ export default function PublicInvoiceView() {
         setClientSigned(true)
         setClientSignedAt(data.clientSignedAt)
         setClientSignerName(data.clientSignerName || '')
+      }
+      if (invoice.clientSignatureUrl)     setClientSignatureUrl(invoice.clientSignatureUrl)
+      if (invoice.contractorSigned) {
+        setContractorSigned(true)
+        setContractorSignedAt(invoice.contractorSignedAt     || '')
+        setContractorSignerName(invoice.contractorSignerName || '')
+        setContractorSignatureUrl(invoice.contractorSignatureUrl || '')
       }
 
       // Track open
@@ -492,7 +504,29 @@ export default function PublicInvoiceView() {
       {isInvoice && (
         <section id="piv-sign" className="piv-sign-section">
           <div className="piv-sign-card">
-            {clientSigned ? (
+            {clientSigned && contractorSigned ? (
+              <div className="piv-fully-signed">
+                <div className="piv-signed-icon">✅</div>
+                <h2 className="piv-fully-signed-title">Fully Executed Agreement</h2>
+                <p className="piv-fully-signed-sub">This agreement has been signed by all parties.</p>
+                <div className="piv-sig-row">
+                  <div className="piv-sig-party">
+                    <div className="piv-sig-party-label">Client</div>
+                    {clientSignatureUrl && <img src={clientSignatureUrl} alt="Client signature" className="piv-sig-img" />}
+                    <div className="piv-sig-underline" />
+                    <div className="piv-sig-party-name">{clientSignerName}</div>
+                    {clientSignedAt && <div className="piv-sig-party-date">{clientSignedAt}</div>}
+                  </div>
+                  <div className="piv-sig-party">
+                    <div className="piv-sig-party-label">Authorized Representative</div>
+                    {contractorSignatureUrl && <img src={contractorSignatureUrl} alt="Contractor signature" className="piv-sig-img" />}
+                    <div className="piv-sig-underline" />
+                    <div className="piv-sig-party-name">{contractorSignerName || inv?.companyName}</div>
+                    {contractorSignedAt && <div className="piv-sig-party-date">{contractorSignedAt}</div>}
+                  </div>
+                </div>
+              </div>
+            ) : clientSigned ? (
               <div className="piv-signed-confirm">
                 <div className="piv-signed-icon">✅</div>
                 <h2 className="piv-signed-title">Agreement Signed</h2>

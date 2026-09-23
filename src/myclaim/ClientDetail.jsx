@@ -290,6 +290,8 @@ export default function ClientDetail() {
   const [uploading,           setUploading]           = useState(false);
   const [contractorUploading, setContractorUploading] = useState(false);
   const [showDocsDrawer,      setShowDocsDrawer]      = useState(false);
+  const [hoverDoc,            setHoverDoc]            = useState(null);
+  const hoverShowRef = useRef(null);
 
   // Google Drive
   const driveExternalRef      = useRef(null);
@@ -2687,7 +2689,13 @@ export default function ClientDetail() {
                 : (
                   <ul className="cd-doc-list">
                     {docs.filter(d => d.folder !== "internal").map(d => (
-                      <li key={d.id} className="cd-doc-item">
+                      <li key={d.id} className="cd-doc-item"
+                        onMouseEnter={e => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          hoverShowRef.current = setTimeout(() => setHoverDoc({ ...d, rect }), 350);
+                        }}
+                        onMouseLeave={() => { clearTimeout(hoverShowRef.current); setHoverDoc(null); }}
+                      >
                         <DocIcon />
                         <div className="cd-doc-info">
                           <a href={d.downloadURL} target="_blank" rel="noreferrer" className="cd-doc-name">{d.name}</a>
@@ -2721,7 +2729,13 @@ export default function ClientDetail() {
                 : (
                   <ul className="cd-doc-list">
                     {docs.filter(d => d.folder === "internal").map(d => (
-                      <li key={d.id} className="cd-doc-item">
+                      <li key={d.id} className="cd-doc-item"
+                        onMouseEnter={e => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          hoverShowRef.current = setTimeout(() => setHoverDoc({ ...d, rect }), 350);
+                        }}
+                        onMouseLeave={() => { clearTimeout(hoverShowRef.current); setHoverDoc(null); }}
+                      >
                         <DocIcon />
                         <div className="cd-doc-info">
                           <a href={d.downloadURL} target="_blank" rel="noreferrer" className="cd-doc-name">{d.name}</a>
@@ -2839,6 +2853,29 @@ export default function ClientDetail() {
           onClose={() => { setShowSettlementModal(false); setSettlementRefreshKey(k => k + 1) }}
         />
       )}
+
+      {hoverDoc && (() => {
+        const panelW = 280, panelH = 360, gap = 12;
+        const left = Math.max(8, hoverDoc.rect.left - panelW - gap);
+        const top  = Math.min(Math.max(8, hoverDoc.rect.top - panelH / 4), window.innerHeight - panelH - 8);
+        const isPdf = /\.pdf$/i.test(hoverDoc.name);
+        const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(hoverDoc.name);
+        return (
+          <div className="cd-doc-preview-panel" style={{ top, left, width: panelW, height: panelH }}>
+            {isPdf ? (
+              <iframe src={hoverDoc.downloadURL} className="cd-doc-preview-iframe" title={hoverDoc.name} />
+            ) : isImg ? (
+              <img src={hoverDoc.downloadURL} className="cd-doc-preview-img" alt={hoverDoc.name} />
+            ) : (
+              <div className="cd-doc-preview-empty">
+                <span className="cd-doc-preview-empty-icon">📄</span>
+                <span>No preview available</span>
+              </div>
+            )}
+            <div className="cd-doc-preview-label">{hoverDoc.name}</div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

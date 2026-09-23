@@ -352,11 +352,18 @@ export default function OpenWork() {
   const [syncing, setSyncing]         = useState(false)
   const [syncMsg, setSyncMsg]         = useState('')
   const [hasMissing, setHasMissing]   = useState(false)
-  const unsubInvRef                   = useRef(null)
+  const unsubInvRef   = useRef(null)
+  const unsubSettRef  = useRef(null)
+  const phoneMapRef   = useRef({})
+  const uidToDocIdRef = useRef({})
+  const nameToDocIdRef = useRef({})
 
   useEffect(() => {
     if (user) load()
-    return () => { if (unsubInvRef.current) unsubInvRef.current() }
+    return () => {
+      if (unsubInvRef.current)  unsubInvRef.current()
+      if (unsubSettRef.current) unsubSettRef.current()
+    }
   }, [user])
 
   async function load() {
@@ -401,6 +408,8 @@ export default function OpenWork() {
         if (uid)  uidToDocId[uid] = d.id
         if (name) nameToDocId[name.trim().toLowerCase()] = d.id
       })
+      uidToDocIdRef.current  = uidToDocId
+      nameToDocIdRef.current = nameToDocId
 
       const rawSetts = settSnap.docs.map(d => ({ id: d.id, ...d.data() }))
       const missing  = rawSetts.filter(s => !s.clientPhone && (s.clientDocId || s.clientUid))
@@ -418,17 +427,27 @@ export default function OpenWork() {
           if (phone) phoneMap[s.id] = phone
         })
       }
-      setSettRows(rawSetts.map(s => {
-        const phone = phoneMap[s.id] || s.clientPhone
+      phoneMapRef.current = phoneMap
+
+      function enrichSett(s) {
+        const phone = phoneMapRef.current[s.id] || s.clientPhone
         const docId = s.clientDocId
-          || (s.clientUid  ? uidToDocId[s.clientUid]  : null)
-          || (s.clientName ? nameToDocId[s.clientName.trim().toLowerCase()] : null)
+          || (s.clientUid  ? uidToDocIdRef.current[s.clientUid]  : null)
+          || (s.clientName ? nameToDocIdRef.current[s.clientName.trim().toLowerCase()] : null)
         return {
           ...s,
           ...(phone ? { clientPhone: phone } : {}),
           ...(docId ? { clientDocId: docId } : {}),
         }
-      }))
+      }
+
+      setSettRows(rawSetts.map(enrichSett))
+
+      if (unsubSettRef.current) unsubSettRef.current()
+      unsubSettRef.current = onSnapshot(
+        collection(db, 'organization_data', oid, 'settlement_summary'),
+        snap => setSettRows(snap.docs.map(d => enrichSett({ id: d.id, ...d.data() })))
+      )
     } finally {
       setLoading(false)
     }

@@ -40,6 +40,12 @@ function getQuarter(inv) { const m = getMonth(inv); return m === null ? null : M
 function settYear(s)     { return s.settlementDate ? new Date(s.settlementDate + 'T12:00:00').getFullYear() : null }
 function settQ(s)        { if (!s.settlementDate) return null; const m = new Date(s.settlementDate + 'T12:00:00').getMonth(); return Math.floor(m / 3) + 1 }
 
+// For invoices with claimCoveredAmount, only the above-claim portion counts as direct revenue.
+// The insurance-funded portion is already captured in settlement insNet, so excluding it here
+// prevents double-counting when both an invoice and a settlement record the same payment.
+function directBilled(inv)    { return Math.max(0, (inv.total     || 0) - (inv.claimCoveredAmount || 0)) }
+function directCollected(inv) { return Math.max(0, (inv.paidAmount || 0) - (inv.claimCoveredAmount || 0)) }
+
 function isOverdue(inv) {
   if (inv.status === 'paid' || inv.status === 'cancelled' || inv.type !== 'invoice') return false
   if (!inv.dueDate) return false
@@ -146,8 +152,8 @@ const sn = v => parseFloat(v) || 0
   const allEstimatesLifetime = useMemo(() => summaries.filter(s => s.type === 'estimate'), [summaries])
 
   // ── KPIs ──
-  const totalBilled    = filtered.reduce((s, i) => s + (i.total || 0), 0)
-  const totalCollected = filtered.reduce((s, i) => s + (i.paidAmount || 0), 0)
+  const totalBilled    = filtered.reduce((s, i) => s + directBilled(i), 0)
+  const totalCollected = filtered.reduce((s, i) => s + directCollected(i), 0)
   const outstanding    = totalBilled - totalCollected
   const collectionRate = totalBilled > 0 ? (totalCollected / totalBilled * 100) : 0
 
@@ -248,8 +254,8 @@ const sn = v => parseFloat(v) || 0
         return new Date(s.settlementDate + 'T12:00:00').getMonth() === m && sn(s.totalSettled) > 0
       })
       return {
-        billed:    invs.reduce((s, i) => s + (i.total || 0), 0),
-        collected: invs.reduce((s, i) => s + (i.paidAmount || 0), 0),
+        billed:    invs.reduce((s, i) => s + directBilled(i), 0),
+        collected: invs.reduce((s, i) => s + directCollected(i), 0),
         recoup:    setts.reduce((s, x) => s + sn(x.companyRecoup), 0),
         count:     invs.length,
       }
@@ -263,8 +269,8 @@ const sn = v => parseFloat(v) || 0
     const qInvs         = summaries.filter(s => s.type === 'invoice' && getYear(s) === selectedYear && getQuarter(s) === q)
     const qSetts        = settlements.filter(s => s.settlementDate && settYear(s) === selectedYear && settQ(s) === q)
     const qSettled      = qSetts.filter(s => sn(s.totalSettled) > 0)
-    const billed        = qInvs.reduce((s, i) => s + (i.total || 0), 0)
-    const collected     = qInvs.reduce((s, i) => s + (i.paidAmount || 0), 0)
+    const billed        = qInvs.reduce((s, i) => s + directBilled(i), 0)
+    const collected     = qInvs.reduce((s, i) => s + directCollected(i), 0)
     const recoup        = qSettled.reduce((s, x) => s + sn(x.companyRecoup), 0)
     const qTotalSettled = qSettled.reduce((s, x) => s + sn(x.totalSettled), 0)
     const qTotalFees    = qSettled.reduce((s, x) => s + sn(x.partnerFee), 0)
@@ -288,8 +294,8 @@ const sn = v => parseFloat(v) || 0
     // Full Year: only dated settlements in the selected year (so FY = sum of all quarters)
     const fyInvs         = summaries.filter(s => s.type === 'invoice' && getYear(s) === selectedYear)
     const fySettsSettled = settlements.filter(s => s.settlementDate && settYear(s) === selectedYear && sn(s.totalSettled) > 0)
-    const fyBilled       = fyInvs.reduce((s, i) => s + (i.total || 0), 0)
-    const fyCollected    = fyInvs.reduce((s, i) => s + (i.paidAmount || 0), 0)
+    const fyBilled       = fyInvs.reduce((s, i) => s + directBilled(i), 0)
+    const fyCollected    = fyInvs.reduce((s, i) => s + directCollected(i), 0)
     const fyRecoup       = fySettsSettled.reduce((s, x) => s + sn(x.companyRecoup), 0)
     const fySettled      = fySettsSettled.reduce((s, x) => s + sn(x.totalSettled), 0)
     const fyFees         = fySettsSettled.reduce((s, x) => s + sn(x.partnerFee), 0)
@@ -329,8 +335,8 @@ const sn = v => parseFloat(v) || 0
       map[key].invoices.push(inv)
     })
     return Object.values(map).map(c => {
-      const billed    = c.invoices.reduce((s, i) => s + (i.total || 0), 0)
-      const collected = c.invoices.reduce((s, i) => s + (i.paidAmount || 0), 0)
+      const billed    = c.invoices.reduce((s, i) => s + directBilled(i), 0)
+      const collected = c.invoices.reduce((s, i) => s + directCollected(i), 0)
       const paidInvs  = c.invoices.filter(i => i.status === 'paid' && i.issueDate && i.paidAt?.toDate)
       const avgDays   = paidInvs.length
         ? Math.round(paidInvs.reduce((s, i) => s + (i.paidAt.toDate() - new Date(i.issueDate + 'T12:00:00')) / 86400000, 0) / paidInvs.length)

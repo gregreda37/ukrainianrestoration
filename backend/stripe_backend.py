@@ -11,6 +11,7 @@ stripe_app = Blueprint("stripe_payments", __name__)
 
 STRIPE_FEE_RATE  = 0.029   # 2.9%
 STRIPE_FEE_FIXED = 0.30    # $0.30
+WIRE_TRANSFER_FEE = 5.00   # Flat Stripe fee for US domestic wire transfers
 
 
 def _stripe():
@@ -181,6 +182,9 @@ def _on_payment_succeeded(intent):
     fst = admin_firestore.SERVER_TIMESTAMP
     paid_date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
+    payment_method_type = meta.get("paymentMethod", "credit_card")
+    is_wire = payment_method_type == "wire_transfer"
+
     if payment_type == "deposit":
         update = {
             "depositPaid":           True,
@@ -190,6 +194,18 @@ def _on_payment_succeeded(intent):
             "stripePaymentIntentId": intent.get("id"),
         }
     else:
+        if is_wire:
+            notes = (
+                f"Paid via wire transfer | "
+                f"Wire fee: ${fee:.2f} | "
+                f"Total wired: ${amount_recv:.2f}"
+            )
+        else:
+            notes = (
+                f"Paid via Stripe | "
+                f"Processing fee: ${fee:.2f} | "
+                f"Total charged: ${amount_recv:.2f}"
+            )
         update = {
             "status":               "paid",
             "stripeStatus":         "succeeded",
@@ -197,12 +213,8 @@ def _on_payment_succeeded(intent):
             "paidAt":               fst,
             "paidDate":             paid_date_str,
             "paidAmount":           invoice_total,
-            "paymentMethod":        "credit_card",
-            "paymentNotes": (
-                f"Paid via Stripe | "
-                f"Processing fee: ${fee:.2f} | "
-                f"Total charged: ${amount_recv:.2f}"
-            ),
+            "paymentMethod":        payment_method_type,
+            "paymentNotes":         notes,
         }
 
     # Resolve correct primary path (users/ or org/)
@@ -627,4 +639,161 @@ def create_payment_intent_public():
         "fee":          fee,
         "invoiceTotal": invoice_total,
         "totalCharged": total_charged,
+    })
+
+
+# ── Wire Transfer (bank transfer via customer balance) ────────────────────────
+
+@stripe_app.route("/stripe/create-wire-intent-public", methods=["POST"])
+def create_wire_intent_public():
+    """Public — creates a bank-transfer PaymentIntent. Returns virtual account details."""
+    data  = request.json or {}
+    token = (data.get("token") or "").strip()
+
+    if not token:
+        return jsonify({"error": "Missing token"}), 400
+
+    db        = admin_firestore.client()
+    link_snap = db.collection("payment_links").document(token).get()
+
+    if not link_snap.exists:
+        return jsonify({"error": "Payment link not found"}), 404
+
+    link    = link_snap.to_dict()
+    now_utc = datetime.now(timezone.utc)
+    exp     = link.get("expiresAt")
+    if exp:
+        try:
+            exp_dt = exp if isinstance(exp, datetime) else exp.ToDatetime(tzinfo=timezone.utc)
+            if exp_dt < now_utc:
+                return jsonify({"error": "Payment link has expired"}), 410
+        except Exception:
+            pass
+
+    org_id        = link.get("orgId",       "").strip()
+    client_doc_id = link.get("clientDocId", "").strip()
+    invoice_id    = link.get("invoiceId",   "").strip()
+    client_uid    = link.get("clientUid")
+
+    if not all([org_id, client_doc_id, invoice_id]):
+        return jsonify({"error": "Payment link is missing required fields"}), 400
+
+    inv_ref, inv_snap = _resolve_inv(db, org_id, client_doc_id, invoice_id, client_uid)
+
+    if not inv_snap.exists:
+        return jsonify({"error": "Invoice not found"}), 404
+
+    inv = inv_snap.to_dict()
+    if inv.get("status") in ("paid", "cancelled"):
+        return jsonify({"error": "Invoice already paid or cancelled"}), 400
+
+    invoice_total = float(inv.get("total", 0))
+    if invoice_total <= 0:
+        return jsonify({"error": "Invoice total must be greater than zero"}), 400
+
+    wire_fee      = WIRE_TRANSFER_FEE
+    total_charged = round(invoice_total + wire_fee, 2)
+
+    try:
+        s = _stripe()
+
+        # Stripe requires a Customer object for bank transfers — create or reuse.
+        existing_customer_id = inv.get("stripeCustomerId", "").strip() if inv.get("stripeCustomerId") else ""
+        customer = None
+        if existing_customer_id:
+            try:
+                customer = s.Customer.retrieve(existing_customer_id)
+            except stripe.error.StripeError:
+                customer = None
+
+        if not customer:
+            customer_params = {
+                "name": inv.get("clientName") or "",
+                "metadata": {
+                    "orgId":        org_id,
+                    "clientDocId":  client_doc_id,
+                    "invoiceId":    invoice_id,
+                },
+            }
+            email = (inv.get("clientEmail") or "").strip()
+            phone = (inv.get("clientPhone") or "").strip()
+            if email: customer_params["email"] = email
+            if phone: customer_params["phone"] = phone
+            customer = s.Customer.create(**customer_params)
+            inv_ref.set({"stripeCustomerId": customer.id}, merge=True)
+
+        pi_metadata = {
+            "orgId":            org_id,
+            "clientDocId":      client_doc_id,
+            "invoiceId":        invoice_id,
+            "invoiceTotal":     str(invoice_total),
+            "fee":              str(wire_fee),
+            "paymentLinkToken": token,
+            "paymentType":      "full",
+            "paymentMethod":    "wire_transfer",
+        }
+        if client_uid:
+            pi_metadata["clientUid"] = client_uid
+
+        intent = s.PaymentIntent.create(
+            amount=_to_cents(total_charged),
+            currency="usd",
+            customer=customer.id,
+            payment_method_types=["customer_balance"],
+            payment_method_data={"type": "customer_balance"},
+            payment_method_options={
+                "customer_balance": {
+                    "funding_type": "bank_transfer",
+                    "bank_transfer": {"type": "us_bank_transfer"},
+                }
+            },
+            confirm=True,
+            description=(
+                f"Invoice {inv.get('invoiceNumber', invoice_id)}"
+                f" — {inv.get('clientName', '')}"
+            ),
+            metadata=pi_metadata,
+        )
+
+        inv_ref.set(
+            {"stripePaymentIntentId": intent.id, "stripeStatus": "wire_pending"},
+            merge=True,
+        )
+
+        # Extract virtual bank account details from next_action
+        intent_data  = intent.to_dict() if hasattr(intent, "to_dict") else intent
+        next_action  = intent_data.get("next_action") or {}
+        instructions = next_action.get("display_bank_transfer_instructions") or {}
+        fin_addrs    = instructions.get("financial_addresses") or []
+        reference    = instructions.get("reference", "")
+        hosted_url   = instructions.get("hosted_instructions_url", "")
+
+        bank_info = {}
+        for fa in fin_addrs:
+            if fa.get("type") == "aba":
+                aba = fa.get("aba") or {}
+                bank_info = {
+                    "routingNumber": aba.get("routing_number", ""),
+                    "accountNumber": aba.get("account_number", ""),
+                    "bankName":      aba.get("bank_name", "Stripe / Evolve Bank & Trust"),
+                    "accountType":   "Checking",
+                }
+                break
+
+    except stripe.error.StripeError as e:
+        return jsonify({"error": str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+    return jsonify({
+        "invoiceTotal":    invoice_total,
+        "wireFee":         wire_fee,
+        "totalCharged":    total_charged,
+        "reference":       reference,
+        "hostedUrl":       hosted_url,
+        "bankInfo":        bank_info,
+        "paymentIntentId": intent.id,
     })

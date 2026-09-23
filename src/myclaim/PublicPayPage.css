@@ -746,6 +746,151 @@
   .ppp-modal-doc-print-btn, .ppp-modal-doc-close-btn { flex: 1; text-align: center; }
 }
 
+/* ── Wire transfer ── */
+.ppp-wire-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 16px;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ppp-wire-divider::before,
+.ppp-wire-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.ppp-wire-btn {
+  width: 100%;
+  padding: 13px 20px;
+  background: #fff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ppp-wire-btn:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+.ppp-wire-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.ppp-wire-panel {
+  background: #f0f9ff;
+  border: 1.5px solid #bae6fd;
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ppp-wire-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ppp-wire-icon { font-size: 22px; line-height: 1; margin-top: 1px; }
+.ppp-wire-title { font-size: 15px; font-weight: 700; color: #0369a1; }
+.ppp-wire-sub   { font-size: 12.5px; color: #0284c7; margin-top: 2px; }
+
+.ppp-wire-amount-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ppp-wire-amount-label { font-size: 13px; color: #0369a1; font-weight: 600; }
+.ppp-wire-amount-val   { font-size: 22px; font-weight: 800; color: #0c4a6e; }
+
+.ppp-wire-amount-breakdown {
+  font-size: 12px;
+  color: #0284c7;
+  margin-top: -10px;
+  text-align: right;
+}
+
+.ppp-wire-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.ppp-wire-field {
+  padding: 11px 14px;
+  border-bottom: 1px solid #e0f2fe;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.ppp-wire-field:last-child { border-bottom: none; }
+.ppp-wire-field--ref { background: #fff7ed; border-color: #fed7aa; }
+
+.ppp-wire-field-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ppp-wire-field-val {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  text-align: right;
+}
+.ppp-wire-field-val--mono {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13.5px;
+  letter-spacing: 0.03em;
+}
+
+.ppp-wire-ref-badge {
+  background: #fed7aa;
+  color: #9a3412;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ppp-wire-notice {
+  font-size: 12px;
+  color: #0369a1;
+  background: #e0f2fe;
+  border-radius: 8px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+.ppp-wire-hosted-link {
+  font-size: 13px;
+  color: #0369a1;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+}
+.ppp-wire-hosted-link:hover { text-decoration: underline; }
+
 /* ── Dark mode ── */
 @media (prefers-color-scheme: dark) {
   .ppp-shell { background: #0f172a; }
@@ -804,4 +949,21 @@
   .ppp-modal-doc-actions { border-color: #334155; }
   .ppp-modal-doc-close-btn { border-color: #334155; color: #94a3b8; }
   .ppp-modal-doc-close-btn:hover { background: #0f172a; border-color: #475569; }
+  .ppp-wire-btn { background: #1e293b; border-color: #334155; color: #f1f5f9; }
+  .ppp-wire-btn:hover:not(:disabled) { background: #263548; border-color: #475569; }
+  .ppp-wire-divider { color: #475569; }
+  .ppp-wire-divider::before, .ppp-wire-divider::after { background: #334155; }
+  .ppp-wire-panel { background: #0c2a3f; border-color: #1e4a6e; }
+  .ppp-wire-title { color: #38bdf8; }
+  .ppp-wire-sub   { color: #7dd3fc; }
+  .ppp-wire-amount-label { color: #38bdf8; }
+  .ppp-wire-amount-val   { color: #e0f2fe; }
+  .ppp-wire-amount-breakdown { color: #7dd3fc; }
+  .ppp-wire-fields { background: #0f172a; border-color: #1e4a6e; }
+  .ppp-wire-field { border-color: #1e3a5f; }
+  .ppp-wire-field--ref { background: #2d1a07; border-color: #92400e; }
+  .ppp-wire-field-label { color: #64748b; }
+  .ppp-wire-field-val { color: #f1f5f9; }
+  .ppp-wire-notice { background: #0c2a3f; color: #7dd3fc; }
+  .ppp-wire-hosted-link { color: #38bdf8; }
 }

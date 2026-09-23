@@ -6,7 +6,7 @@ import { loadGoogleMaps } from "./loadMaps";
 const API = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5000' : '/api/backend');
 import {
   doc, getDoc, addDoc, setDoc, getDocs, updateDoc,
-  collection, serverTimestamp, query, orderBy, limit,
+  collection, serverTimestamp, query, orderBy, limit, onSnapshot,
 } from "firebase/firestore";
 import { useAuth } from "./useAuth";
 import Settlement from "./Settlement";
@@ -63,6 +63,17 @@ const CONSTRUCTION_STEPS = [
   "Construction Completes",
 ]
 
+const SETT_CATS = ['dryClean', 'mitigation', 'reconstruction', 'packout']
+
+// Sum of estimates for categories that have no settled amount yet.
+function unsettledEstimate(x) {
+  return SETT_CATS.reduce((sum, c) => {
+    const est  = parseFloat(x[`${c}Estimate`]) || 0
+    const sett = parseFloat(x[`${c}Settled`])  || 0
+    return sum + (sett === 0 ? est : 0)
+  }, 0)
+}
+
 function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStatus, onOpenSettlement }) {
   const [view,   setView]   = useState('net')
   const [filter, setFilter] = useState('all')
@@ -90,11 +101,11 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
     return base * (parseFloat(x.recoupPercent) || 0) / 100
   }
 
-  // Per row: use totalSettled if present, else totalEstimate
+  // Amount still in the pipeline for this row: estimates for categories not yet settled.
   function rowBase(x) {
-    const settled  = parseFloat(x.totalSettled)  || 0
-    const estimate = parseFloat(x.totalEstimate) || 0
-    return settled > 0 ? settled : estimate
+    const hasSettled = (parseFloat(x.totalSettled) || 0) > 0
+    if (!hasSettled) return parseFloat(x.totalEstimate) || 0
+    return unsettledEstimate(x)
   }
 
   const totalBase          = filtered.reduce((s, x) => s + rowBase(x), 0)
@@ -111,14 +122,14 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
     const statusKey = s.status || 'estimating'
     const meta      = PIPELINE_STATUS_META[statusKey] || PIPELINE_STATUS_META.estimating
     const settNav   = s.clientPhone || s.clientDocId
-    const settled   = parseFloat(s.totalSettled)  || 0
-    const estimate  = parseFloat(s.totalEstimate) || 0
-    const base      = settled > 0 ? settled : estimate
-    const isSettled = settled > 0
-    const fee       = calcFee(s)
-    const coNet     = Math.max(0, base - fee)
+    const totalSettled  = parseFloat(s.totalSettled)  || 0
+    const totalEstimate = parseFloat(s.totalEstimate) || 0
+    const base          = rowBase(s)   // unsettled estimate portion only
+    const isPartial     = totalSettled > 0  // some categories already settled
+    const fee           = calcFee(s)
+    const coNet         = Math.max(0, base - fee)
 
-    const needsSettlementAmount = statusKey === 'settled' && !isSettled
+    const needsSettlementAmount = statusKey === 'settled' && totalSettled === 0
 
     const clientCell = (
       <td className="oil-td oil-td--client">
@@ -164,8 +175,8 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
           <td className="oil-td">{s.insuranceCompany || '—'}</td>
           {statusBadge}
           <td className="oil-td oil-td--amount">
-            <div>{fmtMoney(estimate)}</div>
-            {isSettled && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>Settled: {fmtMoney(settled)}</div>}
+            <div>{fmtMoney(totalEstimate)}</div>
+            {isPartial && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>Settled: {fmtMoney(totalSettled)}</div>}
           </td>
           {arrow}
         </tr>
@@ -179,10 +190,8 @@ function OpenClaimsPipelineSection({ items, navigate, onStatusChange, savingStat
         {clientCell}
         {statusBadge}
         <td className="oil-td oil-td--amount">
-          <div style={{ color: isSettled ? '#16a34a' : undefined, fontWeight: isSettled ? 600 : undefined }}>
-            {fmtMoney(base)}
-          </div>
-          {isSettled && <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>Est: {fmtMoney(estimate)}</div>}
+          <div>{fmtMoney(base)}</div>
+          {isPartial && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>+{fmtMoney(totalSettled)} settled</div>}
         </td>
         <td className="oil-td oil-td--amount" style={{ color: fee > 0 ? '#7c3aed' : '#94a3b8' }}>
           {fee > 0 ? `– ${fmtMoney(fee)}` : '—'}
@@ -560,6 +569,8 @@ export default function Dashboard() {
   const clientAutocompleteRef  = useRef(null);
   const companyAddressRef      = useRef(null);
   const companyAutocompleteRef = useRef(null);
+  const unsubSettRef           = useRef(null);
+  const settEnrichRef          = useRef({});
 
   // ── Load everything once user is confirmed ───────────────────────────
   useEffect(() => {
@@ -684,13 +695,17 @@ export default function Dashboard() {
             if (phone) phoneMap[s.id] = phone
           })
         }
-        setSettRows(rawSetts.map(s => {
-          const phone = phoneMap[s.id] || s.clientPhone
+
+        settEnrichRef.current = { phoneMap, uidToDocId, nameToDocId, addrByDocId, addrByPhone, stepByDocId }
+
+        function enrichSett(s) {
+          const { phoneMap: pm, uidToDocId: u2d, nameToDocId: n2d, addrByDocId: abd, addrByPhone: abp, stepByDocId: sbd } = settEnrichRef.current
+          const phone = pm[s.id] || s.clientPhone
           const docId = s.clientDocId
-            || (s.clientUid  ? uidToDocId[s.clientUid]  : null)
-            || (s.clientName ? nameToDocId[s.clientName.trim().toLowerCase()] : null)
-          const address = addrByDocId[docId] || addrByPhone[phone] || null
-          const steps   = docId ? (stepByDocId[docId] || {}) : {}
+            || (s.clientUid  ? u2d[s.clientUid]  : null)
+            || (s.clientName ? n2d[s.clientName.trim().toLowerCase()] : null)
+          const address = abd[docId] || abp[phone] || null
+          const steps   = docId ? (sbd[docId] || {}) : {}
           return {
             ...s,
             ...(phone   ? { clientPhone:   phone   } : {}),
@@ -698,14 +713,25 @@ export default function Dashboard() {
             ...(address ? { clientAddress: address } : {}),
             ...steps,
           }
-        }))
+        }
+
+        setSettRows(rawSetts.map(enrichSett))
+
+        if (unsubSettRef.current) unsubSettRef.current()
+        unsubSettRef.current = onSnapshot(
+          collection(db, 'organization_data', oid, 'settlement_summary'),
+          snap => setSettRows(snap.docs.map(d => enrichSett({ id: d.id, ...d.data() })))
+        )
       } catch (err) {
         console.error("Dashboard load error:", err);
       } finally {
         if (!cancelled) setRecentLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (unsubSettRef.current) unsubSettRef.current();
+    };
   }, [user]);
 
   // ── Google Places — client modal ─────────────────────────────────────
@@ -765,11 +791,12 @@ export default function Dashboard() {
 
   const pipelineClaims = useMemo(() =>
     openClaims.filter(s => {
-      const isSettled = (s.status || 'estimating') === 'settled'
-      const hasAmount = (parseFloat(s.totalSettled) || 0) > 0
-      // Only remove from pipeline once properly settled with an amount.
-      // settled+$0 stays here so it's never invisible.
-      return !isSettled || !hasAmount
+      // Nothing settled yet → always in pipeline
+      if ((parseFloat(s.totalSettled) || 0) === 0) return true
+      // Partially settled → stay in pipeline only if some categories still have estimates but no settled amount
+      return SETT_CATS.some(c =>
+        (parseFloat(s[`${c}Estimate`]) || 0) > 0 && (parseFloat(s[`${c}Settled`]) || 0) === 0
+      )
     })
   , [openClaims])
 
@@ -791,8 +818,7 @@ export default function Dashboard() {
         fee = base * (parseFloat(s.recoupPercent) || 0) / 100;
       }
     }
-    const settled = parseFloat(s.totalSettled) || 0;
-    const base = settled > 0 ? settled : (parseFloat(s.totalEstimate) || 0);
+    const base = unsettledEstimate(s) || (parseFloat(s.totalEstimate) || 0);
     const coNet = Math.max(0, base - fee);
     return sum + Math.max(0, coNet - (parseFloat(s.totalPaidAmount) || 0));
   }, 0)

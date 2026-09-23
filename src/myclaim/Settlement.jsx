@@ -201,9 +201,12 @@ export default function Settlement({ onClose, clientIdOverride } = {}) {
   const [newForm,      setNewForm]      = useState(EMPTY_FORM())
   const [savingNew,    setSavingNew]    = useState(false)
   const activeSaveRef = useRef(null)
+  const editDirtyRef  = useRef(false)
+
+  useEffect(() => { editDirtyRef.current = false }, [editingId])
 
   function handleClose() {
-    if (editingId) {
+    if (editingId && editDirtyRef.current) {
       if (!window.confirm('Close without saving?')) return
     }
     onClose()
@@ -487,6 +490,7 @@ export default function Settlement({ onClose, clientIdOverride } = {}) {
             }}
             onEdit={() => { setEditingId(s.id); setExpanded(s.id) }}
             onCancelEdit={() => setEditingId(null)}
+            onDirtyChange={dirty => { editDirtyRef.current = dirty }}
             onRegisterSave={fn => { activeSaveRef.current = fn }}
             onSaveAndClose={isModal ? onClose : null}
             onSaved={updated => {
@@ -543,13 +547,14 @@ export default function Settlement({ onClose, clientIdOverride } = {}) {
 
 // ── Settlement record (summary + expandable detail) ───────────────────────────
 
-function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete, onPaidToggle, onRegisterSave, onSaveAndClose }) {
+function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, orgId, phone, userId, userEmail, partners, insurers, onAddPartner, onRemovePartner, onAddInsurer, onRemoveInsurer, expanded, editing, onToggle, onEdit, onCancelEdit, onSaved, onDelete, onPaidToggle, onRegisterSave, onSaveAndClose, onDirtyChange }) {
   const navigate = useNavigate()
   const totals = computeTotals(s)
   const sm = STATUS_META[s.status] || STATUS_META.estimating
   const [editForm, setEditForm] = useState(null)
   const [saving, setSaving]     = useState(false)
-  const doSaveRef = useRef(null)
+  const doSaveRef    = useRef(null)
+  const editOrigRef  = useRef(null)
   const [saveError, setSaveError] = useState(null)
   const [log, setLog]           = useState(null)
   const [loadingLog, setLoadingLog] = useState(false)
@@ -589,17 +594,27 @@ function SettlementRecord({ settlement: s, clientUid, clientDocId, clientName, o
 
   useEffect(() => {
     if (editing) {
-      setEditForm({
+      const initial = {
         ...s,
         partnerFeeType:  s.partnerFeeType || 'percent',
         partnerFixedFee: s.partnerFixedFee ?? '',
         partnerFeeOnNet: s.partnerFeeOnNet !== false,
-      })
+      }
+      editOrigRef.current = JSON.stringify(initial)
+      setEditForm(initial)
       setSaveError(null)
+      onDirtyChange?.(false)
     } else {
+      editOrigRef.current = null
       setEditForm(null)
+      onDirtyChange?.(false)
     }
   }, [editing])
+
+  useEffect(() => {
+    if (!editForm || !editOrigRef.current) return
+    onDirtyChange?.(JSON.stringify(editForm) !== editOrigRef.current)
+  }, [editForm])
 
   useEffect(() => {
     if (editing) {

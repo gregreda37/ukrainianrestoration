@@ -113,6 +113,9 @@ export default function PublicPayPage() {
   const [paymentType,   setPaymentType]   = useState('full') // 'deposit' | 'full' | 'balance'
   const [paymentAmounts, setPaymentAmounts] = useState(null) // { invoiceTotal, fee, totalCharged }
   const [showPreview,   setShowPreview]   = useState(false)
+  const [wireStep,      setWireStep]      = useState('idle')  // 'idle' | 'loading' | 'ready' | 'error'
+  const [wireData,      setWireData]      = useState(null)
+  const [wireError,     setWireError]     = useState('')
 
   useEffect(() => {
     if (!token) { setErr('Invalid payment link.'); setLoading(false); return }
@@ -162,6 +165,25 @@ export default function PublicPayPage() {
       setSecretErr('Network error. Please try again.')
     } finally {
       setSecretLoading(false)
+    }
+  }
+
+  async function startWireTransfer() {
+    setWireStep('loading')
+    setWireError('')
+    try {
+      const r = await fetch(`${BACKEND}/stripe/create-wire-intent-public`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ token }),
+      })
+      const data = await r.json()
+      if (!r.ok || data.error) { setWireError(data.error || 'Could not set up wire transfer.'); setWireStep('error'); return }
+      setWireData(data)
+      setWireStep('ready')
+    } catch {
+      setWireError('Network error. Please try again.')
+      setWireStep('error')
     }
   }
 
@@ -405,6 +427,97 @@ export default function PublicPayPage() {
                   onSuccess={() => setStep('success')}
                 />
               </Elements>
+            )}
+
+            {/* ── Wire transfer ── */}
+            {(step === 'invoice' || step === 'pay') && wireStep !== 'ready' && (
+              <div className="ppp-wire-divider">
+                <span>or</span>
+              </div>
+            )}
+
+            {wireStep === 'ready' && wireData ? (
+              <div className="ppp-wire-panel">
+                <div className="ppp-wire-header">
+                  <span className="ppp-wire-icon">🏦</span>
+                  <div>
+                    <div className="ppp-wire-title">Wire Transfer Instructions</div>
+                    <div className="ppp-wire-sub">Send the exact amount below to complete your payment.</div>
+                  </div>
+                </div>
+
+                <div className="ppp-wire-amount-row">
+                  <span className="ppp-wire-amount-label">Amount to wire</span>
+                  <span className="ppp-wire-amount-val">{fmtMoney(wireData.totalCharged)}</span>
+                </div>
+                <div className="ppp-wire-amount-breakdown">
+                  Invoice {fmtMoney(wireData.invoiceTotal)} + ${wireData.wireFee.toFixed(2)} wire fee
+                </div>
+
+                <div className="ppp-wire-fields">
+                  {wireData.bankInfo?.bankName && (
+                    <div className="ppp-wire-field">
+                      <div className="ppp-wire-field-label">Bank</div>
+                      <div className="ppp-wire-field-val">{wireData.bankInfo.bankName}</div>
+                    </div>
+                  )}
+                  {wireData.bankInfo?.routingNumber && (
+                    <div className="ppp-wire-field">
+                      <div className="ppp-wire-field-label">Routing number (ABA)</div>
+                      <div className="ppp-wire-field-val ppp-wire-field-val--mono">{wireData.bankInfo.routingNumber}</div>
+                    </div>
+                  )}
+                  {wireData.bankInfo?.accountNumber && (
+                    <div className="ppp-wire-field">
+                      <div className="ppp-wire-field-label">Account number</div>
+                      <div className="ppp-wire-field-val ppp-wire-field-val--mono">{wireData.bankInfo.accountNumber}</div>
+                    </div>
+                  )}
+                  {wireData.bankInfo?.accountType && (
+                    <div className="ppp-wire-field">
+                      <div className="ppp-wire-field-label">Account type</div>
+                      <div className="ppp-wire-field-val">{wireData.bankInfo.accountType}</div>
+                    </div>
+                  )}
+                  {wireData.reference && (
+                    <div className="ppp-wire-field ppp-wire-field--ref">
+                      <div className="ppp-wire-field-label">
+                        Reference / Memo
+                        <span className="ppp-wire-ref-badge">Required</span>
+                      </div>
+                      <div className="ppp-wire-field-val ppp-wire-field-val--mono">{wireData.reference}</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="ppp-wire-notice">
+                  Include the reference/memo exactly as shown so your payment is matched automatically.
+                  Funds typically arrive within 1–3 business days.
+                </div>
+
+                {wireData.hostedUrl && (
+                  <a href={wireData.hostedUrl} target="_blank" rel="noopener noreferrer"
+                    className="ppp-wire-hosted-link">
+                    View full instructions ↗
+                  </a>
+                )}
+              </div>
+            ) : (
+              (step === 'invoice' || step === 'pay') && (
+                <>
+                  {wireError && (
+                    <div className="ppp-form-error" style={{ marginBottom: 10 }}>{wireError}</div>
+                  )}
+                  <button
+                    className="ppp-wire-btn"
+                    onClick={startWireTransfer}
+                    disabled={wireStep === 'loading'}
+                  >
+                    {wireStep === 'loading' ? 'Setting up…' : '🏦 Pay by Wire Transfer'}
+                  </button>
+                  <p className="ppp-secure-note">Wire transfers: $5 flat fee · 1–3 business days</p>
+                </>
+              )
             )}
           </div>
         </div>

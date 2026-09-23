@@ -49,52 +49,35 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* ── Print action bar ─────────────────────────────────────────────────── */
+/* ── Approve / signed buttons (estimate) ─────────────────────────────── */
 
-.piv-actions {
-  max-width: 780px;
-  margin: 0 auto 18px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-.piv-print-btn {
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 9px 20px;
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.piv-print-btn:hover { background: #1d4ed8; }
 .piv-approve-btn {
   background: #16a34a;
   color: #fff;
   border: none;
-  border-radius: 8px;
-  padding: 9px 20px;
-  font-size: 13.5px;
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
+  white-space: nowrap;
 }
 .piv-approve-btn:hover { background: #15803d; }
 .piv-approved-btn {
   background: #f0fdf4;
   color: #15803d;
   border: 1.5px solid #86efac;
-  border-radius: 8px;
-  padding: 9px 20px;
-  font-size: 13.5px;
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   transition: background 0.15s;
+  white-space: nowrap;
 }
 .piv-approved-btn:hover { background: #dcfce7; }
 
@@ -250,22 +233,21 @@
   padding: 0 10px 10px;
   border-bottom: 2px solid #e2e8f0;
 }
-.piv-th--num, .piv-td--num {
-  text-align: right;
-}
-.piv-th--desc { padding-left: 0; }
-.piv-th--unit { text-align: center; }
+.piv-th--num, .piv-td--num { text-align: right; }
+.piv-th--item { padding-left: 0; width: 22%; }
+.piv-th--desc { width: 34%; }
 .piv-tr { border-bottom: 1px solid #f1f5f9; }
 .piv-tr:last-child { border-bottom: none; }
 .piv-td {
   padding: 11px 10px;
   vertical-align: top;
   color: #334155;
+  font-size: 13px;
 }
-.piv-td:first-child { padding-left: 0; }
+.piv-td--item { padding-left: 0; }
+.piv-td--desc-body { color: #64748b; font-size: 12.5px; }
 .piv-td--num { text-align: right; }
-.piv-item-label { font-weight: 500; }
-.piv-item-desc  { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.piv-item-label { font-weight: 600; font-size: 13px; }
 
 /* ── Totals ──────────────────────────────────────────────────────────────── */
 
@@ -329,27 +311,526 @@
   white-space: pre-wrap;
 }
 
+/* ── Tax exempt badge (line items) ──────────────────────────────────────── */
+
+.piv-tax-exempt-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-top: 3px;
+  letter-spacing: 0.04em;
+}
+
+/* ── Insurance / claim total rows ───────────────────────────────────────── */
+
+.piv-total-row--claim {
+  color: #0e7490;
+  font-size: 13px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #a5f3fc;
+}
+.piv-total-row--above {
+  color: #b45309;
+  font-size: 13px;
+}
+
+/* ── Progress nav ────────────────────────────────────────────────────────── */
+
+.piv-progress {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  min-height: 52px;
+}
+.piv-prog-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.piv-prog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.piv-prog-step {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.piv-prog-step:hover { background: #eff6ff; }
+.piv-prog-sep { color: #cbd5e1; font-size: 14px; }
+.piv-download-btn {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.piv-download-btn:hover:not(:disabled) { background: #1d4ed8; }
+.piv-download-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ── Section wrapper ─────────────────────────────────────────────────────── */
+
+.piv-doc-section { padding-top: 24px; scroll-margin-top: 56px; }
+
+/* ── Agreement & Terms section ───────────────────────────────────────────── */
+
+.piv-terms-section {
+  max-width: 780px;
+  margin: 32px auto 0;
+  scroll-margin-top: 56px;
+}
+.piv-terms-card {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+.piv-terms-header {
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+  padding: 28px 36px;
+}
+.piv-terms-header-inner {}
+.piv-terms-title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.01em;
+}
+.piv-terms-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255,255,255,0.75);
+}
+
+.piv-clauses-heading {
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 22px 36px 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.piv-clause {
+  padding: 16px 36px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.piv-clause:last-child { border-bottom: none; }
+
+.piv-clause--insurance {
+  background: #ecfeff;
+  border-left: 4px solid #06b6d4;
+  border-radius: 0;
+  padding: 18px 32px 18px 28px;
+  margin: 0 36px 0 36px;
+  border-bottom: none;
+}
+.piv-clause--insurance .piv-clause-title {
+  color: #0e7490;
+}
+
+.piv-clause-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e40af;
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+.piv-clause-body {
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.7;
+}
+
+/* ── Attached reference document section ────────────────────────────────── */
+
+.piv-attachment-section {
+  max-width: 780px;
+  margin: 32px auto 0;
+  scroll-margin-top: 56px;
+}
+.piv-attachment-card {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+.piv-attachment-header {
+  background: linear-gradient(135deg, #064e3b 0%, #059669 100%);
+  padding: 24px 36px;
+}
+.piv-attachment-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+}
+.piv-attachment-subtitle {
+  margin: 0;
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.75);
+}
+.piv-attachment-embed-wrap {
+  padding: 0;
+}
+.piv-attachment-embed {
+  display: block;
+  width: 100%;
+  height: 900px;
+  border: none;
+}
+.piv-attachment-fallback {
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  font-size: 13.5px;
+  color: #64748b;
+}
+.piv-attachment-fallback p { margin: 0; }
+.piv-attachment-open-btn {
+  display: inline-block;
+  padding: 9px 20px;
+  background: #059669;
+  color: #fff;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.piv-attachment-open-btn:hover { background: #047857; }
+
+/* ── Signature section ───────────────────────────────────────────────────── */
+
+.piv-sign-section {
+  max-width: 780px;
+  margin: 32px auto 48px;
+  scroll-margin-top: 56px;
+}
+.piv-sign-card {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+/* Already signed */
+.piv-signed-confirm {
+  text-align: center;
+  padding: 52px 36px;
+}
+.piv-signed-icon { font-size: 48px; margin-bottom: 16px; }
+.piv-signed-title {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #15803d;
+}
+.piv-signed-body {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #334155;
+}
+.piv-signed-note {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  max-width: 400px;
+  margin-inline: auto;
+  line-height: 1.6;
+}
+
+/* Sign form */
+.piv-sign-header {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  padding: 28px 36px;
+}
+.piv-sign-title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+}
+.piv-sign-subtitle {
+  margin: 0;
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.65);
+  line-height: 1.5;
+  max-width: 520px;
+}
+
+.piv-sign-name-row {
+  padding: 24px 36px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.piv-sign-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.piv-sign-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 13px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #0f172a;
+  transition: border-color 0.15s;
+  outline: none;
+}
+.piv-sign-input:focus { border-color: #2563eb; }
+
+.piv-sig-area {
+  padding: 22px 36px 0;
+  position: relative;
+}
+.piv-sig-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.piv-sig-clear {
+  font-size: 12px;
+  color: #ef4444;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-weight: 600;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.piv-sig-clear:hover { background: #fef2f2; }
+.piv-sig-canvas {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  height: 160px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 10px;
+  cursor: crosshair;
+  background: #f8fafc;
+  touch-action: none;
+}
+.piv-sig-canvas:focus { outline: none; }
+.piv-sig-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: 13px;
+  color: #cbd5e1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.piv-agree-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 22px 36px 0;
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.piv-agree-check {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: #2563eb;
+}
+
+.piv-sign-error {
+  margin: 14px 36px 0;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #dc2626;
+}
+
+.piv-sign-submit {
+  display: block;
+  margin: 22px 36px 32px;
+  padding: 13px 28px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  letter-spacing: 0.01em;
+}
+.piv-sign-submit:hover:not(:disabled) { background: #1d4ed8; }
+.piv-sign-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
 /* ── Print styles ────────────────────────────────────────────────────────── */
 
 @media print {
+  /* Force background colours to print (blue header band, clause highlights, etc.) */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
   .no-print { display: none !important; }
-  .piv-root { background: #fff; padding: 0; }
-  .piv-doc  {
+
+  body { margin: 0; background: #fff; }
+
+  .piv-root {
+    background: #fff;
+    padding: 0;
+    font-size: 11pt;
+  }
+
+  /* Invoice card */
+  .piv-doc {
     box-shadow: none;
     border-radius: 0;
-    padding: 24px 28px;
+    padding: 20pt 24pt;
     max-width: 100%;
+    page-break-after: always;
   }
+
+  /* Header band must keep its blue */
+  .piv-header { margin-bottom: 20pt; }
+  .piv-logo   { width: 44pt; height: 44pt; }
+  .piv-logo-placeholder { width: 44pt; height: 44pt; font-size: 18pt; }
+  .piv-company-name { font-size: 13pt; }
+  .piv-doc-type { font-size: 17pt; }
+
+  /* Table */
+  .piv-table { font-size: 9pt; }
+  .piv-th    { font-size: 7.5pt; padding-bottom: 6pt; }
+  .piv-td    { padding: 7pt 6pt; font-size: 9pt; }
+
+  /* Totals */
+  .piv-total-row { font-size: 10pt; }
+  .piv-total-row--grand { font-size: 12pt; }
+
+  /* Terms / contract section */
+  .piv-terms-section,
+  .piv-sign-section {
+    max-width: 100%;
+    margin: 0;
+    page-break-before: always;
+  }
+  .piv-terms-card,
+  .piv-sign-card {
+    box-shadow: none;
+    border-radius: 0;
+    border: none;
+  }
+  .piv-terms-header,
+  .piv-sign-header {
+    padding: 14pt 20pt;
+  }
+  .piv-terms-title,
+  .piv-sign-title { font-size: 14pt; }
+  .piv-clause      { padding: 8pt 20pt; }
+  .piv-clause-title { font-size: 9pt; }
+  .piv-clause-body  { font-size: 8.5pt; line-height: 1.5; }
+  .piv-clauses-heading { padding: 10pt 20pt 6pt; font-size: 7pt; }
+  .piv-clause--insurance { padding: 10pt 16pt 10pt 14pt; margin: 0 20pt; }
+
+  /* Signature section */
+  .piv-sign-name-row,
+  .piv-sig-area,
+  .piv-agree-row  { padding-left: 20pt; padding-right: 20pt; }
+  .piv-sign-submit { display: none; }
+  .piv-sig-canvas  { border: 1px solid #94a3b8; height: 80pt; }
+  .piv-sign-input  { border: 1px solid #94a3b8; }
+  .piv-signed-confirm { padding: 24pt; }
+
+  /* Attachment: hide the embed, show a note instead */
+  .piv-attachment-section {
+    max-width: 100%;
+    margin: 0;
+    page-break-before: always;
+  }
+  .piv-attachment-card  { box-shadow: none; border-radius: 0; }
+  .piv-attachment-embed { display: none !important; }
+  .piv-attachment-fallback { display: flex !important; }
+  .piv-attachment-embed-wrap::after {
+    content: 'The reference document is embedded in the online version of this invoice.';
+    display: block;
+    padding: 20pt 24pt;
+    font-size: 10pt;
+    color: #64748b;
+    font-style: italic;
+  }
+
+  /* Remove link decorations */
+  a { color: inherit; text-decoration: none; }
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {
+  .piv-progress { padding: 0 12px; min-height: 48px; }
+  .piv-prog-steps { gap: 2px; }
+  .piv-prog-step { padding: 3px 7px; font-size: 11.5px; }
+  .piv-download-btn { padding: 6px 12px; font-size: 11.5px; }
   .piv-doc  { padding: 24px 18px; }
   .piv-header { flex-direction: column; }
   .piv-doc-meta { text-align: left; }
   .piv-meta-row { justify-content: flex-start; }
   .piv-table { font-size: 12px; }
   .piv-th, .piv-td { padding: 8px 6px; }
-  .piv-th--unit, .piv-td--num { font-size: 11.5px; }
+  .piv-td--num { font-size: 11.5px; }
+  .piv-terms-header,
+  .piv-attachment-header,
+  .piv-sign-header { padding: 20px 20px; }
+  .piv-attachment-embed { height: 500px; }
+  .piv-clause,
+  .piv-clauses-heading,
+  .piv-attachment-fallback,
+  .piv-sign-name-row,
+  .piv-sig-area,
+  .piv-agree-row,
+  .piv-sign-error { padding-left: 18px; padding-right: 18px; }
+  .piv-clause--insurance { margin-left: 18px; margin-right: 18px; }
+  .piv-sign-submit { margin-left: 18px; margin-right: 18px; }
+  .piv-sig-canvas { height: 130px; }
 }

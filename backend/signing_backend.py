@@ -84,6 +84,37 @@ def proxy_pdf():
     )
 
 
+@signing_app.route("/fetch-pdf", methods=["GET"])
+def fetch_pdf_public():
+    """
+    Unauthenticated proxy for public view links.
+    Only proxies URLs from this project's own Firebase Storage bucket,
+    so it cannot be used to fetch arbitrary external URLs.
+    """
+    pdf_url = request.args.get("url", "").strip()
+    if not pdf_url:
+        return jsonify({"error": "url required"}), 400
+
+    allowed_prefix = f"https://firebasestorage.googleapis.com/v0/b/{BUCKET_NAME}/"
+    if not pdf_url.startswith(allowed_prefix):
+        return jsonify({"error": "URL not allowed"}), 403
+
+    try:
+        resp = http_requests.get(pdf_url, timeout=30)
+        resp.raise_for_status()
+    except http_requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        return jsonify({"error": f"Storage returned {status}"}), 502
+    except Exception as exc:
+        return jsonify({"error": f"Could not fetch PDF: {exc}"}), 502
+
+    return Response(
+        resp.content,
+        content_type="application/pdf",
+        headers={"Content-Disposition": "inline", "Cache-Control": "private, max-age=3600"},
+    )
+
+
 # ── Sign ─────────────────────────────────────────────────────────────────────
 
 def _composite_fields(doc, fields):
@@ -804,3 +835,128 @@ def approve_estimate():
         print(f"[approve-estimate] view_link update failed: {exc}")
 
     return jsonify({"signedDocUrl": signed_doc_url, "docName": doc_name})
+
+
+@signing_app.route("/sign-invoice-view", methods=["POST"])
+def sign_invoice_view():
+    """
+    Token-authenticated endpoint — no Firebase auth required.
+    Client signs an invoice from the public view link.
+    Accepts: viewToken, signatureDataUrl, signerName, signerIp, userAgent.
+    Stores the signature image, marks the invoice as client-signed, and
+    notifies so the contractor can countersign.
+    """
+    data         = request.json or {}
+    view_token   = data.get("viewToken",        "").strip()
+    sig_data_url = data.get("signatureDataUrl", "").strip()
+    signer_name  = data.get("signerName",       "").strip()
+    signer_ip    = data.get("signerIp",         "").strip()
+    user_agent   = data.get("userAgent",        "").strip()
+
+    if not view_token:   return jsonify({"error": "viewToken required"}),        400
+    if not sig_data_url: return jsonify({"error": "signatureDataUrl required"}), 400
+    if not signer_name:  return jsonify({"error": "signerName required"}),       400
+
+    # ── Validate view_link token ──────────────────────────────────────────────
+    try:
+        db        = admin_firestore.client()
+        link_ref  = db.collection("view_links").document(view_token)
+        link_snap = link_ref.get()
+    except Exception as exc:
+        return jsonify({"error": f"Token validation error: {exc}"}), 500
+
+    if not link_snap.exists:
+        return jsonify({"error": "Link not found or expired."}), 404
+
+    link_data = link_snap.to_dict()
+
+    expires_raw = link_data.get("expiresAt")
+    if expires_raw:
+        from datetime import timezone as _tz
+        now_utc = datetime.now(_tz.utc)
+        exp_dt  = expires_raw
+        if hasattr(exp_dt, "tzinfo") and exp_dt.tzinfo is None:
+            exp_dt = exp_dt.replace(tzinfo=_tz.utc)
+        if exp_dt < now_utc:
+            return jsonify({"error": "This link has expired."}), 410
+
+    if link_data.get("clientSignedAt"):
+        return jsonify({"error": "This invoice has already been signed."}), 409
+
+    inv           = link_data.get("invoice") or {}
+    org_id        = (link_data.get("orgId")       or "").strip()
+    client_doc_id = (link_data.get("clientDocId") or "").strip()
+    client_uid    = (link_data.get("clientUid")   or "").strip()
+    invoice_id    = (link_data.get("invoiceId") or inv.get("id") or "").strip()
+    inv_number    = inv.get("invoiceNumber", "")
+
+    signed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # ── Upload signature image to Storage ────────────────────────────────────
+    client_sig_url = ""
+    try:
+        sig_bytes  = base64.b64decode(sig_data_url.split(",", 1)[-1])
+        bucket     = admin_storage.bucket(BUCKET_NAME)
+
+        if org_id and client_doc_id and invoice_id:
+            blob_path = f"users/{org_id}/documents/clients/{client_doc_id}/signatures/{invoice_id}/client_sig.png"
+        else:
+            blob_path = f"signed/invoice-signatures/{view_token[:12]}/client_sig.png"
+
+        blob       = bucket.blob(blob_path)
+        dl_token   = str(uuid.uuid4())
+        blob.metadata = {"firebaseStorageDownloadTokens": dl_token}
+        blob.upload_from_string(sig_bytes, content_type="image/png")
+        client_sig_url = _firebase_download_url(BUCKET_NAME, blob_path, dl_token)
+    except Exception as exc:
+        print(f"[sign-invoice-view] signature upload failed: {exc}")
+
+    # ── Update invoice Firestore doc ──────────────────────────────────────────
+    if org_id and client_doc_id and invoice_id:
+        update_payload = {
+            "clientSigned":       True,
+            "clientSignedAt":     signed_at,
+            "clientSignerName":   signer_name,
+            "clientSignerIp":     signer_ip,
+            "clientSignatureUrl": client_sig_url,
+            "status":             "client_signed",
+        }
+        for ref_fn in [
+            lambda: db.collection("organization_data").document(org_id)
+                      .collection("clients").document(client_doc_id)
+                      .collection("invoices").document(invoice_id),
+            lambda: db.collection("users").document(org_id)
+                      .collection("clients").document(client_doc_id)
+                      .collection("invoices").document(invoice_id),
+        ]:
+            try:
+                ref_fn().update(update_payload)
+            except Exception as exc:
+                print(f"[sign-invoice-view] invoice update failed: {exc}")
+
+    # ── Activity log ──────────────────────────────────────────────────────────
+    if client_uid:
+        try:
+            details = f"Invoice{(' #' + inv_number) if inv_number else ''} agreement signed by {signer_name}"
+            db.collection("users").document(client_uid).collection("activity").add({
+                "type":      "invoice_client_signed",
+                "details":   details,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "actor":     "client",
+            })
+        except Exception as exc:
+            print(f"[sign-invoice-view] activity log failed: {exc}")
+
+    # ── Mark view_link client-signed ──────────────────────────────────────────
+    try:
+        link_ref.update({
+            "clientSignedAt":     signed_at,
+            "clientSignerName":   signer_name,
+            "clientSignerIp":     signer_ip,
+            "clientSignerAgent":  user_agent,
+            "clientSignatureUrl": client_sig_url,
+        })
+    except Exception as exc:
+        print(f"[sign-invoice-view] view_link update failed: {exc}")
+
+    return jsonify({"success": True, "signerName": signer_name, "signedAt": signed_at})

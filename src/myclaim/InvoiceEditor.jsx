@@ -34,9 +34,10 @@ function calcLine(item) {
 }
 
 function calcTotals(lineItems, taxRate, discount) {
-  const subtotal  = lineItems.reduce((s, it) => s + (parseFloat(it.total) || 0), 0)
-  const taxAmount = subtotal * ((parseFloat(taxRate) || 0) / 100)
-  const disc      = parseFloat(discount) || 0
+  const subtotal   = lineItems.reduce((s, it) => s + (parseFloat(it.total) || 0), 0)
+  const taxableAmt = lineItems.reduce((s, it) => it.taxExempt ? s : s + (parseFloat(it.total) || 0), 0)
+  const taxAmount  = taxableAmt * ((parseFloat(taxRate) || 0) / 100)
+  const disc       = parseFloat(discount) || 0
   return { subtotal, taxAmount, total: subtotal + taxAmount - disc }
 }
 
@@ -81,7 +82,7 @@ function extractState(address) {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_TERMS = 'Payment due within 30 days of invoice date. Late payments subject to 1.5% monthly fee.'
-const DEFAULT_LINE = () => ({ id: uid6(), label: '', description: '', unit: 'total', qty: 1, price: '', total: 0 })
+const DEFAULT_LINE = () => ({ id: uid6(), label: '', description: '', unit: 'total', qty: 1, price: '', total: 0, taxExempt: false })
 const UNIT_OPTIONS = ['total', 'sq ft', 'lin ft', 'count', 'hrs', 'days', 'ea']
 
 const STATE_TAXES = {
@@ -161,10 +162,22 @@ export default function InvoiceEditor() {
   const [taxRate,   setTaxRate]   = useState('')
   const [taxState,  setTaxState]  = useState('')
   const [discount,      setDiscount]      = useState('')
-  const [depositAmount, setDepositAmount] = useState('')
+  const [depositAmount,       setDepositAmount]       = useState('')
+  const [claimCoveredAmount,  setClaimCoveredAmount]  = useState('')
+  const [claimDocFile,        setClaimDocFile]        = useState(null)   // newly uploaded File
+  const [claimDocRef,         setClaimDocRef]         = useState(null)   // picked from client library { name, downloadURL }
+  const [clientDocs,          setClientDocs]          = useState([])
+  const [showDocPicker,       setShowDocPicker]       = useState(false)
+  const docUploadInputRef = useRef(null)
   const [notes,       setNotes]       = useState('')
+  const [disclaimer,  setDisclaimer]  = useState('')
   const [showNotesAI, setShowNotesAI] = useState(false)
   const [terms,     setTerms]     = useState(DEFAULT_TERMS)
+
+  // ── Client signing state ──
+  const [clientSigned,     setClientSigned]     = useState(false)
+  const [clientSignedAt,   setClientSignedAt]   = useState('')
+  const [clientSignerName, setClientSignerName] = useState('')
 
   // ── Client / company snapshot ──
   const [clientUid,     setClientUid]     = useState(null)
@@ -317,13 +330,17 @@ export default function InvoiceEditor() {
         if (ls.prefillType) setType(ls.prefillType)
         if (ls.prefillType === 'receipt') setStatus('paid')
         if (ls.prefillNotes) setNotes(ls.prefillNotes)
+        if (ls.prefillDisclaimer) setDisclaimer(ls.prefillDisclaimer)
+        if (ls.prefillClaimCoveredAmount) setClaimCoveredAmount(String(ls.prefillClaimCoveredAmount))
         if (ls.prefillItems?.length) {
+          const isClaim = !!ls.prefillClaimCoveredAmount
           setLineItems(ls.prefillItems.map(item => ({
             ...DEFAULT_LINE(),
-            label: item.label || '',
-            unit:  item.unit  || 'total',
-            price: String(item.price || ''),
-            total: parseFloat(item.price) || 0,
+            label:     item.label || '',
+            unit:      item.unit  || 'total',
+            price:     String(item.price || ''),
+            total:     parseFloat(item.price) || 0,
+            taxExempt: isClaim,
           })))
         }
       }
@@ -348,18 +365,40 @@ export default function InvoiceEditor() {
           setTaxState(inv.taxState || '')
           setDiscount(inv.discount != null ? String(inv.discount) : '')
           setDepositAmount(inv.depositAmount != null ? String(inv.depositAmount) : '')
+          setClaimCoveredAmount(inv.claimCoveredAmount != null ? String(inv.claimCoveredAmount) : '')
           setNotes(inv.notes || '')
           setTerms(inv.terms || DEFAULT_TERMS)
+          setDisclaimer(inv.disclaimer || '')
           if (inv.stripePaymentIntentId) setStripePaymentIntentId(inv.stripePaymentIntentId)
           if (inv.paymentLinkTodoId)    setPaymentLinkTodoId(inv.paymentLinkTodoId)
           setDepositPaid(!!inv.depositPaid)
           setDepositPaidAmount(parseFloat(inv.depositPaidAmount) || 0)
+          if (inv.clientSigned) {
+            setClientSigned(true)
+            setClientSignedAt(inv.clientSignedAt || '')
+            setClientSignerName(inv.clientSignerName || '')
+          }
         }
       }
     } finally {
       setLoading(false)
     }
   }
+
+  // ── Load client PDF files for document picker ─────────────────────────────
+
+  useEffect(() => {
+    if (!orgId || !clientDocId) return
+    getDocs(collection(db, 'organization_data', orgId, 'clients', clientDocId, 'documents'))
+      .then(snap => {
+        const pdfs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(d => d.name?.toLowerCase().endsWith('.pdf'))
+          .sort((a, b) => (b.uploadedAt?.seconds || 0) - (a.uploadedAt?.seconds || 0))
+        setClientDocs(pdfs)
+      })
+      .catch(() => {})
+  }, [orgId, clientDocId])
 
   // ── Line items ─────────────────────────────────────────────────────────────
 
@@ -399,11 +438,13 @@ export default function InvoiceEditor() {
       taxState:      taxState || '',
       taxAmount:     totals.taxAmount,
       discount:      parseFloat(discount) || 0,
-      depositAmount: type === 'invoice' ? (parseFloat(depositAmount) || 0) : 0,
+      depositAmount:       type === 'invoice' ? (parseFloat(depositAmount) || 0) : 0,
+      claimCoveredAmount:  type === 'invoice' ? (parseFloat(claimCoveredAmount) || 0) : 0,
       subtotal:      totals.subtotal,
       total:         totals.total,
       notes:         notes.trim(),
       terms:         terms.trim(),
+      disclaimer:    disclaimer.trim(),
       // Snapshots
       companyName, companyAddress, companyPhone, companyLicense, companyLogoUrl,
       clientName, clientAddress, clientPhone, clientEmail, claimNumbers,
@@ -424,8 +465,9 @@ export default function InvoiceEditor() {
       type,
       status:        invStatus,
       invoiceNumber: invNumber,
-      total:         totals.total,
-      subtotal:      totals.subtotal,
+      total:              totals.total,
+      subtotal:           totals.subtotal,
+      claimCoveredAmount: type === 'invoice' ? (parseFloat(claimCoveredAmount) || 0) : 0,
       issueDate,
       dueDate:       (type === 'invoice' || type === 'receipt') ? dueDate : null,
       updatedAt:     serverTimestamp(),
@@ -602,13 +644,23 @@ export default function InvoiceEditor() {
 
   // ── Export PDF ────────────────────────────────────────────────────────────
 
+  async function resolveAttachedBytes() {
+    if (claimDocFile) return claimDocFile.arrayBuffer()
+    if (claimDocRef?.downloadURL) {
+      const resp = await fetch(claimDocRef.downloadURL)
+      return resp.arrayBuffer()
+    }
+    return null
+  }
+
   async function exportPDF(download = true) {
     setExporting(true)
     try {
-      const inv = buildInvoice()
-      const pdf = await generatePDF(inv, logoBase64)
-      const docType = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
-      const filename = buildPdfName(clientName, docType, inv.invoiceNumber)
+      const inv           = buildInvoice()
+      const attachedBytes = await resolveAttachedBytes()
+      const pdf           = await generatePDF(inv, logoBase64, { attachedBytes, includeSignature: true })
+      const docType       = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
+      const filename      = buildPdfName(clientName, docType, inv.invoiceNumber)
       if (download) pdf.save(filename)
       else pdf.output('dataurlnewwindow')
     } finally {
@@ -622,9 +674,10 @@ export default function InvoiceEditor() {
     if (!clientUid && !clientDocId) return
     setAddingDoc(true)
     try {
-      const inv = buildInvoice()
-      const pdf = await generatePDF(inv, logoBase64)
-      const blob = pdf.output('blob')
+      const inv           = buildInvoice()
+      const attachedBytes = await resolveAttachedBytes()
+      const pdf           = await generatePDF(inv, logoBase64, { attachedBytes, includeSignature: true })
+      const blob          = pdf.output('blob')
       const docType  = type === 'estimate' ? 'Estimate' : type === 'receipt' ? 'Receipt' : 'Invoice'
       const dispName = buildPdfName(clientName, docType, inv.invoiceNumber)
       const storeName = buildPdfName(clientName, docType, inv.invoiceNumber, { forStorage: true })
@@ -754,8 +807,9 @@ export default function InvoiceEditor() {
         orgId,
         clientDocId,
         invoiceId,
-        clientUid: clientUid || null,
-        invoice: invSnapshot,
+        clientUid:     clientUid || null,
+        invoice:       invSnapshot,
+        attachedDocUrl: claimDocRef?.downloadURL || null,
         expiresAt,
         createdAt: serverTimestamp(),
         createdBy: user.uid,
@@ -895,13 +949,27 @@ export default function InvoiceEditor() {
       {saveMsg === 'err' && <div className="ied-banner ied-banner--err">Could not save. Try again.</div>}
       {status === 'paid' && type !== 'receipt' && (
         <div className="ied-banner ied-banner--paid">
-          ✓ Payment received{stripePaymentIntentId ? ' via Stripe' : ''}
+          <span>✓ Payment received{stripePaymentIntentId ? ' via Stripe' : ''}</span>
+          <div className="ied-banner-receipt-actions">
+            <button className="ied-receipt-action-btn" onClick={() => exportPDF(true)} disabled={exporting}>
+              {exporting ? 'Generating…' : '↓ Receipt PDF'}
+            </button>
+            <button className="ied-receipt-action-btn" onClick={openSmsView}>
+              📱 Send Receipt
+            </button>
+          </div>
         </div>
       )}
       {depositPaid && status !== 'paid' && (
         <div className="ied-banner ied-banner--deposit">
           Deposit received: {fmtMoney(depositPaidAmount)}
           {' · '}Balance remaining: {fmtMoney(Math.max(0, totals.total - depositPaidAmount))}
+        </div>
+      )}
+      {clientSigned && (
+        <div className="ied-banner ied-banner--client-signed">
+          <span>✍️ Client signed — <strong>{clientSignerName}</strong>{clientSignedAt ? ` on ${clientSignedAt}` : ''}</span>
+          <span className="ied-banner-countersign-note">Countersign to finalize the agreement.</span>
         </div>
       )}
 
@@ -1025,6 +1093,17 @@ export default function InvoiceEditor() {
                     placeholder="Description (optional)"
                     value={it.description}
                     onChange={e => updateLine(it.id, 'description', e.target.value)} />
+
+                  {/* Tax Exempt toggle */}
+                  <div className="ied-item-footer-row">
+                    <button
+                      type="button"
+                      className={`ied-tax-exempt-btn${it.taxExempt ? ' ied-tax-exempt-btn--on' : ''}`}
+                      onClick={() => updateLine(it.id, 'taxExempt', !it.taxExempt)}
+                    >
+                      {it.taxExempt ? '✓ Tax Exempt' : 'Tax Exempt'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1066,6 +1145,99 @@ export default function InvoiceEditor() {
                     placeholder="0.00" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} />
                 </div>
               )}
+              {type === 'invoice' && (
+                <div className="ied-field" style={{ gridColumn: '1 / -1' }}>
+                  <label className="ied-label">Insurance claim amount ($)</label>
+                  <input className="ied-input" type="number" min="0" step="0.01"
+                    placeholder="0.00" value={claimCoveredAmount} onChange={e => setClaimCoveredAmount(e.target.value)} />
+                  <span className="ied-field-hint">Enter the portion covered by the insurance settlement. This amount is excluded from direct revenue reporting to avoid double-counting with the settlement tracker.</span>
+                </div>
+              )}
+              {type === 'invoice' && (parseFloat(claimCoveredAmount) || 0) > 0 && (
+                <div className="ied-field" style={{ gridColumn: '1 / -1' }}>
+                  <label className="ied-label">Attach reference document (PDF)</label>
+
+                  {/* Selected file display */}
+                  {(claimDocFile || claimDocRef) ? (
+                    <div className="ied-file-row">
+                      <span className="ied-file-name">
+                        📄 {claimDocFile ? claimDocFile.name : claimDocRef.name}
+                      </span>
+                      <button type="button" className="ied-file-remove" onClick={() => {
+                        setClaimDocFile(null)
+                        setClaimDocRef(null)
+                      }}>✕</button>
+                      <button type="button" className="ied-file-btn" style={{ marginLeft: 4 }}
+                        onClick={() => setShowDocPicker(true)}>
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="ied-file-row">
+                      <button type="button" className="ied-file-btn" onClick={() => setShowDocPicker(true)}>
+                        📂 {clientDocs.length > 0 ? `Choose from client files (${clientDocs.length})` : 'Attach PDF'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Hidden upload input */}
+                  <input
+                    ref={docUploadInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={e => {
+                      const f = e.target.files[0]
+                      if (f) { setClaimDocFile(f); setClaimDocRef(null) }
+                      setShowDocPicker(false)
+                      e.target.value = ''
+                    }}
+                  />
+
+                  {/* Picker modal */}
+                  {showDocPicker && (
+                    <div className="ied-doc-picker-overlay" onClick={() => setShowDocPicker(false)}>
+                      <div className="ied-doc-picker-modal" onClick={e => e.stopPropagation()}>
+                        <div className="ied-doc-picker-title">Select Reference Document</div>
+
+                        {clientDocs.length > 0 ? (
+                          <div className="ied-doc-picker-list">
+                            {clientDocs.map(d => (
+                              <button key={d.id} className="ied-doc-picker-row" onClick={() => {
+                                setClaimDocRef({ name: d.name, downloadURL: d.downloadURL })
+                                setClaimDocFile(null)
+                                setShowDocPicker(false)
+                              }}>
+                                <span className="ied-doc-picker-name">📄 {d.name}</span>
+                                {d.uploadedAt?.seconds && (
+                                  <span className="ied-doc-picker-date">
+                                    {new Date(d.uploadedAt.seconds * 1000).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="ied-doc-picker-empty">No PDFs in client files yet.</p>
+                        )}
+
+                        <div className="ied-doc-picker-footer">
+                          <button type="button" className="ied-doc-picker-upload"
+                            onClick={() => docUploadInputRef.current?.click()}>
+                            ↑ Upload new PDF
+                          </button>
+                          <button type="button" className="ied-doc-picker-cancel"
+                            onClick={() => setShowDocPicker(false)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <span className="ied-field-hint">The attached PDF is inserted after the invoice and before the signature page in the combined document.</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1088,6 +1260,23 @@ export default function InvoiceEditor() {
                 onChange={e => setTerms(e.target.value)} />
             </div>
           </div>
+
+          {/* Disclaimer */}
+          {(disclaimer || type === 'invoice') && (
+            <div className="ied-card">
+              <div className="ied-card-title-row">
+                <div className="ied-card-title">Disclaimer</div>
+                {!disclaimer && (
+                  <span className="ied-field-hint" style={{ marginTop: 0 }}>Optional — shown below invoice totals</span>
+                )}
+              </div>
+              <div className="ied-field">
+                <textarea className="ied-textarea ied-textarea--disclaimer" rows={6} value={disclaimer}
+                  placeholder="Optional disclaimer printed at the bottom of the invoice…"
+                  onChange={e => setDisclaimer(e.target.value)} />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Right column: summary ── */}
@@ -1099,7 +1288,12 @@ export default function InvoiceEditor() {
               <span>{fmtMoney(totals.subtotal)}</span>
             </div>
             <div className="ied-summary-row">
-              <span>Tax ({taxRate || 0}%)</span>
+              <span>
+                Tax ({taxRate || 0}%)
+                {lineItems.some(it => it.taxExempt) && (
+                  <span className="ied-tax-exempt-note"> · {lineItems.filter(it => it.taxExempt).length} item{lineItems.filter(it => it.taxExempt).length !== 1 ? 's' : ''} exempt</span>
+                )}
+              </span>
               <span>{fmtMoney(totals.taxAmount)}</span>
             </div>
             {(parseFloat(discount) || 0) > 0 && (
@@ -1118,6 +1312,20 @@ export default function InvoiceEditor() {
                 <span>Deposit required</span>
                 <span>{fmtMoney(parseFloat(depositAmount))}</span>
               </div>
+            )}
+            {type === 'invoice' && (parseFloat(claimCoveredAmount) || 0) > 0 && (
+              <>
+                <div className="ied-summary-row" style={{ marginTop: 8, color: '#0891b2', fontSize: 13 }}>
+                  <span>Insurance covered</span>
+                  <span>{fmtMoney(parseFloat(claimCoveredAmount))}</span>
+                </div>
+                {Math.max(0, totals.total - (parseFloat(claimCoveredAmount) || 0)) > 0 && (
+                  <div className="ied-summary-row" style={{ color: '#475569', fontSize: 13 }}>
+                    <span>Above-claim work</span>
+                    <span>{fmtMoney(Math.max(0, totals.total - (parseFloat(claimCoveredAmount) || 0)))}</span>
+                  </div>
+                )}
+              </>
             )}
             <div className="ied-summary-count">{lineItems.length} line item{lineItems.length !== 1 ? 's' : ''}</div>
           </div>
